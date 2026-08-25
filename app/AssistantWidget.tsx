@@ -117,6 +117,34 @@ export default function AssistantWidget() {
     setText("");
     setMessages((m) => [...m, `Tú: ${q}`]);
       const lower = normalized;
+      const adjustLine = lower.match(/(?:quita|quitar|reduce|reducir|resta) (\d+(?:[.,]\d+)?)\u0020(unidades?|cajas?|packs?|palets?)?(?:\s+de\s+(?:las?\s+)?(?:\d+\s+)?(?:unidades?|cajas?|packs?|palets?)?\s*(?:del\s+producto\s+)?(.+?))?(?:\s+del\s+pedido(?:\s+([a-z0-9-]+))?)?[.!?]*$/i);
+      if (adjustLine) {
+        const amount = Number(String(adjustLine[1]).replace(",", "."));
+        const unit = String(adjustLine[2] || "unidades").toLowerCase();
+        const productQuery = String(adjustLine[3] || "").trim();
+        const orderIdentifier = String(adjustLine[4] || "").trim();
+        const deltaUnits = -amount;
+        const requestAdjustment = async (confirm = false) => api("assistant/adjust-order-line", { method: "POST", body: JSON.stringify({ order_identifier: orderIdentifier, product_query: productQuery, delta_units: deltaUnits, requested_unit: unit, confirm }) });
+        try {
+          const result = await requestAdjustment(false);
+          if (result.requires_confirmation) {
+            const preview = result.preview;
+            setMessages((m) => [...m, `He localizado ${preview.product} en el pedido ${preview.order_code}. Ahora tiene ${preview.current_quantity} ${preview.quantity_unit} y pasaría a ${preview.proposed_quantity} ${preview.quantity_unit}. Escribe “confirmar ajuste” para aplicarlo.`]);
+          } else if (result.choices) {
+            setMessages((m) => [...m, `Necesito que me indiques cuál de estas opciones quieres modificar: ${result.choices.map((choice: any) => `${choice.code || choice.product} (${choice.quantity || 0})`).join(", ")}.`]);
+          }
+        } catch (error: any) { setMessages((m) => [...m, error.message || "No he podido preparar el ajuste."]); }
+        return;
+      }
+      if (/^confirmar\s+ajuste\b/i.test(lower)) {
+        try {
+          const previous = [...messages].reverse().find((message) => message.includes("Escribe “confirmar ajuste”"));
+          if (!previous) { setMessages((m) => [...m, "No tengo un ajuste pendiente para confirmar."]); return; }
+          const result = await api("assistant/adjust-order-line", { method: "POST", body: JSON.stringify({ delta_units: Number(previous.match(/pasaría a ([\d.,]+)/)?.[1]?.replace(".", "").replace(",", ".") || 0) - Number(previous.match(/Ahora tiene ([\d.,]+)/)?.[1]?.replace(".", "").replace(",", ".") || 0), product_query: previous.split("He localizado ")[1]?.split(" en el pedido")[0] || "", order_identifier: previous.match(/pedido ([A-Z0-9-]+)/i)?.[1] || "", confirm: true }) });
+          setMessages((m) => [...m, result.ok ? `Hecho. ${result.preview.product} queda en ${result.preview.final_quantity} ${result.preview.quantity_unit}. La reserva y el importe del pedido se han actualizado.` : (result.error || "No se pudo aplicar el ajuste.")]);
+        } catch (error: any) { setMessages((m) => [...m, error.message || "No he podido aplicar el ajuste."]); }
+        return;
+      }
       const genericDelete = lower.match(/^confirmar\s+(?:eliminar|borrar|borrado)\s+(cliente|producto|pedido|presupuesto|factura|proforma|albaran|albaranes|envio|proveedor|compra|cobro|devolucion|nota|gasto|almacen|tarea|documento|usuario)\s+(.+)$/i);
       if (genericDelete) {
         const resourceName = genericDelete[1];

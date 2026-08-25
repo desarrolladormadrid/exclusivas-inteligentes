@@ -357,6 +357,36 @@ http
       const t = p[1];
       if (p[0] !== "api")
         return send(res, 404, { error: "Recurso no encontrado" });
+      if (t === "assistant" && req.method === "POST" && p[2] === "adjust-order-line") {
+        const d = await read(req);
+        const orderIdentifier = String(d.order_identifier || "").trim();
+        const productQuery = String(d.product_query || "").trim().toLowerCase();
+        const delta = Number(d.delta_units);
+        if (!Number.isFinite(delta) || delta === 0) return send(res, 400, { error: "El ajuste debe indicar una cantidad distinta de cero" });
+        const activeStatuses = ["Nuevo", "Pendiente", "Confirmado", "Preparando", "Preparado", "Preparado con incidencia"];
+        const orders = orderIdentifier
+          ? db.prepare("SELECT * FROM orders WHERE (CAST(id AS TEXT)=? OR LOWER(code)=LOWER(?)) AND CAST(COALESCE(deleted,0) AS INTEGER)=0").all(orderIdentifier, orderIdentifier)
+          : db.prepare(`SELECT * FROM orders WHERE status IN (${activeStatuses.map(() => "?").join(",")}) AND CAST(COALESCE(deleted,0) AS INTEGER)=0 ORDER BY id DESC LIMIT 1`).all(...activeStatuses);
+        if (!orders.length) return send(res, 404, { error: "No encuentro el pedido activo indicado" });
+        const order = orders[0];
+        if (["Enviado", "En reparto", "Entregado", "Cancelado"].includes(String(order.status || ""))) return send(res, 409, { error: "Ese pedido ya no admite modificaciones" });
+        const lines = db.prepare("SELECT ol.*,p.name product_name,p.sku FROM order_lines ol LEFT JOIN products p ON p.id=ol.product_id WHERE ol.order_id=? ORDER BY ol.id").all(Number(order.id));
+        const matches = productQuery ? lines.filter((line) => `${line.product_name || ""} ${line.sku || ""}`.toLowerCase().includes(productQuery)) : lines;
+        if (!matches.length) return send(res, 404, { error: "No encuentro ese producto dentro del pedido", order: { id: order.id, code: order.code } });
+        if (matches.length > 1) return send(res, 409, { error: "Hay varias líneas que coinciden", choices: matches.map((line) => ({ id: line.id, product: line.product_name, quantity: line.quantity, unit: line.quantity_unit || "unidad" })) });
+        const line = matches[0];
+        const current = Number(line.quantity || 0), next = current + delta;
+        if (next < 0) return send(res, 400, { error: "El ajuste dejaría una cantidad negativa", current_quantity: current });
+        const preview = { order_id: Number(order.id), order_code: order.code, line_id: Number(line.id), product: line.product_name || `Producto #${line.product_id}`, current_quantity: current, requested_delta: delta, proposed_quantity: next, quantity_unit: line.quantity_unit || "unidad", reserved_delta: next - current };
+        if (!d.confirm) return send(res, 200, { ok: false, requires_confirmation: true, preview });
+        const now = new Date().toISOString();
+        db.prepare("UPDATE order_lines SET quantity=?,quantity_requested=?,amount=?,updated_at=? WHERE id=?").run(next, next, next * Number(line.unit_price || 0) * (1 - Number(line.discount || 0) / 100), now, Number(line.id));
+        db.prepare("UPDATE products SET stock_reserved=MAX(0,COALESCE(stock_reserved,0)+?) WHERE id=?").run(next - current, Number(line.product_id));
+        const total = db.prepare("SELECT COALESCE(SUM(amount),0) amount FROM order_lines WHERE order_id=?").get(Number(order.id)).amount;
+        db.prepare("UPDATE orders SET amount=?,updated_at=? WHERE id=?").run(Number(total || 0), now, Number(order.id));
+        recordAudit(actor, "POST", `assistant/adjust-order-line/${line.id}`, "Ajuste de línea", JSON.stringify({ ...preview, confirmed: true }));
+        return send(res, 200, { ok: true, preview: { ...preview, final_quantity: next, order_amount: Number(total || 0) } });
+      }
       if (t === "audit_logs" && req.method === "GET") {
         const url = new URL(req.url, "http://local");
         const actorFilter = url.searchParams.get("actor") || "";

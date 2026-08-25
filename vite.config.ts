@@ -56,7 +56,12 @@ export default defineConfig(async () => {
   }
 
   return {
-    server: { watch: watchConfig },
+    server: {
+      watch: watchConfig,
+      // El frontend local vive en :3000 y la API SQLite en :3001.
+      // Sin este proxy la pantalla carga, pero todos los listados aparecen vacíos.
+      proxy: { "/api": "http://127.0.0.1:3001" },
+    },
     plugins: [
       vinext(),
       sites(),
