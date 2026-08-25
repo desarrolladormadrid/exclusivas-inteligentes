@@ -1,0 +1,8430 @@
+"use client";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+// @ts-ignore Librerías de generación local de códigos para etiquetas.
+import QRCode from "qrcode";
+// @ts-ignore Tipos incluidos por la librería.
+import JsBarcode from "jsbarcode";
+
+const initialModules = [
+  "Inicio",
+  "Productos",
+  "Stock",
+  "Envíos",
+  "Clientes",
+  "Contactos",
+  "Proveedores",
+  "Compras",
+  "Compras inteligentes",
+  "Almacenes",
+  "Preparación de pedidos",
+  "Lugares de recogida",
+  "Entradas",
+  "Salidas",
+  "Pedidos",
+  "Presupuestos",
+  "Albaranes",
+  "Facturas",
+  "Cobros",
+  "Gastos y tickets",
+  "Balance",
+  "Informes",
+  "Historial",
+  "Tareas programadas",
+  "Notas",
+  "Devoluciones",
+  "Usuarios y permisos",
+  "Papelera",
+  "Documentos",
+];
+const permissionModules = initialModules.filter((module) => module !== "Inicio" && module !== "Usuarios y permisos" && module !== "Papelera");
+function normalizeSearchText(value: unknown) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .trim();
+}
+function matchesSearch(value: unknown, query: string) {
+  const text = normalizeSearchText(value);
+  const tokens = normalizeSearchText(query).split(/\s+/).filter(Boolean);
+  return !tokens.length || tokens.every((token) => text.includes(token));
+}
+function LoadingIndicator({ label }: { label: string }) {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, []);
+  return <><span>{label}</span><b className="loading-seconds">{seconds} s</b></>;
+}
+function TopHorizontalScroll({ className, children }: { className: string; children: ReactNode }) {
+  const topRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const spacerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const top = topRef.current;
+    const content = contentRef.current;
+    const spacer = spacerRef.current;
+    if (!top || !content || !spacer) return;
+    const syncWidth = () => { spacer.style.width = `${content.scrollWidth}px`; };
+    const fromTop = () => { content.scrollLeft = top.scrollLeft; };
+    const fromContent = () => { top.scrollLeft = content.scrollLeft; };
+    syncWidth();
+    top.addEventListener("scroll", fromTop, { passive: true });
+    content.addEventListener("scroll", fromContent, { passive: true });
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(syncWidth) : null;
+    observer?.observe(content);
+    return () => {
+      top.removeEventListener("scroll", fromTop);
+      content.removeEventListener("scroll", fromContent);
+      observer?.disconnect();
+    };
+  }, [children]);
+  return <>
+    <div ref={topRef} className="table-scroll-top" aria-label="Desplazamiento horizontal del listado">
+      <div ref={spacerRef} />
+    </div>
+    <div ref={contentRef} className={className}>{children}</div>
+  </>;
+}
+async function fetchWithRetry(url: string, init?: RequestInit, attempts = 3) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, init);
+      if (response.ok) return response;
+      if (response.status >= 400 && response.status < 500) return response;
+      throw new Error(`Respuesta temporal del servidor (${response.status})`);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("No se pudo conectar con el CRM");
+}
+function allowedModulesFor(user: any) {
+  if (user?.role === "admin") return initialModules;
+  try {
+    const permissions = user?.permissions === "*" ? permissionModules : JSON.parse(user?.permissions || "[]");
+    return Array.isArray(permissions) ? permissions : [];
+  } catch { return []; }
+}
+function preferredModuleFor(user: any) {
+  if (user?.role === "admin") return "Inicio";
+  const allowed = allowedModulesFor(user);
+  const priorities = user?.role === "almacen"
+    ? ["Preparación de pedidos", "Stock", "Envíos", "Salidas", "Pedidos"]
+    : user?.role === "comercial"
+      ? ["Clientes", "Contactos", "Pedidos", "Presupuestos", "Facturas"]
+      : ["Pedidos", "Clientes", "Productos"];
+  return priorities.find((module) => allowed.includes(module)) || allowed[0] || "Productos";
+}
+const cfg: any = {
+  Productos: {
+    api: "products",
+    title: "Productos y stock",
+    fields: [
+      "name",
+      "sku",
+      "barcode",
+      "supplier_ref",
+      "category",
+      "brand",
+      "format",
+      "unit",
+      "units_per_case",
+      "unit_price",
+      "box_price",
+      "pack4_price",
+      "pack6_price",
+      "pallet_price",
+      "cost_price",
+      "markup_percent",
+      "margin_percent",
+      "vat",
+      "stock",
+      "stock_reserved",
+      "min_stock",
+      "stock_min",
+      "stock_target",
+      "stock_safety",
+      "family",
+      "subfamily",
+      "purchase_format",
+      "sale_format",
+      "cases_per_pallet",
+      "units_per_pallet",
+      "weight_kg",
+      "volume_m3",
+      "warehouse_location",
+      "picking_order",
+      "product_status",
+      "primary_supplier_id",
+      "fixed_supplier",
+      "target_margin_percent",
+      "min_margin_percent",
+      "freight_cost",
+      "handling_cost",
+      "real_cost",
+      "tax_surcharge_percent",
+      "extra_tax_name",
+      "extra_tax_percent",
+      "lot_tracking",
+      "expiry_tracking",
+      "returnable_packaging",
+      "supplier_id",
+    ],
+    labels: [
+      "Producto",
+      "SKU",
+      "Código de barras",
+      "Referencia proveedor",
+      "Categoría",
+      "Marca",
+      "Formato",
+      "Unidad de venta",
+      "Unidades por caja",
+      "Precio venta",
+      "Precio por caja",
+      "Precio pack de 4",
+      "Precio pack de 6",
+      "Precio por palé",
+      "Coste",
+      "Incremento %",
+      "Margen %",
+      "IVA %",
+      "Stock",
+      "Stock reservado",
+      "Stock mínimo",
+      "Stock mínimo operativo",
+      "Stock objetivo",
+      "Stock de seguridad",
+      "Familia",
+      "Subfamilia",
+      "Formato de compra",
+      "Formato de venta",
+      "Cajas por palé",
+      "Unidades por palé",
+      "Peso (kg)",
+      "Volumen (m³)",
+      "Ubicación en almacén",
+      "Orden de recogida",
+      "Estado del producto",
+      "Proveedor principal",
+      "Proveedor fijo",
+      "Margen objetivo %",
+      "Margen mínimo %",
+      "Coste transporte",
+      "Coste manipulación",
+      "Coste real",
+      "Recargo equivalencia %",
+      "Impuesto adicional",
+      "Impuesto adicional %",
+      "Control de lotes",
+      "Control de caducidad",
+      "Envase retornable",
+      "Proveedor",
+    ],
+  },
+  Clientes: {
+    api: "clients",
+    title: "Clientes",
+    fields: [
+      "name",
+      "tax_id",
+      "contact",
+      "phone",
+      "email",
+      "address",
+      "city",
+      "latitude",
+      "longitude",
+      "payment_terms",
+      "credit_limit",
+    ],
+    labels: [
+      "Nombre",
+      "NIF/CIF",
+      "Contacto",
+      "Teléfono",
+      "Email",
+      "Dirección",
+      "Ciudad",
+      "Latitud",
+      "Longitud",
+      "Condiciones de pago",
+      "Límite crédito",
+    ],
+  },
+  Stock: {
+    api: "stock",
+    title: "Stock y movimientos",
+    fields: [
+      "product_id",
+      "unit",
+      "warehouse_name",
+      "stock",
+      "stock_reserved",
+      "available_stock",
+      "min_stock",
+      "stock_status",
+    ],
+    labels: [
+      "Producto",
+      "Unidad",
+      "Almacén",
+      "Stock físico",
+      "Necesario para pedidos",
+      "Saldo para cubrir pedidos",
+      "Stock mínimo",
+      "Estado",
+    ],
+  },
+  Envíos: {
+    api: "shipments",
+    title: "Envíos y entregas",
+    fields: [
+      "code",
+      "order_id",
+      "client_id",
+      "carrier",
+      "status",
+      "collection_point_id",
+      "origin_address",
+      "address",
+      "departure_at",
+      "prepared_at",
+      "shipped_at",
+      "delivery_window_start",
+      "delivery_window_end",
+      "expected_delivery_at",
+      "delivered_at",
+      "tracking",
+      "packages",
+      "incidents",
+      "notes",
+      "prepared_by",
+      "shipped_by",
+      "delivered_by",
+    ],
+    labels: [
+      "Código",
+      "Pedido",
+      "Cliente",
+      "Transportista",
+      "Estado",
+      "Lugar de envío",
+      "Lugar de salida",
+      "Dirección de destino",
+      "Hora de salida",
+      "Preparado",
+      "Enviado",
+      "Inicio de franja",
+      "Fin de franja",
+      "Entrega prevista",
+      "Entregado",
+      "Seguimiento",
+      "Bultos",
+      "Incidencias",
+      "Notas",
+      "Preparado por",
+      "Enviado por",
+      "Entregado por",
+    ],
+  },
+  Proveedores: {
+    api: "suppliers",
+    title: "Proveedores",
+    fields: [
+      "name",
+      "tax_id",
+      "contact",
+      "phone",
+      "email",
+      "address",
+      "payment_terms",
+    ],
+    labels: [
+      "Nombre",
+      "NIF/CIF",
+      "Contacto",
+      "Teléfono",
+      "Email",
+      "Dirección",
+      "Condiciones de pago",
+    ],
+  },
+  Compras: {
+    api: "purchase_orders",
+    title: "Compras a proveedores",
+    fields: [
+      "code",
+      "supplier_id",
+      "status",
+      "order_date",
+      "expected_date",
+      "amount",
+      "notes",
+    ],
+    labels: [
+      "Código",
+      "Proveedor",
+      "Estado",
+      "Fecha pedido",
+      "Fecha prevista",
+      "Importe",
+      "Notas",
+    ],
+  },
+  Notas: {
+    api: "notes",
+    title: "Notas y tareas rápidas",
+    fields: [
+      "title",
+      "content",
+      "priority",
+      "module",
+      "important",
+      "completed",
+    ],
+    labels: [
+      "Título",
+      "Nota",
+      "Prioridad",
+      "Sección",
+      "Destacada",
+      "Completada",
+    ],
+  },
+  Devoluciones: {
+    api: "returns",
+    title: "Devoluciones y abonos",
+    fields: [
+      "code",
+      "client_id",
+      "invoice_id",
+      "product_id",
+      "quantity",
+      "return_date",
+      "reason",
+      "status",
+      "reviewed_by",
+      "reviewed_at",
+      "authorized_by",
+      "authorized_at",
+      "amount",
+    ],
+    labels: [
+      "Código",
+      "Cliente",
+      "Factura",
+      "Producto",
+      "Cantidad",
+      "Fecha y hora",
+      "Motivo",
+      "Estado",
+      "Revisado por",
+      "Fecha de revisión",
+      "Autorizado por",
+      "Fecha de autorización",
+      "Importe",
+    ],
+  },
+  Almacenes: {
+    api: "warehouses",
+    title: "Almacenes",
+    fields: ["code", "name", "address", "manager"],
+    labels: ["Código", "Nombre", "Dirección", "Responsable"],
+  },
+  "Preparación de pedidos": {
+    api: "shipments",
+    title: "Preparación de pedidos",
+    statusFilter: ["Preparando", "Preparado", "Preparado con incidencia"],
+    fields: [
+      "code",
+      "order_id",
+      "client_id",
+      "status",
+      "preparation_date",
+      "urgent",
+      "address",
+      "expected_delivery_at",
+      "packages",
+      "notes",
+      "prepared_by",
+    ],
+    labels: [
+      "Nota de carga",
+      "Pedido",
+      "Cliente",
+      "Estado",
+      "Día de preparación",
+      "Urgente",
+      "Dirección de entrega",
+      "Entrega prevista",
+      "Bultos",
+      "Observaciones",
+      "Responsable",
+    ],
+  },
+  "Lugares de recogida": {
+    api: "collection_points",
+    title: "Lugares de recogida",
+    fields: [
+      "code",
+      "name",
+      "address",
+      "city",
+      "contact",
+      "phone",
+      "email",
+      "opening_hours",
+      "notes",
+    ],
+    labels: [
+      "Código",
+      "Nombre",
+      "Dirección",
+      "Ciudad",
+      "Contacto",
+      "Teléfono",
+      "Email",
+      "Horario",
+      "Notas",
+    ],
+  },
+  Entradas: {
+    api: "inventory_movements",
+    title: "Entradas y movimientos de almacén",
+    fields: [
+      "product_id",
+      "warehouse_id",
+      "movement_type",
+      "quantity",
+      "movement_date",
+      "created_by",
+      "notes",
+      "reference",
+    ],
+    labels: [
+      "Producto",
+      "Almacén",
+      "Tipo de movimiento",
+      "Cantidad",
+      "Fecha y hora de recepción",
+      "Recepcionado por",
+      "Motivo",
+      "Referencia",
+    ],
+  },
+  Salidas: {
+    api: "inventory_movements",
+    title: "Salidas de almacén",
+    movementFilter: "Salida",
+    fields: [
+      "order_id",
+      "shipment_id",
+      "product_id",
+      "warehouse_id",
+      "movement_type",
+      "quantity",
+      "movement_date",
+      "client_id",
+      "created_by",
+      "notes",
+      "reference",
+    ],
+    labels: [
+      "Pedido relacionado",
+      "Hoja de carga",
+      "Producto",
+      "Almacén",
+      "Tipo de movimiento",
+      "Cantidad",
+      "Fecha",
+      "Cliente",
+      "Realizada por",
+      "Motivo",
+      "Referencia",
+    ],
+  },
+  Pedidos: {
+    api: "orders",
+    title: "Pedidos",
+    fields: [
+      "code",
+      "client_id",
+      "created_by",
+      "collection_point_id",
+      "product_id",
+      "quantity",
+      "unit_price",
+      "discount",
+      "amount",
+      "status",
+      "delivery_date",
+      "preparation_date",
+      "shipping_date",
+      "urgent",
+      "notes",
+      "prepared_by",
+      "shipped_by",
+      "delivered_by",
+    ],
+    labels: [
+      "Código",
+      "Cliente",
+      "Solicitado por",
+      "Lugar de envío",
+      "Producto",
+      "Cantidad",
+      "Precio",
+      "Descuento %",
+      "Importe",
+      "Estado",
+      "Fecha de entrega",
+      "Día de preparación",
+      "Día de envío",
+      "Urgente",
+      "Notas",
+      "Preparado por",
+      "Enviado por",
+      "Entregado por",
+    ],
+  },
+  Presupuestos: {
+    api: "quotes",
+    title: "Presupuestos",
+    fields: ["code", "client_id", "amount", "status", "valid_until", "notes"],
+    labels: [
+      "Código",
+      "Cliente",
+      "Importe",
+      "Estado",
+      "Válido hasta",
+      "Notas",
+    ],
+  },
+  Albaranes: {
+    api: "delivery_notes",
+    title: "Albaranes",
+    fields: [
+      "code",
+      "order_id",
+      "client_id",
+      "delivery_date",
+      "carrier",
+      "status",
+      "notes",
+    ],
+    labels: [
+      "Código",
+      "Pedido",
+      "Cliente",
+      "Fecha entrega",
+      "Transportista",
+      "Estado",
+      "Notas",
+    ],
+  },
+  Facturas: {
+    api: "invoices",
+    title: "Facturas",
+    fields: [
+      "code",
+      "client_id",
+      "issue_date",
+      "due_date",
+      "amount",
+      "vat",
+      "status",
+      "notes",
+    ],
+    labels: [
+      "Código",
+      "Cliente",
+      "Emisión",
+      "Vencimiento",
+      "Importe",
+      "IVA %",
+      "Estado",
+      "Notas",
+    ],
+  },
+  Cobros: {
+    api: "payments",
+    title: "Cobros",
+    fields: [
+      "invoice_id",
+      "amount",
+      "payment_date",
+      "method",
+      "reference",
+      "notes",
+    ],
+    labels: ["Factura", "Importe", "Fecha", "Método", "Referencia", "Notas"],
+  },
+  "Gastos y tickets": {
+    api: "expenses",
+    title: "Gastos y tickets",
+    fields: [
+      "code",
+      "client_id",
+      "expense_date",
+      "category",
+      "vendor",
+      "amount",
+      "vat",
+      "payment_method",
+      "notes",
+      "attachment_name",
+    ],
+    labels: [
+      "Código",
+      "Cliente",
+      "Fecha",
+      "Categoría",
+      "Proveedor",
+      "Importe",
+      "IVA %",
+      "Forma de pago",
+      "Notas",
+      "Justificante",
+    ],
+  },
+  Documentos: {
+    api: "document_templates",
+    title: "Documentos y plantillas",
+    fields: ["code", "title", "type", "format", "description", "subject", "content", "status", "created_by"],
+    labels: ["Código", "Nombre", "Tipo", "Formato", "Descripción", "Asunto", "Contenido", "Estado", "Creado por"],
+  },
+};
+const icon = (m: string) =>
+  ({
+    Inicio: "⌂",
+    Productos: "◒",
+    Stock: "⇄",
+    Envíos: "➜",
+    Clientes: "♙",
+    Contactos: "◎",
+    Proveedores: "▣",
+    Compras: "↙",
+    "Compras inteligentes": "✦",
+    Almacenes: "▤",
+    "Preparación de pedidos": "☷",
+    "Lugares de recogida": "⌖",
+    Entradas: "↥",
+    Salidas: "↧",
+    Pedidos: "◫",
+    Presupuestos: "▱",
+    Albaranes: "▥",
+    Facturas: "▥",
+    Cobros: "€",
+    "Gastos y tickets": "▤",
+    Informes: "◒",
+    Historial: "◷",
+    "Tareas programadas": "◴",
+    Notas: "✎",
+    Devoluciones: "↶",
+    "Usuarios y permisos": "⚙",
+    Papelera: "♲",
+    Documentos: "▤",
+  })[m] || "•";
+const sidebarGroups = [
+  {
+    name: "Ventas y clientes",
+    items: [
+      "Clientes",
+      "Contactos",
+      "Pedidos",
+      "Presupuestos",
+      "Albaranes",
+      "Facturas",
+      "Cobros",
+      "Envíos",
+    ],
+  },
+  {
+    name: "Logística y almacén",
+    items: [
+      "Preparación de pedidos",
+      "Productos",
+      "Stock",
+      "Almacenes",
+      "Lugares de recogida",
+      "Entradas",
+      "Salidas",
+      "Devoluciones",
+    ],
+  },
+  {
+    name: "Compras y proveedores",
+    items: ["Proveedores", "Compras", "Compras inteligentes", "Gastos y tickets"],
+  },
+  { name: "Análisis y control", items: ["Balance", "Informes"] },
+  { name: "Automatización", items: ["Tareas programadas", "Notas"] },
+  { name: "Administración", items: ["Usuarios y permisos", "Documentos", "Historial", "Papelera"] },
+];
+
+function Sidebar({
+  active,
+  setActive,
+  user,
+}: {
+  active: string;
+  setActive: (x: string) => void;
+  user: any;
+}) {
+  const [items, setItems] = useState(initialModules);
+  const [drag, setDrag] = useState("");
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    "Ventas y clientes": true,
+    "Logística y almacén": true,
+    "Compras y proveedores": true,
+    "Análisis y control": false,
+    Automatización: false,
+    Administración: false,
+  });
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("excluvas.sidebar");
+      if (saved) {
+        const savedItems = JSON.parse(saved);
+        setItems([
+          ...savedItems,
+          ...initialModules.filter((module) => !savedItems.includes(module)),
+        ]);
+      }
+    } catch {}
+  }, []);
+  useEffect(() => {
+    for (const group of sidebarGroups)
+      if (group.items.includes(active))
+        setOpenGroups((current) =>
+          current[group.name] ? current : { ...current, [group.name]: true },
+        );
+  }, [active]);
+  function drop(target: string) {
+    if (!drag || drag === target) return;
+    const next = [...items],
+      from = next.indexOf(drag),
+      to = next.indexOf(target);
+    next.splice(from, 1);
+    next.splice(to, 0, drag);
+    setItems(next);
+    localStorage.setItem("excluvas.sidebar", JSON.stringify(next));
+  }
+  return (
+    <aside className={`sidebar${mobileOpen ? " mobile-open" : ""}`}>
+      <button type="button" className="mobile-sidebar-toggle" onClick={() => setMobileOpen((open) => !open)} aria-expanded={mobileOpen}>
+        <b>{mobileOpen ? "Cerrar menú" : "Menú"}</b><em>{active}</em>
+      </button>
+      <div className="side-label">GESTIÓN</div>
+      {allowedModulesFor(user).includes("Inicio") && (
+        <button
+          className={active === "Inicio" ? "nav-item active" : "nav-item"}
+          onClick={() => { setActive("Inicio"); setMobileOpen(false); }}
+        >
+          Inicio
+        </button>
+      )}
+      {sidebarGroups.map((group) => {
+        const allowed = allowedModulesFor(user);
+        const visible = items.filter((m) => group.items.includes(m) && allowed.includes(m) && (m !== "Papelera" || user?.role === "admin"));
+        if (!visible.length) return null;
+        return (
+          <div className="sidebar-group" key={group.name}>
+            <button
+              className="sidebar-group-title"
+              onClick={() => {
+                const next = {
+                  ...openGroups,
+                  [group.name]: !openGroups[group.name],
+                };
+                setOpenGroups(next);
+              }}
+            >
+              <span aria-hidden="true">{openGroups[group.name] ? "⌄" : "›"}</span>
+              {group.name}
+            </button>
+            {openGroups[group.name] &&
+              visible.map((m) => (
+                <button
+                  draggable
+                  key={m}
+                  onDragStart={() => setDrag(m)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => drop(m)}
+                  className={active === m ? "nav-item active" : "nav-item"}
+                  onClick={() => { setActive(m); setMobileOpen(false); }}
+                >
+                  {m}
+                </button>
+              ))}
+          </div>
+        );
+      })}
+    </aside>
+  );
+}
+
+function Contacts({ onNavigate }: { onNavigate: (section: string) => void }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [editingId, setEditingId] = useState("");
+  const [editingDraft, setEditingDraft] = useState<any>({});
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  useEffect(() => {
+    setLoading(true);
+    const loadContacts = async () => {
+      try {
+        const [clientsResponse, suppliersResponse] = await Promise.all([
+          fetch("/api/clients"),
+          fetch("/api/suppliers"),
+        ]);
+        const clients = clientsResponse.ok ? await clientsResponse.json() : [];
+        const suppliers = suppliersResponse.ok ? await suppliersResponse.json() : [];
+        const clientRows = (Array.isArray(clients) ? clients : []).map((client: any) => ({ id: "cliente-" + client.id, name: client.name, email: client.email || "", phone: client.phone || "", contact: client.contact || "", address: client.address || "", city: client.city || "", type: "Cliente", invoices: [], payments: [] }));
+        const supplierRows = (Array.isArray(suppliers) ? suppliers : []).map((supplier: any) => ({ id: "proveedor-" + supplier.id, name: supplier.name, email: supplier.email || "", phone: supplier.phone || "", contact: supplier.contact || "", address: supplier.address || "", city: supplier.city || "", type: "Proveedor", purchases: [] }));
+        setRows([...clientRows, ...supplierRows]);
+        setLoading(false);
+        const [invoicesResult, paymentsResult, purchasesResult] = await Promise.allSettled([
+          fetch("/api/invoices").then((response) => response.ok ? response.json() : []),
+          fetch("/api/payments").then((response) => response.ok ? response.json() : []),
+          fetch("/api/purchase_orders").then((response) => response.ok ? response.json() : []),
+        ]);
+        const invoices = invoicesResult.status === "fulfilled" ? invoicesResult.value : [];
+        const payments = paymentsResult.status === "fulfilled" ? paymentsResult.value : [];
+        const purchases = purchasesResult.status === "fulfilled" ? purchasesResult.value : [];
+        setRows((current) => current.map((row) => row.type === "Cliente"
+          ? { ...row, invoices: (Array.isArray(invoices) ? invoices : []).filter((invoice: any) => Number(invoice.client_id) === Number(row.id.split("-")[1])), payments: (Array.isArray(payments) ? payments : []).filter((payment: any) => (Array.isArray(invoices) ? invoices : []).some((invoice: any) => Number(invoice.id) === Number(payment.invoice_id) && Number(invoice.client_id) === Number(row.id.split("-")[1]))) }
+          : { ...row, purchases: (Array.isArray(purchases) ? purchases : []).filter((purchase: any) => Number(purchase.supplier_id) === Number(row.id.split("-")[1])) }));
+      } catch {
+        setRows([]);
+        setLoading(false);
+      }
+    };
+    void loadContacts();
+  }, []);
+  const inRange = (value: any) => {
+    const date = String(value || "").slice(0, 10);
+    if (!date) return false;
+    if (fromDate && date < fromDate) return false;
+    if (toDate && date > toDate) return false;
+    return true;
+  };
+  const periodRows = rows.map((row) => {
+    if (row.type === "Cliente") {
+      const invoices = (row.invoices || []).filter((invoice: any) =>
+        inRange(invoice.issue_date || invoice.invoice_date || invoice.created_at),
+      );
+      const invoiceIds = new Set(invoices.map((invoice: any) => Number(invoice.id)));
+      const payments = (row.payments || []).filter(
+        (payment: any) =>
+          invoiceIds.has(Number(payment.invoice_id)) &&
+          inRange(payment.payment_date || payment.created_at),
+      );
+      return {
+        ...row,
+        balance:
+          invoices.reduce(
+            (sum: number, invoice: any) => sum + Number(invoice.amount || 0),
+            0,
+          ) - payments.reduce(
+            (sum: number, payment: any) => sum + Number(payment.amount || 0),
+            0,
+          ),
+        activity: invoices.length + payments.length,
+      };
+    }
+    const purchases = (row.purchases || []).filter((purchase: any) =>
+      inRange(purchase.order_date || purchase.created_at),
+    );
+    return {
+      ...row,
+      balance: -purchases.reduce(
+        (sum: number, purchase: any) => sum + Number(purchase.amount || 0),
+        0,
+      ),
+      activity: purchases.length,
+    };
+  });
+  const filtered = periodRows.filter((row) =>
+    (row.name + " " + row.email + " " + row.phone + " " + row.type)
+      .toLocaleLowerCase()
+      .includes(query.toLocaleLowerCase()),
+  );
+  function beginEdit(row: any) {
+    setEditingId(row.id);
+    setEditingDraft({
+      name: row.name || "",
+      email: row.email || "",
+      phone: row.phone || "",
+      contact: row.contact || "",
+      address: row.address || "",
+      city: row.city || "",
+    });
+  }
+  async function saveEdit(row: any) {
+    const resource = row.type === "Cliente" ? "clients" : "suppliers";
+    const id = row.id.split("-").slice(1).join("-");
+    const response = await fetch(`/api/${resource}/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-Actor": "Contactos" },
+      body: JSON.stringify(editingDraft),
+    });
+    if (response.ok) {
+      setRows((current) =>
+        current.map((item) =>
+          item.id === row.id ? { ...item, ...editingDraft } : item,
+        ),
+      );
+      setEditingId("");
+    } else {
+      window.alert("No se han podido guardar los cambios.");
+    }
+  }
+  async function deleteContact(row: any) {
+    if (!window.confirm(`¿Eliminar ${row.name}?`)) return;
+    const resource = row.type === "Cliente" ? "clients" : "suppliers";
+    const id = row.id.split("-").slice(1).join("-");
+    const response = await fetch(`/api/${resource}/${id}`, {
+      method: "DELETE",
+      headers: { "X-Actor": "Contactos" },
+    });
+    if (response.ok) {
+      setRows((current) => current.filter((item) => item.id !== row.id));
+      setEditingId("");
+    } else {
+      window.alert("No se ha podido eliminar el contacto.");
+    }
+  }
+  return (
+    <div className="contacts-page">
+      <div className="manager-head contacts-toolbar">
+        <div>
+          <p className="eyebrow">RELACIONES COMERCIALES</p>
+          <h2>Contactos</h2>
+          <p className="muted">
+            {loading ? "Cargando contactos…" : `${rows.length} contactos de clientes y proveedores.`}
+          </p>
+        </div>
+        <div>
+          <label className="contacts-date-filter">
+            Desde
+            <input
+              type="date"
+              value={fromDate}
+              max={toDate}
+              onChange={(event) => setFromDate(event.target.value)}
+            />
+          </label>
+          <label className="contacts-date-filter">
+            Hasta
+            <input
+              type="date"
+              value={toDate}
+              min={fromDate}
+              onChange={(event) => setToDate(event.target.value)}
+            />
+          </label>
+          <input
+            type="search"
+            placeholder="⌕ Buscar..."
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <button
+            className="button primary"
+            onClick={() => {
+              onNavigate("Clientes");
+              window.setTimeout(() => window.dispatchEvent(new Event("crm:nuevo-cliente")), 0);
+            }}
+          >
+            ＋ Crear contacto
+          </button>
+        </div>
+      </div>
+      <div className="contacts-layout">
+        <div className="contacts-table-wrap contacts-table-wide">
+          <div className="list-count" role="status">{loading ? "Cargando…" : `${filtered.length} registros`}</div>
+          <table className="contacts-table">
+            <thead>
+              <tr>
+                <th>Empresa</th>
+                <th>Correo</th>
+                <th>Teléfono</th>
+                <th>Tipo</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={5}><div className="data-loading" role="status"><span className="loading-spinner" aria-hidden="true" /> Cargando contactos…</div></td></tr>
+              ) : filtered.map((row) => (
+                <tr
+                  key={row.id}
+                  className={editingId === row.id ? "selected" : ""}
+                  onClick={() => {
+                    if (editingId !== row.id) beginEdit(row);
+                  }}
+                >
+                  <td>
+                    <span className="contact-avatar">
+                      {(editingId === row.id
+                        ? editingDraft.name
+                        : row.name
+                      )?.slice(0, 1).toUpperCase()}
+                    </span>
+                    {editingId === row.id ? (
+                      <input
+                        className="contacts-inline-input"
+                        value={editingDraft.name}
+                        onChange={(event) =>
+                          setEditingDraft({
+                            ...editingDraft,
+                            name: event.target.value,
+                          })
+                        }
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    ) : (
+                      <b>{row.name}</b>
+                    )}
+                  </td>
+                  <td>
+                    {editingId === row.id ? (
+                      <input
+                        className="contacts-inline-input"
+                        value={editingDraft.email}
+                        onChange={(event) =>
+                          setEditingDraft({
+                            ...editingDraft,
+                            email: event.target.value,
+                          })
+                        }
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    ) : (
+                      row.email || "—"
+                    )}
+                  </td>
+                  <td>
+                    {editingId === row.id ? (
+                      <input
+                        className="contacts-inline-input"
+                        value={editingDraft.phone}
+                        onChange={(event) =>
+                          setEditingDraft({
+                            ...editingDraft,
+                            phone: event.target.value,
+                          })
+                        }
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    ) : (
+                      row.phone || "—"
+                    )}
+                  </td>
+                  <td>
+                    <span
+                      className={
+                        row.type === "Proveedor"
+                          ? "contact-type supplier"
+                          : "contact-type"
+                      }
+                    >
+                      {row.type}
+                    </span>
+                  </td>
+                  <td className="contacts-actions">
+                    {editingId === row.id ? (
+                      <>
+                        <button
+                          className="contact-action save"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            saveEdit(row);
+                          }}
+                        >
+                          Guardar
+                        </button>
+                        <button
+                          className="contact-action"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setEditingId("");
+                          }}
+                        >
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        className="contact-action"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          beginEdit(row);
+                        }}
+                      >
+                        Editar
+                      </button>
+                    )}
+                    <button
+                      className="contact-action delete"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteContact(row);
+                      }}
+                    >
+                      Eliminar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!loading && !filtered.length && (
+            <p className="muted contacts-empty">
+              No hay contactos que coincidan.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExpenseScanner({
+  clients,
+  actor,
+  onCreated,
+}: {
+  clients: any[];
+  actor: string;
+  onCreated: (row: any) => void;
+}) {
+  const [file, setFile] = useState<any>(null);
+  const [clientId, setClientId] = useState("");
+  const [vendor, setVendor] = useState("");
+  const [expenseDate, setExpenseDate] = useState(() => tabletTodayInput());
+  const [amount, setAmount] = useState("");
+  const [vat, setVat] = useState("21");
+  const [category, setCategory] = useState("Gastos de representación");
+  const [paymentMethod, setPaymentMethod] = useState("Tarjeta");
+  const [status, setStatus] = useState("");
+  const [saving, setSaving] = useState(false);
+  function selectFile(selected: File) {
+    if (selected.size > 8 * 1024 * 1024) {
+      setStatus("El archivo no puede superar 8 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFile({
+        name: selected.name,
+        mime: selected.type,
+        data: String(reader.result || ""),
+      });
+      setStatus("Documento cargado. Revisa los datos antes de crear el gasto.");
+    };
+    reader.readAsDataURL(selected);
+  }
+  function reset() {
+    setFile(null);
+    setVendor("");
+    setAmount("");
+    setVat("21");
+    setCategory("Gastos de representación");
+    setPaymentMethod("Tarjeta");
+    setStatus("");
+  }
+  async function createExpense() {
+    if (!file || !amount || !clientId) {
+      setStatus(
+        "Adjunta un ticket, selecciona un cliente e indica el importe.",
+      );
+      return;
+    }
+    setSaving(true);
+    const response = await fetch("/api/expenses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Actor": actor },
+      body: JSON.stringify({
+        code: "GAS-" + String(Date.now()).slice(-8),
+        client_id: Number(clientId),
+        expense_date: expenseDate,
+        category,
+        vendor,
+        amount: Number(amount),
+        vat: Number(vat || 0),
+        payment_method: paymentMethod,
+        attachment_name: file.name,
+        attachment_mime: file.mime || "application/octet-stream",
+        attachment_data: file.data,
+      }),
+    });
+    const body = await response.json();
+    setSaving(false);
+    if (!response.ok) {
+      setStatus(body.error || "No se ha podido crear el gasto.");
+      return;
+    }
+    onCreated(body);
+    reset();
+    setStatus("Gasto creado correctamente y asociado al cliente.");
+  }
+  return (
+    <section className="expense-scanner">
+      <div className="expense-scanner-heading">
+        <div>
+          <p className="eyebrow">ESCÁNER DE TICKETS</p>
+          <h3>Digitalización de justificantes</h3>
+          <p>
+            Sube una imagen o PDF, revisa los datos y crea el gasto en SQLite.
+          </p>
+        </div>
+        <span className={file ? "scanner-state ready" : "scanner-state"}>
+          {file ? "● Documento cargado" : "○ Esperando documento"}
+        </span>
+      </div>
+      <div className="expense-scanner-grid">
+        <div className="expense-document-preview">
+          {file?.mime?.startsWith("image/") ? (
+            <img src={file.data} alt="Previsualización del ticket" />
+          ) : file?.mime === "application/pdf" ? (
+            <iframe src={file.data} title="Previsualización del justificante" />
+          ) : (
+            <div className="expense-document-placeholder">
+              <span>▤</span>
+              <b>{file?.name || "Aquí aparecerá el ticket"}</b>
+              <small>
+                {file
+                  ? "Documento listo para revisar"
+                  : "Imagen, PDF o fotografía desde la tablet"}
+              </small>
+            </div>
+          )}
+          {file && <span className="expense-document-check">✓</span>}
+          <label className="expense-scan-button">
+            ⌁ Escanear o subir documento
+            <input
+              type="file"
+              accept="image/*,.pdf,application/pdf"
+              capture="environment"
+              onChange={(event) => {
+                const selected = event.target.files?.[0];
+                if (selected) selectFile(selected);
+              }}
+            />
+          </label>
+        </div>
+        <div className="expense-extracted-panel">
+          <div className="expense-extracted-head">
+            <div>
+              <span className="expense-ai-icon">✦</span>
+              <strong>Datos del justificante</strong>
+              <small>Revisión asistida</small>
+            </div>
+            <span className={file ? "scanner-state ready" : "scanner-state"}>
+              {file ? "Revisar antes de guardar" : "Sin documento"}
+            </span>
+          </div>
+          <div className="expense-fields-grid">
+            <label>
+              Cliente
+              <select
+                value={clientId}
+                onChange={(event) => setClientId(event.target.value)}
+              >
+                <option value="">Seleccionar cliente…</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Establecimiento
+              <input
+                value={vendor}
+                onChange={(event) => setVendor(event.target.value)}
+                placeholder="Pendiente de revisar"
+              />
+            </label>
+            <label>
+              Fecha
+              <input
+                type="date"
+                value={expenseDate}
+                onChange={(event) => setExpenseDate(event.target.value)}
+              />
+            </label>
+            <label>
+              Importe total
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="0,00 €"
+              />
+            </label>
+            <label>
+              IVA %
+              <input
+                type="number"
+                step="0.01"
+                value={vat}
+                onChange={(event) => setVat(event.target.value)}
+              />
+            </label>
+            <label>
+              Categoría
+              <select
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
+              >
+                <option>Gastos de representación</option>
+                <option>Combustible</option>
+                <option>Comida</option>
+                <option>Aparcamiento</option>
+                <option>Material</option>
+                <option>Otros</option>
+              </select>
+            </label>
+            <label>
+              Forma de pago
+              <select
+                value={paymentMethod}
+                onChange={(event) => setPaymentMethod(event.target.value)}
+              >
+                <option>Tarjeta</option>
+                <option>Efectivo</option>
+                <option>Transferencia</option>
+              </select>
+            </label>
+          </div>
+          <div className="expense-confidence">
+            <span>Control del documento</span>
+            <strong>{file ? "Datos editables" : "Pendiente"}</strong>
+            <div>
+              <i style={{ width: file ? "72%" : "0%" }} />
+            </div>
+          </div>
+          <div className="expense-scanner-actions">
+            <button
+              className="button primary"
+              onClick={createExpense}
+              disabled={saving || !file}
+            >
+              {saving ? "Guardando…" : "✓ Crear gasto automáticamente"}
+            </button>
+            <button className="button secondary" onClick={reset}>
+              ↻ Escanear otro documento
+            </button>
+          </div>
+          {status && <p className="expense-scanner-status">{status}</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ProductLabelModal({ product, actor, onClose, onSaved }: { product: any; actor: string; onClose: () => void; onSaved: (row: any) => void }) {
+  const [code, setCode] = useState(String(product.barcode || product.sku || `EXC-${String(product.id).padStart(5, "0")}`));
+  const [qrImage, setQrImage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const barcodeRef = useRef<SVGSVGElement>(null);
+  useEffect(() => {
+    QRCode.toDataURL(code || "EXC-PRODUCTO", { width: 180, margin: 1 })
+      .then((value: string) => setQrImage(value))
+      .catch(() => setQrImage(""));
+    if (barcodeRef.current) {
+      try { JsBarcode(barcodeRef.current, code || "EXC-PRODUCTO", { format: "CODE128", displayValue: true, fontSize: 12, height: 48, margin: 2 }); } catch {}
+    }
+  }, [code]);
+  async function saveCode() {
+    if (!code.trim()) return setError("Indica un código para el producto.");
+    setSaving(true);
+    const response = await fetch(`/api/products/${product.id}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify({ ...product, barcode: code.trim() }) });
+    const body = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) return setError(body.error || "No se pudo guardar el código.");
+    onSaved(body);
+  }
+  return (
+    <div className="preview-overlay product-label-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="product-label-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="product-label-head"><div><p className="eyebrow">ETIQUETA DE PRODUCTO</p><h2>{product.name}</h2><small>Genera, guarda e imprime los códigos del catálogo.</small></div><button type="button" onClick={onClose} aria-label="Cerrar">×</button></div>
+        <div className="product-label-code"><label>Código de barras / referencia<input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} /></label><button className="button primary" type="button" onClick={saveCode} disabled={saving}>{saving ? "Guardando…" : "Guardar código"}</button></div>
+        {error && <p className="users-manager-error">{error}</p>}
+        <div className="product-label-preview">
+          <div className="print-label"><b>EXCLUSIVAS</b><strong>{product.name}</strong><small>{product.sku || code}</small><svg ref={barcodeRef} aria-label={`Código de barras ${code}`} /><span>{Number(product.unit_price || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</span></div>
+          <div className="product-qr-card"><b>Código QR</b>{qrImage ? <img src={qrImage} alt={`Código QR de ${product.name}`} /> : <span>Generando…</span>}<small>{code}</small></div>
+        </div>
+        <div className="product-label-actions"><button className="button secondary" type="button" onClick={onClose}>Cerrar</button><button className="button primary" type="button" onClick={() => window.print()}>Imprimir etiqueta</button></div>
+      </div>
+    </div>
+  );
+}
+
+function ProductDetailDrawer({ product, onClose, onEdit, onLabel, onDuplicate }: { product: any; onClose: () => void; onEdit: () => void; onLabel: () => void; onDuplicate: () => void }) {
+  const available = Number(product.stock || 0) - Number(product.stock_reserved || 0);
+  const critical = available <= Number(product.min_stock || 0);
+  return (
+    <div className="product-drawer-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
+      <aside className="product-drawer" aria-label={`Ficha de ${product.name}`}>
+        <div className="product-drawer-head"><div><p className="eyebrow">FICHA DEL PRODUCTO</p><h2>{product.name}</h2><small>{product.sku || "Sin SKU"}</small></div><button type="button" onClick={onClose} aria-label="Cerrar">×</button></div>
+        <div className={`product-drawer-stock ${critical ? "critical" : "available"}`}><strong>{available}</strong><span>unidades disponibles</span><small>{Number(product.stock || 0)} físicas · {Number(product.stock_reserved || 0)} reservadas</small></div>
+        <div className="product-drawer-grid">
+          <div><span>Familia</span><b>{product.category || "—"}</b></div><div><span>Marca</span><b>{product.brand || "—"}</b></div>
+          <div><span>Formato</span><b>{product.format || "—"}</b></div><div><span>Proveedor</span><b>{product.supplier_ref || "—"}</b></div>
+          <div><span>Precio venta</span><b>{Number(product.unit_price || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</b></div><div><span>Coste</span><b>{Number(product.cost_price || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</b></div>
+          <div><span>Margen</span><b>{product.margin_percent ? `${product.margin_percent}%` : "—"}</b></div><div><span>Código</span><b>{product.barcode || "Pendiente"}</b></div>
+        </div>
+        {critical && <p className="product-warning">Stock crítico: el disponible está igual o por debajo del mínimo configurado.</p>}
+        {!product.barcode && <p className="product-warning">Este producto todavía no tiene código de barras.</p>}
+        <div className="product-drawer-actions"><button type="button" className="button primary" onClick={onEdit}>Editar producto</button><button type="button" className="button secondary" onClick={onLabel}>Etiqueta y códigos</button><button type="button" className="button secondary" onClick={onDuplicate}>Duplicar</button></div>
+      </aside>
+    </div>
+  );
+}
+
+function ProductBatchLabelModal({ products, onClose }: { products: any[]; onClose: () => void }) {
+  const [qrImages, setQrImages] = useState<Record<string, string>>({});
+  const barcodeRefs = useRef<Record<string, SVGSVGElement | null>>({});
+  useEffect(() => {
+    Promise.all(products.map(async (product) => {
+      const code = String(product.barcode || product.sku || `EXC-${String(product.id).padStart(5, "0")}`);
+      try { return [String(product.id), await QRCode.toDataURL(code, { width: 110, margin: 1 })] as const; } catch { return [String(product.id), ""] as const; }
+    })).then((entries) => setQrImages(Object.fromEntries(entries)));
+  }, [products]);
+  useEffect(() => {
+    products.forEach((product) => {
+      const code = String(product.barcode || product.sku || `EXC-${String(product.id).padStart(5, "0")}`);
+      const target = barcodeRefs.current[String(product.id)];
+      if (target) { try { JsBarcode(target, code, { format: "CODE128", displayValue: true, fontSize: 9, height: 34, margin: 1 }); } catch { /* El QR sigue disponible aunque el formato no sea válido. */ } }
+    });
+  }, [products]);
+  return (
+    <div className="preview-overlay product-label-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="product-batch-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="product-label-head"><div><p className="eyebrow">ETIQUETAS SELECCIONADAS</p><h2>{products.length} productos</h2><small>Previsualiza e imprime todas las etiquetas del listado.</small></div><button type="button" onClick={onClose} aria-label="Cerrar">×</button></div>
+        <div className="product-batch-grid">{products.map((product) => { const code = String(product.barcode || product.sku || `EXC-${String(product.id).padStart(5, "0")}`); return <div className="product-batch-label" key={product.id}><b>EXCLUSIVAS</b><strong>{product.name}</strong><svg ref={(node) => { barcodeRefs.current[String(product.id)] = node; }} /><small>{code}</small>{qrImages[String(product.id)] && <img src={qrImages[String(product.id)]} alt={`Código QR de ${product.name}`} />}</div>; })}</div>
+        <div className="product-label-actions"><button className="button secondary" type="button" onClick={onClose}>Cerrar</button><button className="button primary" type="button" onClick={() => window.print()}>Imprimir etiquetas</button></div>
+      </div>
+    </div>
+  );
+}
+
+function DocumentTemplatePreview({ template, onClose, onSaved, actor }: { template: any; onClose: () => void; onSaved: (template: any) => void; actor: string }) {
+  const sampleValues: Record<string, string> = { codigo: template.code || "DOC-2026-001", cliente: "Mercado San Isidro", contacto: "Beatriz Romero", pedido: "PED-2026-0054", fecha: "21/08/2026", fecha_entrega: "25/08/2026", direccion: "Calle San Isidro 5, Madrid", base: "1.250,00 €", iva: "262,50 €", total: "1.512,50 €", nif: "B12345678", lineas: "Agua Tónica Mediterránea · 24 cajas\nCerveza Artesana Lager · 12 cajas", forma_pago: "Transferencia", validez: "30 días", salida: "25/08/2026 · 07:30", preparador: "José Martín", transportista: "Repartos Exclusivas", franja: "09:00–11:00", notas: "Entregar en la entrada principal.", condiciones: "Precios y entregas según acuerdo comercial vigente.", telefono: "914 012 665", email: "compras@mercadosanisidro.es", responsable: "Luis" };
+  const [editMode, setEditMode] = useState(false);
+  const [draft, setDraft] = useState({ ...template });
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setDraft({ ...template }), [template]);
+  const rendered = String((editMode ? draft.content : template.content) || "").replace(/\{\{\s*([\wáéíóúñ]+)\s*\}\}/gi, (_match, key) => sampleValues[String(key).toLowerCase()] || `{{${key}}}`);
+  function download() { const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([rendered], { type: "text/plain;charset=utf-8" })); link.download = `${template.code || "documento"}.txt`; link.click(); window.setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
+  async function saveTemplate() {
+    setSaving(true);
+    const response = await fetch(`/api/document_templates/${template.id}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify(draft) });
+    const saved = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) return alert(saved.error || "No se pudo guardar la plantilla");
+    onSaved(saved);
+    setEditMode(false);
+  }
+  return <div className="preview-overlay document-template-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}><div className="document-template-modal" onClick={(event) => event.stopPropagation()}><div className="document-template-toolbar"><div><p className="eyebrow">{editMode ? "EDICIÓN · " : "PREVISUALIZACIÓN · "}{template.type}</p><h2>{editMode ? draft.title : template.title}</h2><small>{editMode ? "Modifica la plantilla aquí y guarda los cambios sin salir de esta ventana." : "Ejemplo rellenado con datos de muestra. Las variables se completarán al usar la plantilla."}</small></div><button type="button" onClick={onClose} aria-label="Cerrar">×</button></div>{editMode ? <div className="document-template-editor"><label>Nombre de la plantilla<input value={draft.title || ""} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label><div className="document-template-editor-grid"><label>Tipo<select value={draft.type || "General"} onChange={(event) => setDraft({ ...draft, type: event.target.value })}>{["Presupuesto", "Correo", "Albarán", "Factura", "Hoja de carga", "Contrato", "Alta de cliente", "Condiciones", "General"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Formato<select value={draft.format || "HTML"} onChange={(event) => setDraft({ ...draft, format: event.target.value })}>{["HTML", "Texto plano", "PDF", "Word", "Correo electrónico"].map((value) => <option key={value}>{value}</option>)}</select></label></div><label>Descripción<input value={draft.description || ""} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label><label>Asunto o encabezado<input value={draft.subject || ""} onChange={(event) => setDraft({ ...draft, subject: event.target.value })} /></label><label>Contenido<textarea className="document-template-content-editor" value={draft.content || ""} onChange={(event) => setDraft({ ...draft, content: event.target.value })} /></label><small className="document-template-variable-help">Variables disponibles: {"{{cliente}}"}, {"{{fecha}}"}, {"{{total}}"}, {"{{lineas}}"}, {"{{direccion}}"} y otras variables de la plantilla.</small></div> : <article className="document-sheet"><header><div className="document-sheet-brand"><span>E</span><div><b>Exclusivas</b><small>INTELIGENTES</small></div></div><div className="document-sheet-meta">{template.code}<br />{template.format || "HTML"}</div></header><div className="document-sheet-rule" /><p className="document-sheet-subject">{String(template.subject || "").replace(/\{\{\s*(\w+)\s*\}\}/g, (_match, key) => sampleValues[String(key).toLowerCase()] || `{{${key}}}`)}</p><pre>{rendered}</pre></article>}<div className="document-template-actions">{editMode ? <><button type="button" className="button secondary" onClick={() => { setDraft({ ...template }); setEditMode(false); }}>Cancelar</button><button type="button" className="button primary" disabled={saving} onClick={saveTemplate}>{saving ? "Guardando…" : "Guardar cambios"}</button></> : <><button type="button" className="button primary" onClick={() => setEditMode(true)}>Editar plantilla</button><button type="button" className="button secondary" onClick={onClose}>Cerrar</button><button type="button" className="button secondary" onClick={download}>Descargar texto</button><button type="button" className="button primary" onClick={() => window.print()}>Imprimir documento</button></>}</div></div></div>;
+}
+
+function ProductIntelligencePanel({ products, suppliers, actor }: { products: any[]; suppliers: any[]; actor: string }) {
+  const [productId, setProductId] = useState("");
+  const [offers, setOffers] = useState<any[]>([]);
+  const [lots, setLots] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [equivalents, setEquivalents] = useState<any[]>([]);
+  const [offer, setOffer] = useState<any>({ supplier_id: "", unit_cost: "", minimum_order: "1", order_unit: "caja", transport_cost: "0", lead_time_days: "2", promotion: "", rappel_percent: "0", reliability_percent: "95" });
+  const [lot, setLot] = useState<any>({ lot_code: "", quantity: "", expiry_date: "", received_date: tabletTodayInput() });
+  const [equivalent, setEquivalent] = useState<any>({ equivalent_product_id: "", priority: "1", notes: "" });
+  const headers = { "Content-Type": "application/json", "X-Actor": actor };
+  async function load(product = productId) {
+    if (!product) return;
+    const [o, l, h, e] = await Promise.all(["product_suppliers", "product_lots", "product_price_history", "product_equivalents"].map((table) => fetch(`/api/${table}`).then((r) => r.ok ? r.json() : [])));
+    setOffers((Array.isArray(o) ? o : []).filter((row: any) => Number(row.product_id) === Number(product)));
+    setLots((Array.isArray(l) ? l : []).filter((row: any) => Number(row.product_id) === Number(product)));
+    setHistory((Array.isArray(h) ? h : []).filter((row: any) => Number(row.product_id) === Number(product)));
+    setEquivalents((Array.isArray(e) ? e : []).filter((row: any) => Number(row.product_id) === Number(product)));
+  }
+  useEffect(() => { if (productId) load(); }, [productId]);
+  async function create(table: string, data: any, reset: () => void) {
+    if (!productId) return alert("Selecciona primero un producto.");
+    const response = await fetch(`/api/${table}`, { method: "POST", headers, body: JSON.stringify({ ...data, product_id: Number(productId) }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(result.error || "No se pudo guardar el dato");
+    reset();
+    load();
+  }
+  const productName = products.find((p) => Number(p.id) === Number(productId))?.name || "Selecciona un producto";
+  return <section className="product-intelligence-panel">
+    <div className="product-intelligence-head"><div><p className="eyebrow">FICHA AVANZADA</p><h3>Proveedores, lotes y trazabilidad</h3><small>Completa la información operativa sin salir del listado de productos.</small></div><select value={productId} onChange={(e) => setProductId(e.target.value)} aria-label="Producto para ampliar"><option value="">Seleccionar producto…</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}{p.sku ? ` · ${p.sku}` : ""}</option>)}</select></div>
+    {productId && <>
+      <p className="muted">Producto seleccionado: <b>{productName}</b></p>
+      <div className="product-intelligence-grid">
+        <details open><summary>Proveedores y ofertas comparables <span>{offers.length}</span></summary><div className="intelligence-form"><select value={offer.supplier_id} onChange={(e) => setOffer({ ...offer, supplier_id: e.target.value })}><option value="">Proveedor…</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select><input type="number" step="0.01" placeholder="Coste unitario" value={offer.unit_cost} onChange={(e) => setOffer({ ...offer, unit_cost: e.target.value })} /><input type="number" placeholder="Plazo (días)" value={offer.lead_time_days} onChange={(e) => setOffer({ ...offer, lead_time_days: e.target.value })} /><input placeholder="Promoción o rappel" value={offer.promotion} onChange={(e) => setOffer({ ...offer, promotion: e.target.value })} /><button className="button primary" type="button" onClick={() => create("product_suppliers", offer, () => setOffer({ ...offer, supplier_id: "", unit_cost: "", promotion: "" }))}>Añadir oferta</button></div><div className="intelligence-list">{offers.map((row) => <div key={row.id}><b>{suppliers.find((s) => Number(s.id) === Number(row.supplier_id))?.name || `Proveedor #${row.supplier_id}`}</b><span>{Number(row.unit_cost || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })} · {row.lead_time_days || 0} días · {row.promotion || "Sin promoción"}</span></div>)}</div></details>
+        <details><summary>Lotes y caducidades <span>{lots.length}</span></summary><div className="intelligence-form"><input placeholder="Código de lote" value={lot.lot_code} onChange={(e) => setLot({ ...lot, lot_code: e.target.value })} /><input type="number" placeholder="Cantidad" value={lot.quantity} onChange={(e) => setLot({ ...lot, quantity: e.target.value })} /><input type="date" value={lot.expiry_date} onChange={(e) => setLot({ ...lot, expiry_date: e.target.value })} /><button className="button primary" type="button" onClick={() => create("product_lots", lot, () => setLot({ lot_code: "", quantity: "", expiry_date: "", received_date: tabletTodayInput() }))}>Añadir lote</button></div><div className="intelligence-list">{lots.map((row) => <div key={row.id}><b>{row.lot_code}</b><span>{row.quantity} unidades · caduca {row.expiry_date || "sin fecha"}</span></div>)}</div></details>
+        <details><summary>Equivalentes y sustitutos <span>{equivalents.length}</span></summary><div className="intelligence-form"><select value={equivalent.equivalent_product_id} onChange={(e) => setEquivalent({ ...equivalent, equivalent_product_id: e.target.value })}><option value="">Producto sustituto…</option>{products.filter((p) => Number(p.id) !== Number(productId)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><input placeholder="Criterio o nota" value={equivalent.notes} onChange={(e) => setEquivalent({ ...equivalent, notes: e.target.value })} /><button className="button primary" type="button" onClick={() => create("product_equivalents", equivalent, () => setEquivalent({ equivalent_product_id: "", priority: "1", notes: "" }))}>Añadir sustituto</button></div><div className="intelligence-list">{equivalents.map((row) => <div key={row.id}><b>{products.find((p) => Number(p.id) === Number(row.equivalent_product_id))?.name || `Producto #${row.equivalent_product_id}`}</b><span>{row.notes || "Sustituto recomendado"}</span></div>)}</div></details>
+        <details><summary>Histórico de precios <span>{history.length}</span></summary><div className="intelligence-list">{history.slice(0, 12).map((row) => <div key={row.id}><b>{row.price_type}</b><span>{Number(row.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })} · {row.valid_from || row.created_at?.slice(0, 10) || ""}</span></div>)}{!history.length && <p className="muted">Aún no hay cambios de precio registrados.</p>}</div></details>
+      </div>
+    </>}
+  </section>;
+}
+
+function SmartPurchasing({ user }: { user?: any }) {
+  const actor = user?.username || "Usuario local";
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [requests, setRequests] = useState<any[]>([]);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [selectedSuppliers, setSelectedSuppliers] = useState<number[]>([]);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  async function load() {
+    setLoading(true); setLoadError("");
+    try {
+      const [s, suppliersList, requestsList] = await Promise.all(["purchase_suggestions", "suppliers", "purchase_requests"].map((table) => fetchWithRetry(`/api/${table}`, { headers: { "X-Actor": actor } }).then((r) => r.ok ? r.json() : [])));
+      setSuggestions(Array.isArray(s) ? s : []); setSuppliers(Array.isArray(suppliersList) ? suppliersList : []); setRequests(Array.isArray(requestsList) ? requestsList : []);
+      if (!selectedSuppliers.length) setSelectedSuppliers((Array.isArray(suppliersList) ? suppliersList : []).slice(0, 3).map((s: any) => Number(s.id)));
+    } catch { setLoadError("No se ha podido actualizar el análisis. Conservamos los datos anteriores."); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { load(); }, []);
+  async function approve(row: any) {
+    const provider = row.recommended_supplier;
+    if (!provider?.supplier_id) return alert("No hay proveedor comparable para esta propuesta.");
+    const today = tabletTodayInput();
+    const expected = new Date(Date.now() + Number(provider.lead_time_days || 2) * 86400000).toISOString().slice(0, 10);
+    const headers = { "Content-Type": "application/json", "X-Actor": actor };
+    const orderResponse = await fetch("/api/purchase_orders", { method: "POST", headers, body: JSON.stringify({ code: `PRE-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`, supplier_id: provider.supplier_id, status: "Borrador", validation_status: "Pendiente de validar", order_date: today, expected_date: expected, amount: Number(row.suggested_quantity) * Number(provider.real_cost || 0), notes: `Propuesta automática para ${row.name}. Requiere validación antes de enviar.` }) });
+    const order = await orderResponse.json().catch(() => ({}));
+    if (!orderResponse.ok) return alert(order.error || "No se pudo crear el prepedido");
+    await fetch("/api/purchase_order_lines", { method: "POST", headers, body: JSON.stringify({ purchase_order_id: order.id, product_id: row.product_id, quantity: row.suggested_quantity, unit_cost: provider.real_cost || 0, amount: Number(row.suggested_quantity) * Number(provider.real_cost || 0) }) });
+    await fetch(`/api/purchase_suggestions/${row.suggestion_id}`, { method: "PUT", headers, body: JSON.stringify({ status: "Aprobada" }) });
+    setMessage(`Prepedido ${order.code} creado como borrador. No se ha enviado al proveedor.`); load();
+  }
+  async function createRequest() {
+    const rows = suggestions.filter((s) => selected.includes(Number(s.suggestion_id)));
+    if (!rows.length || !selectedSuppliers.length) return alert("Selecciona productos y al menos dos proveedores.");
+    const headers = { "Content-Type": "application/json", "X-Actor": actor };
+    const response = await fetch("/api/purchase_requests", { method: "POST", headers, body: JSON.stringify({ code: `SOL-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`, request_type: "Solicitud de oferta", status: "Pendiente de enviar", product_ids: JSON.stringify(rows.map((r) => r.product_id)), supplier_ids: JSON.stringify(selectedSuppliers), notes: "Comparar precio real, transporte, plazo, promociones, rappel y fiabilidad antes de validar.", created_by: actor }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(result.error || "No se pudo crear la solicitud");
+    setMessage(`Solicitud ${result.code} preparada para ${selectedSuppliers.length} proveedores. Requiere envío manual.`); setSelected([]); load();
+  }
+  return <div className="smart-purchasing"><div className="manager-head"><div><p className="eyebrow">ABASTECIMIENTO CONTROLADO</p><h2>Compras inteligentes</h2><p className="muted">Propuestas basadas en stock, coste real y proveedores comparables. Nada se envía sin validación.</p></div><div><button type="button" className="button secondary" onClick={load}>Actualizar análisis</button><button type="button" className="button primary" onClick={createRequest}>Crear solicitud de oferta</button></div></div>{loading && <div className="data-loading" role="status"><span className="loading-spinner" aria-hidden="true" /><LoadingIndicator label="Cargando análisis de compras…" /></div>}{loadError && <div className="error-message">{loadError}</div>}{message && <div className="success-message">{message}</div>}<section className="smart-purchasing-panel"><div className="smart-panel-head"><div><b>Artículos que necesitan compra</b><small>Stock disponible por debajo del mínimo operativo</small></div><span>{loading ? "—" : `${suggestions.length} propuestas`}</span></div>{!loading && !suggestions.length ? <p className="empty-state">No hay productos bajo mínimos. El sistema revisará el stock al actualizar.</p> : <div className="smart-suggestion-list">{suggestions.map((row) => <article key={row.suggestion_id} className={selected.includes(Number(row.suggestion_id)) ? "smart-suggestion selected" : "smart-suggestion"}><input type="checkbox" checked={selected.includes(Number(row.suggestion_id))} onChange={() => setSelected((current) => current.includes(Number(row.suggestion_id)) ? current.filter((id) => id !== Number(row.suggestion_id)) : [...current, Number(row.suggestion_id)])} aria-label={`Seleccionar ${row.name}`} /><div className="smart-suggestion-main"><b>{row.name}</b><small>{row.sku || "Sin referencia"} · Disponible {row.available_stock} · Mínimo {row.stock_min || row.min_stock || 0} · Proponer {row.suggested_quantity}</small><p>{row.reason}</p></div><div className="smart-supplier-compare">{row.comparisons?.slice(0, 3).map((offer: any) => <span key={offer.id} className={row.recommended_supplier?.supplier_id === offer.supplier_id ? "recommended" : ""}>{offer.supplier_name} · {Number(offer.real_cost || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })} · mínimo {offer.minimum_order || 1} · {offer.lead_time_days || 0} días · transporte {Number(offer.transport_cost || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })} · rappel {offer.rappel_percent || 0}% · fiabilidad {offer.reliability_percent || 0}%</span>)}{!row.comparisons?.length && <span>Sin ofertas alternativas registradas</span>}</div><button type="button" className="button secondary" onClick={() => approve(row)}>Aprobar propuesta</button></article>)}</div>}</section><section className="smart-suppliers-panel"><div><b>Proveedores para solicitar oferta</b><small>Selecciona varios para comparar antes de comprar</small></div><div className="smart-supplier-checks">{suppliers.map((supplier) => <label key={supplier.id}><input type="checkbox" checked={selectedSuppliers.includes(Number(supplier.id))} onChange={() => setSelectedSuppliers((current) => current.includes(Number(supplier.id)) ? current.filter((id) => id !== Number(supplier.id)) : [...current, Number(supplier.id)])} />{supplier.name}<small>{supplier.lead_time_days || 0} días · fiabilidad {supplier.reliability_percent || 0}%</small></label>)}</div></section><section className="smart-requests-panel"><div className="smart-panel-head"><div><b>Solicitudes preparadas</b><small>Quedan en borrador hasta que un responsable las revise y envíe</small></div><span>{requests.length}</span></div>{requests.slice(0, 8).map((request) => <div className="smart-request-row" key={request.id}><b>{request.code}</b><span>{request.request_type}</span><span>{request.status}</span><span>{request.created_at?.slice(0, 10) || ""}</span></div>)}</section></div>;
+}
+
+function PreparationDayCards({ rows, lookups, onOpen, dateFilter, onDateFilterChange }: { rows: any[]; lookups: any; onOpen: (row: any) => void; dateFilter: string; onDateFilterChange: (value: string) => void }) {
+  const today = tabletTodayInput();
+  const getClient = (id: any) => (lookups.clients || []).find((item: any) => Number(item.id) === Number(id));
+  const items = rows.filter((row) => !dateFilter || String(row.preparation_date || "").slice(0, 10) === dateFilter).sort((a, b) => Number(b.urgent || 0) - Number(a.urgent || 0) || String(a.address || "").localeCompare(String(b.address || ""), "es", { numeric: true }));
+  const groups = [
+    { key: "pending", title: "Pendientes", hint: "Aún no empezados", match: (row: any) => !["Preparando", "Preparado", "Preparado con incidencia"].includes(row.status || "") },
+    { key: "preparing", title: "En preparación", hint: "En proceso", match: (row: any) => row.status === "Preparando" },
+    { key: "done", title: "Completados", hint: "Listos para enviar", match: (row: any) => row.status === "Preparado" },
+    { key: "incident", title: "Con incidencia", hint: "Requieren revisión", match: (row: any) => row.status === "Preparado con incidencia" },
+  ];
+  const renderCard = (row: any) => { const client = getClient(row.client_id); const address = typeof row.address === "string" ? row.address : row.address?.address || row.address?.name || "Dirección no indicada"; return <button type="button" key={row.id} className={`prep-order-card${Number(row.urgent) === 1 ? " is-urgent" : ""}${row.status === "Preparado" ? " is-completed" : ""}${row.status === "Preparado con incidencia" ? " has-incident" : ""}`} onClick={() => onOpen(row)}><span className="prep-card-top"><b>{row.code}</b><em>{Number(row.urgent) === 1 ? "URGENTE" : row.status || "Pendiente"}</em></span><strong>{client?.name || `Cliente #${row.client_id || "—"}`}</strong><span>{address}</span><span className="prep-card-meta">Entrega: {formatSpanishDateValue(row.delivery_date, false)}{row.packages ? ` · ${row.packages} bultos` : ""}</span><small>{row.notes || "Sin observaciones"}</small><i>▶ Abrir comanda</i></button>; };
+  return <section className="prep-command-board" aria-label="Comandas de preparación"><div className="prep-command-toolbar"><div><p className="eyebrow">OPERATIVA DE ALMACÉN</p><h3>Pedidos para preparar</h3><span>{dateFilter ? `${dateFilter === today ? "Hoy" : "Fecha seleccionada"} · ${formatSpanishDateValue(dateFilter, false)}` : "Todas las fechas"}</span></div><div className="prep-command-filters"><label>Preparar el día<input type="date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value)} /></label><button type="button" className="button primary" onClick={() => onDateFilterChange(today)}>Hoy</button><button type="button" className="button secondary" onClick={() => onDateFilterChange("")}>Todos</button></div></div><div className="prep-command-summary"><span><b>{items.length}</b> pedidos</span><span><b>{items.filter((row) => Number(row.urgent) === 1).length}</b> urgentes</span><span><b>{items.filter((row) => row.status === "Preparado con incidencia").length}</b> con incidencia</span><span className="prep-command-summary-hint">Pulsa una comanda para revisar sus líneas</span></div>{!items.length ? <div className="prep-command-empty"><b>{dateFilter ? "No hay pedidos para esta fecha" : "No hay pedidos pendientes"}</b><span>{dateFilter ? "Prueba otra fecha o pulsa “Todos”." : "Cuando se creen preparaciones aparecerán aquí."}</span></div> : <div className="prep-command-columns">{groups.map((group) => { const groupItems = items.filter(group.match); return <section className={`prep-command-column prep-command-${group.key}`} key={group.key}><header><div><b>{group.title}</b><small>{group.hint}</small></div><strong>{groupItems.length}</strong></header><div>{groupItems.map(renderCard)}{!groupItems.length && <p className="prep-command-none">Sin pedidos</p>}</div></section>; })}</div>}</section>;
+}
+
+function formatSpanishDateValue(value: any, includeTime = true) {
+  const raw = String(value ?? "").replace("T", " ");
+  const match = raw.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return raw || "—";
+  const date = `${match[3]}/${match[2]}/${match[1]}`;
+  return includeTime && raw.length >= 16 ? `${date} ${raw.slice(11, 16)}` : date;
+}
+
+function quantityUnitLabel(value: any) {
+  return ({ unidad: "unidad", caja: "caja", pack_4: "pack de 4", pack_6: "pack de 6", palet: "palé" } as Record<string, string>)[String(value || "unidad")] || String(value || "unidad");
+}
+
+function warehouseLocationLabel(value: any) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Sin ubicación";
+  if (/^[A-Z]-\d{3}$/.test(raw)) return raw;
+  const numericOnly = raw.match(/(?:^|-)(\d{1,3})$/)?.[1];
+  return numericOnly ? `A-${numericOnly.padStart(3, "0")}` : raw;
+}
+
+function BusinessRelatedPanels({ active, rows, lookups, onNavigate }: { active: string; rows: any[]; lookups: any; onNavigate?: (module: string) => void }) {
+  const money = (value: number) => value.toLocaleString("es-ES", { style: "currency", currency: "EUR" });
+  const invoiceRows = lookups.invoices || [];
+  const purchaseRows = lookups.purchase_orders || [];
+  const paymentRows = lookups.payments || [];
+  const movementRows = lookups.inventory_movements || [];
+  const productRows = active === "Productos" ? rows : (lookups.products || []);
+  const stockRows = active === "Stock" ? rows : (lookups.stock || []);
+  const lowStockCount = stockRows.filter((item: any) => Number(item.available_stock ?? Number(item.stock || 0) - Number(item.stock_reserved || 0)) <= Number(item.min_stock || 0)).length;
+  const uncoveredStockCount = stockRows.filter((item: any) => Number(item.available_stock ?? Number(item.stock || 0) - Number(item.stock_reserved || 0)) < 0).length;
+  const stockValue = productRows.reduce((total: number, product: any) => total + Number(product.stock || 0) * Number(product.cost_price || 0), 0);
+  const sections: Record<string, any[]> = {
+    Pedidos: [
+      { title: "Pedidos a importar", text: "Carga pedidos recibidos desde una plantilla CSV y revísalos antes de incorporarlos.", value: "Importación controlada", action: "Importar pedidos", target: "Pedidos" },
+      { title: "Histórico de facturas de venta", text: "Consulta las facturas emitidas y su estado de cobro desde el listado fiscal.", value: `${invoiceRows.length} facturas`, action: "Ver facturas", target: "Facturas" },
+      { title: "Notas de abono de venta", text: "Gestiona devoluciones y abonos vinculados a clientes, facturas y productos.", value: "Devoluciones y abonos", action: "Ver abonos", target: "Devoluciones" },
+    ],
+    Facturas: [
+      { title: "Facturas de venta", text: "Listado actual de facturas, vencimientos, importes y estado de cobro.", value: `${rows.length} documentos`, action: "Ver ventas", target: "Facturas" },
+      { title: "Histórico de facturas de venta", text: "Conserva el histórico completo y permite filtrar o exportar los documentos.", value: `${invoiceRows.length || rows.length} registros`, action: "Exportar histórico", target: "Facturas" },
+      { title: "Notas de abono", text: "Abonos y devoluciones relacionados con las facturas de venta.", value: "Gestión relacionada", action: "Ver abonos", target: "Devoluciones" },
+    ],
+    Compras: [
+      { title: "Pedidos de compra", text: "Solicitudes y compras a proveedores pendientes de validar o recibir.", value: `${rows.length} pedidos`, action: "Ver compras", target: "Compras" },
+      { title: "Facturas de compra", text: "Registra el gasto asociado a proveedores y contrástalo con los pedidos recibidos.", value: `${purchaseRows.length} compras`, action: "Ver gastos", target: "Gastos y tickets" },
+      { title: "Histórico de facturas de compra", text: "Consulta el histórico de compras y sus importes para el balance.", value: money(purchaseRows.reduce((total: number, item: any) => total + Number(item.amount || 0), 0)), action: "Abrir balance", target: "Balance" },
+    ],
+    "Gastos y tickets": [
+      { title: "Facturas de compra", text: "Los gastos y tickets alimentan el bloque de costes del balance.", value: `${rows.length} gastos`, action: "Abrir balance", target: "Balance" },
+      { title: "Cuentas bancarias y cajas", text: "Consulta los movimientos de cobro y los pagos registrados para conciliar la tesorería.", value: `${paymentRows.length} movimientos`, action: "Ver cobros", target: "Cobros" },
+    ],
+    Stock: [
+      { title: "Productos bajo mínimo", text: "Productos cuyo saldo para cubrir pedidos está en el mínimo operativo o por debajo.", value: `${lowStockCount} productos`, action: "Revisar alertas", target: "Stock" },
+      { title: "Productos sin cobertura", text: "Productos cuyo stock físico no alcanza para cubrir los pedidos abiertos.", value: `${uncoveredStockCount} productos`, action: "Revisar faltantes", target: "Stock" },
+      { title: "Movimientos recientes", text: "Entradas, salidas, ajustes y devoluciones que modifican las existencias.", value: `${movementRows.length} movimientos`, action: "Ver movimientos", target: "Entradas" },
+    ],
+    Entradas: [
+      { title: "Diario de productos", text: "Entradas y ajustes de inventario ordenados por fecha, referencia y responsable.", value: `${rows.length} movimientos`, action: "Abrir historial", target: "Historial" },
+      { title: "Valoración de stock", text: "Consulta el impacto de las entradas en el valor real del almacén.", value: money(stockValue), action: "Ver stock", target: "Stock" },
+    ],
+    "Preparación de pedidos": [
+      { title: "Lista de órdenes de carga de ventas", text: "Notas de carga con cliente, dirección, fecha, responsable, bultos e indicaciones de almacén.", value: `${rows.length} hojas`, action: "Ver salidas", target: "Salidas" },
+      { title: "Estado de preparación", text: "Separa las hojas preparando y preparadas para que el almacén sepa qué queda pendiente.", value: "Preparación operativa", action: "Actualizar listado", target: "Preparación de pedidos" },
+    ],
+    Salidas: [
+      { title: "Lista de órdenes de carga de ventas", text: "Cada salida debe estar relacionada con una hoja de carga y un pedido.", value: `${rows.length} salidas`, action: "Ver preparación", target: "Preparación de pedidos" },
+    ],
+    Cobros: [
+      { title: "Movimientos de cobro", text: "Cobros recibidos, método, fecha, factura y referencia para conciliar la tesorería.", value: `${rows.length} cobros`, action: "Ver cobros", target: "Cobros" },
+      { title: "Cuentas bancarias", text: "Resumen de entradas registradas por transferencia, tarjeta, efectivo o domiciliación.", value: `${paymentRows.length || rows.length} movimientos`, action: "Abrir balance", target: "Balance" },
+      { title: "Lista de cajas", text: "Control rápido de cobros en efectivo y movimientos pendientes de revisar.", value: "Tesorería", action: "Abrir balance", target: "Balance" },
+    ],
+    Balance: [
+      { title: "Cuentas bancarias", text: "Entradas y salidas agrupadas para revisar la tesorería del periodo.", value: `${paymentRows.length} cobros`, action: "Ver cobros", target: "Cobros" },
+      { title: "Plan de cuentas", text: "Clasificación operativa de ventas, compras, gastos, cobros y ajustes del balance.", value: "Clasificación financiera", action: "Ver informes", target: "Informes" },
+      { title: "Lista de cajas", text: "Seguimiento de efectivo y otros cobros registrados por el equipo.", value: "Control de caja", action: "Ver cobros", target: "Cobros" },
+    ],
+    Informes: [
+      { title: "Declaración 347 · resumen", text: "Resumen anual de operaciones con clientes y proveedores que puedes revisar antes de exportar.", value: `${invoiceRows.length} ventas · ${purchaseRows.length} compras`, action: "Abrir balance", target: "Balance" },
+      { title: "Diarios de productos", text: "Indicadores de entradas, salidas, stock crítico y valoración de inventario.", value: `${movementRows.length} movimientos`, action: "Ver stock", target: "Stock" },
+    ],
+  };
+  const cards = sections[active];
+  if (!cards?.length) return null;
+  return <section className="business-related-panels" aria-label="Funciones relacionadas">
+    <div className="business-related-head"><div><b>Funciones relacionadas</b><small>Accesos agrupados del área de trabajo</small></div><span>{cards.length} opciones</span></div>
+    <div className="business-related-grid">
+      {cards.map((card) => <details className="business-related-card" key={card.title}>
+        <summary><span><b>{card.title}</b><small>{card.text}</small></span><strong>{card.value}</strong></summary>
+        <div className="business-related-actions"><span>Disponible con los datos actuales del CRM.</span><button type="button" className="row-action workflow" onClick={() => onNavigate?.(card.target)}>{card.action} →</button></div>
+      </details>)}
+    </div>
+  </section>;
+}
+
+function Manager({ active, user, onNewOrder, onNavigate }: { active: string; user?: any; onNewOrder?: () => void; onNavigate?: (module: string) => void }) {
+  const c = cfg[active];
+  const actorHeaders = {
+    "Content-Type": "application/json",
+    "X-Actor": user?.username || "Usuario local",
+  };
+  const [rows, setRows] = useState<any[]>([]);
+  const [form, setForm] = useState<any>({});
+  const [editing, setEditing] = useState<any>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const formAccordionRef = useRef<HTMLDetailsElement>(null);
+  const [inlineEditing, setInlineEditing] = useState<number | null>(null);
+  const [inlineDraft, setInlineDraft] = useState<any>({});
+  const [search, setSearch] = useState("");
+  const [preview, setPreview] = useState<any>(null);
+  const [labelProduct, setLabelProduct] = useState<any>(null);
+  const [productDetail, setProductDetail] = useState<any>(null);
+  const [batchLabelProducts, setBatchLabelProducts] = useState<any[]>([]);
+  const [documentPreview, setDocumentPreview] = useState<any>(null);
+  const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
+  const [productFilters, setProductFilters] = useState({ category: "", brand: "", stock: "todos", codes: "todos" });
+  const [stockSort, setStockSort] = useState("status_asc");
+  const [dateSort, setDateSort] = useState<{ field: string; direction: "asc" | "desc" } | null>(null);
+  const [tableSort, setTableSort] = useState<{ field: string; direction: "asc" | "desc" } | null>(null);
+  const [preparationDateFilter, setPreparationDateFilter] = useState(() => tabletTodayInput());
+  const [previewClient, setPreviewClient] = useState<any>(null);
+  const [previewInvoice, setPreviewInvoice] = useState<any>(null);
+  const [previewSupplier, setPreviewSupplier] = useState<any>(null);
+  const [notePreview, setNotePreview] = useState<any>(null);
+  const [noteIncidentOrder, setNoteIncidentOrder] = useState<any>(null);
+  const [noteIncidentOrderLoading, setNoteIncidentOrderLoading] = useState(false);
+  const [noteAction, setNoteAction] = useState("partial");
+  const [noteActionSaving, setNoteActionSaving] = useState(false);
+  const [noteActionError, setNoteActionError] = useState("");
+  const [previewLines, setPreviewLines] = useState<any[]>([]);
+  const [incidentLineId, setIncidentLineId] = useState<number | null>(null);
+  const [incidentText, setIncidentText] = useState("");
+  const [incidentResolution, setIncidentResolution] = useState("partial");
+  const [bulkIncidentOpen, setBulkIncidentOpen] = useState(false);
+  const [bulkIncidentText, setBulkIncidentText] = useState("");
+  const [bulkIncidentSaving, setBulkIncidentSaving] = useState(false);
+  const [bulkIncidentError, setBulkIncidentError] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [productOptions, setProductOptions] = useState<any[]>([]);
+  const [newLine, setNewLine] = useState({
+    product_id: "",
+    quantity: "1",
+    unit_price: "0",
+  });
+  const [quoteLines, setQuoteLines] = useState<any[]>([]);
+  const [quoteLineDraft, setQuoteLineDraft] = useState({ product_id: "", quantity: "1", quantity_unit: "unidad", total_units: "", unit_price: "0", discount: "0", vat: "21" });
+  const [quoteProductSearch, setQuoteProductSearch] = useState("");
+  const [newShippingLocationOpen, setNewShippingLocationOpen] = useState(false);
+  const [newShippingLocation, setNewShippingLocation] = useState({ name: "", address: "", city: "", notes: "" });
+  const [clientSearch, setClientSearch] = useState("");
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [visibleFields, setVisibleFields] = useState<string[]>(c.fields);
+  const orderListFields = ["code", "client_id", "status", "preparation_date", "delivery_date"];
+  const stockListFields = ["product_id", "unit", "warehouse_name", "stock", "stock_reserved", "available_stock", "min_stock", "stock_status"];
+  useEffect(() => {
+    if (inlineEditing === null) return;
+    const closeWithEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setInlineEditing(null);
+        setInlineDraft({});
+      }
+    };
+    document.addEventListener("keydown", closeWithEscape);
+    return () => {
+      document.removeEventListener("keydown", closeWithEscape);
+    };
+  }, [inlineEditing]);
+  useEffect(() => {
+    try {
+      if (c.api === "orders") {
+        setVisibleFields(orderListFields);
+        localStorage.setItem(`excluvas.columns.${c.api}`, JSON.stringify(orderListFields));
+        return;
+      }
+      if (c.api === "stock") {
+        setVisibleFields(stockListFields);
+        localStorage.setItem(`excluvas.columns.${c.api}`, JSON.stringify(stockListFields));
+        return;
+      }
+      const saved = localStorage.getItem(`excluvas.columns.${c.api}`);
+      if (saved) {
+        const storedFields = JSON.parse(saved);
+        setVisibleFields(storedFields);
+      }
+      else setVisibleFields(c.fields);
+    } catch {
+      setVisibleFields(c.fields);
+    }
+  }, [active]);
+  function toggleColumn(field: string) {
+    const next = visibleFields.includes(field)
+      ? visibleFields.filter((x) => x !== field)
+      : [...visibleFields, field];
+    if (!next.length) return;
+    setVisibleFields(next);
+    localStorage.setItem(`excluvas.columns.${c.api}`, JSON.stringify(next));
+  }
+  useEffect(() => {
+    if (active !== "Productos") return;
+    try {
+      const saved = localStorage.getItem("excluvas.product-filters");
+      if (saved) setProductFilters({ ...productFilters, ...JSON.parse(saved) });
+    } catch { /* Preferimos los filtros por defecto si no hay preferencias guardadas. */ }
+  }, [active]);
+  function updateProductFilters(next: Partial<typeof productFilters>) {
+    const value = { ...productFilters, ...next };
+    setProductFilters(value);
+    localStorage.setItem("excluvas.product-filters", JSON.stringify(value));
+  }
+  const [dbError, setDbError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [lookups, setLookups] = useState<any>({
+    clients: [],
+    products: [],
+    warehouses: [],
+    suppliers: [],
+    collection_points: [],
+    orders: [],
+    shipments: [],
+    invoices: [],
+    purchase_orders: [],
+    payments: [],
+    inventory_movements: [],
+  });
+  useLayoutEffect(() => {
+    const cacheKey = `excluvas.listado.${c.api}.${showDeleted ? "deleted" : "active"}`;
+    const applyList = (value: any[]) => c.movementFilter
+      ? value.filter((item: any) => String(item.movement_type || "").toLowerCase() === String(c.movementFilter).toLowerCase())
+      : c.statusFilter
+        ? value.filter((item: any) => c.statusFilter.includes(item.status || "Preparando"))
+        : value;
+    let hasCachedRows = false;
+    try {
+      const cached = JSON.parse(localStorage.getItem(cacheKey) || "null");
+      if (Array.isArray(cached)) {
+        setRows(applyList(cached));
+        hasCachedRows = true;
+      }
+    } catch { /* Si la caché está dañada, se ignora y se consulta la API. */ }
+    setLoading(!hasCachedRows);
+    setDbError("");
+    fetchWithRetry("/api/" + c.api + (showDeleted ? "?include_deleted=1" : ""), {
+      headers: { "X-Actor": user?.username || "Usuario local" },
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error("El servidor no ha podido cargar el listado");
+        return r.json();
+      })
+      .then((x) => {
+        const list = Array.isArray(x) ? x : [];
+        setRows(applyList(list));
+        try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch { /* La caché es opcional. */ }
+      })
+      .catch(() => {
+        setDbError(
+          "No se ha podido actualizar el listado. Se mantienen los datos anteriores; inténtalo de nuevo en unos segundos.",
+        );
+      })
+      .finally(() => setLoading(false));
+  }, [active, showDeleted]);
+  useEffect(() => {
+    const baseLookupResources = active === "Productos"
+      ? ["suppliers"]
+      : ["clients", "products", "warehouses", "suppliers", "collection_points", "orders", "shipments"];
+    const relatedLookupResources = ["Pedidos", "Facturas", "Compras", "Gastos y tickets", "Stock", "Entradas", "Preparación de pedidos", "Salidas", "Cobros", "Balance", "Informes"].includes(active)
+      ? ["invoices", "purchase_orders", "payments", "inventory_movements"]
+      : [];
+    const lookupResources = Array.from(new Set([...baseLookupResources, ...relatedLookupResources]));
+    Promise.allSettled(
+      lookupResources.map(async (resource) => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 12000);
+        try {
+          const response = await fetch("/api/" + resource, { headers: { "X-Actor": user?.username || "Usuario local" }, signal: controller.signal });
+          return [resource, response.ok ? await response.json() : []] as const;
+        } catch { return [resource, []] as const; }
+        finally { clearTimeout(timeout); }
+      }),
+    ).then((results) => setLookups((current: any) => {
+      const next = { ...current };
+      results.forEach((result) => { if (result.status === "fulfilled") next[result.value[0]] = result.value[1]; });
+      return next;
+    }));
+  }, [active]);
+  async function attachExpenseFile(file: File) {
+    if (file.size > 8 * 1024 * 1024) {
+      alert("El justificante no puede superar 8 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () =>
+      setForm((current: any) => ({
+        ...current,
+        attachment_name: file.name,
+        attachment_mime: file.type || "application/octet-stream",
+        attachment_data: String(reader.result || ""),
+      }));
+    reader.readAsDataURL(file);
+  }
+  function attachProductPhoto(file: File) {
+    if (file.size > 5 * 1024 * 1024) return alert("La foto no puede superar 5 MB.");
+    const reader = new FileReader();
+    reader.onload = () => setForm((current: any) => ({ ...current, photo_name: file.name, photo_mime: file.type || "image/jpeg", photo_data: String(reader.result || "") }));
+    reader.readAsDataURL(file);
+  }
+  function handleFormChange(field: string, value: any) {
+    if (active === "Pedidos" && field === "client_id") {
+      setForm((current: any) => ({ ...current, client_id: value, collection_point_id: "" }));
+      const client = (lookups.clients || []).find((item: any) => Number(item.id) === Number(value));
+      setClientSearch(client ? `${client.name}${client.city ? ` · ${client.city}` : ""}` : "");
+      setNewShippingLocationOpen(false);
+      return;
+    }
+    if (active !== "Salidas") {
+      setForm((current: any) => ({ ...current, [field]: value }));
+      return;
+    }
+    if (field === "order_id") {
+      const order = lookups.orders.find((item: any) => Number(item.id) === Number(value));
+      setForm({
+        ...form,
+        order_id: value,
+        shipment_id: form.shipment_id || "",
+        product_id: order?.product_id || form.product_id || "",
+        client_id: order?.client_id || form.client_id || "",
+        quantity: order?.quantity || form.quantity || "",
+        reference: order?.code || form.reference || "",
+        movement_type: "Salida",
+        created_by: user?.username || "Usuario local",
+      });
+      return;
+    }
+    if (field === "shipment_id") {
+      const shipment = lookups.shipments.find((item: any) => Number(item.id) === Number(value));
+      setForm({
+        ...form,
+        shipment_id: value,
+        order_id: shipment?.order_id || form.order_id || "",
+        client_id: shipment?.client_id || form.client_id || "",
+        reference: shipment?.code || form.reference || "",
+        movement_type: "Salida",
+        created_by: user?.username || "Usuario local",
+      });
+      return;
+    }
+    setForm({ ...form, [field]: value, ...(field === "created_by" ? { created_by: user?.username || "Usuario local" } : {}) });
+  }
+  async function createShippingLocation() {
+    if (!form.client_id) return alert("Selecciona primero un cliente.");
+    if (!newShippingLocation.name.trim() || !newShippingLocation.address.trim()) return alert("Indica un nombre y una dirección para la ubicación.");
+    const payload = {
+      ...newShippingLocation,
+      name: newShippingLocation.name.trim(),
+      address: newShippingLocation.address.trim(),
+      client_id: Number(form.client_id),
+      code: `UBI-${Date.now().toString().slice(-8)}`,
+    };
+    const response = await fetch("/api/collection_points", { method: "POST", headers: actorHeaders, body: JSON.stringify(payload) });
+    const created = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(created.error || "No se pudo guardar la ubicación");
+    setLookups((current: any) => ({ ...current, collection_points: [created, ...(current.collection_points || [])] }));
+    setForm((current: any) => ({ ...current, collection_point_id: String(created.id) }));
+    setNewShippingLocation({ name: "", address: "", city: "", notes: "" });
+    setNewShippingLocationOpen(false);
+  }
+  function addQuoteLine() {
+    const product = (lookups.products || []).find((item: any) => Number(item.id) === Number(quoteLineDraft.product_id));
+    const requestedQuantity = Number(quoteLineDraft.quantity || 0);
+    if (!product || requestedQuantity <= 0) return;
+    const unitsFactor = quoteUnitsFactor(product, quoteLineDraft.quantity_unit);
+    const totalUnits = Number(quoteLineDraft.total_units || 0);
+    if (isOrderForm && totalUnits <= 0) {
+      setError("Indica las unidades totales de la línea antes de añadirla.");
+      return;
+    }
+    const quantity = isOrderForm ? totalUnits : requestedQuantity * unitsFactor;
+    const formatPrice = Number(quoteLineDraft.unit_price || product.unit_price || 0);
+    const unitPrice = unitsFactor > 0 ? formatPrice / unitsFactor : formatPrice;
+    const discount = Number(quoteLineDraft.discount || 0);
+    const base = requestedQuantity * formatPrice * (1 - discount / 100);
+    setQuoteLines((current) => [...current, {
+      product_id: Number(product.id),
+      product_name: product.name,
+      quantity,
+      quantity_requested: requestedQuantity,
+      quantity_unit: quoteLineDraft.quantity_unit,
+      units_factor: unitsFactor,
+      format_price: formatPrice,
+      unit_price: unitPrice,
+      discount,
+      vat: Number(quoteLineDraft.vat || 21),
+      amount: base,
+    }]);
+    setQuoteLineDraft({ product_id: "", quantity: "1", quantity_unit: "unidad", total_units: "", unit_price: "0", discount: "0", vat: "21" });
+    setQuoteProductSearch("");
+  }
+  function quoteUnitsFactor(product: any, unit: string) {
+    return unit === "caja" ? Number(product?.units_per_case || 1) : unit === "pack_4" ? 4 : unit === "pack_6" ? 6 : unit === "palet" ? Number(product?.units_per_pallet || 0) : 1;
+  }
+  const selectedQuoteProduct = (lookups.products || []).find((item: any) => Number(item.id) === Number(quoteLineDraft.product_id));
+  const quoteTotalUnits = quoteLineDraft.total_units;
+  const orderGeneralComplete = Boolean(String(form.code || "").trim() && form.client_id && form.collection_point_id);
+  async function save(e: any) {
+    e.preventDefault();
+    if (isOrderForm && editing && isOrderSent(editing)) {
+      setError("Este pedido ya ha sido enviado y no se puede editar.");
+      return;
+    }
+    if (isOrderForm && (!String(form.code || "").trim() || !form.client_id || !form.collection_point_id)) {
+      setError("Completa el código, el cliente y el lugar de envío antes de guardar el pedido.");
+      return;
+    }
+    const method = editing ? "PUT" : "POST",
+      url =
+        "/api/" +
+        c.api +
+        (editing ? "/" + editing.id : "");
+    let r: Response;
+    const isProforma = c.api === "invoices" && form.status === "Proforma";
+    const quoteAmount = quoteLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+    const payload = {
+      ...form,
+      ...((c.api === "quotes" || isProforma || c.api === "orders") ? { amount: quoteAmount } : {}),
+      ...(c.api === "orders" && !editing ? { lines: quoteLines } : {}),
+      ...(c.api === "expenses" && !form.code
+        ? { code: "GAS-" + String(Date.now()).slice(-8) }
+        : {}),
+    };
+    if (!editing && active === "Salidas" && form.order_id) {
+      const sourceLines = await fetch("/api/order_lines")
+        .then((response) => (response.ok ? response.json() : []))
+        .then((lines) => (Array.isArray(lines) ? lines.filter((line: any) => Number(line.order_id) === Number(form.order_id)) : []))
+        .catch(() => []);
+      const lines = sourceLines.length ? sourceLines : [{ product_id: form.product_id, quantity: form.quantity }];
+      const created: any[] = [];
+      for (const line of lines) {
+        if (!line.product_id || !Number(line.quantity)) continue;
+        const response = await fetch("/api/inventory_movements", {
+          method: "POST",
+          headers: actorHeaders,
+          body: JSON.stringify({
+            ...payload,
+            product_id: line.product_id,
+            quantity: line.quantity,
+            movement_type: "Salida",
+          }),
+        });
+        const item = await response.json();
+        if (!response.ok) return alert(item.error || "No se pudo registrar la salida");
+        created.push(item);
+      }
+      if (!created.length) return alert("El pedido no tiene productos válidos para registrar la salida");
+      setRows((current) => [...created, ...current]);
+      setForm({});
+      setEditing(null);
+      setFormOpen(false);
+      return;
+    }
+    try {
+      r = await fetch(url, {
+        method,
+        headers: actorHeaders,
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      setDbError(
+        "No se puede guardar porque la base de datos local no está disponible.",
+      );
+      return;
+    }
+    const d = await r.json();
+    if (d.error) {
+      alert(d.error);
+      return;
+    }
+    if (!editing && active === "Clientes" && d.address) {
+      await fetch("/api/collection_points", {
+        method: "POST",
+        headers: actorHeaders,
+        body: JSON.stringify({
+          client_id: d.id,
+          name: "Dirección principal",
+          address: d.address,
+          city: d.city || "",
+          notes: "Ubicación principal creada automáticamente con el cliente.",
+        }),
+      });
+    }
+    if ((c.api === "quotes" || isProforma) && !editing) {
+      for (const line of quoteLines) {
+        const lineResponse = await fetch(`/api/${isProforma ? "invoice_lines" : c.api === "orders" ? "order_lines" : "quote_lines"}`, {
+          method: "POST",
+          headers: actorHeaders,
+          body: JSON.stringify({ ...line, ...(isProforma ? { invoice_id: d.id } : c.api === "orders" ? { order_id: d.id } : { quote_id: d.id }) }),
+        });
+        if (!lineResponse.ok) return alert(`${isProforma ? "La proforma" : "El presupuesto"} se creó, pero no se pudo guardar una de sus líneas.`);
+      }
+    }
+    setDbError("");
+    setRows(editing ? rows.map((x) => (x.id === d.id ? d : x)) : [d, ...rows]);
+    setForm({});
+    setQuoteLines([]);
+    setEditing(null);
+    setFormOpen(false);
+  }
+  async function remove(id: number) {
+    await fetch("/api/" + c.api + "/" + id, {
+      method: "DELETE",
+      headers: actorHeaders,
+    });
+    setRows(rows.filter((x) => x.id !== id));
+  }
+  async function restore(id: number) {
+    const current = rows.find((row) => Number(row.id) === Number(id));
+    if (!current) return;
+    const response = await fetch(`/api/${c.api}/${id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...current, deleted: 0, deleted_at: null, deleted_by: null }) });
+    const restored = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(restored.error || "No se pudo recuperar el registro");
+    setRows((list) => showDeleted ? list.map((row) => row.id === restored.id ? restored : row) : list.filter((row) => row.id !== restored.id));
+  }
+  function toggleProductSelection(id: number) {
+    setSelectedProductIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+  async function duplicateProduct(row: any) {
+    const copy = { ...row };
+    delete copy.id;
+    copy.name = `${row.name || "Producto"} · Copia`;
+    copy.sku = row.sku ? `${row.sku}-C` : `EXC-COPIA-${Date.now().toString().slice(-5)}`;
+    copy.barcode = "";
+    copy.created_by = user?.username || "Usuario local";
+    const response = await fetch("/api/products", { method: "POST", headers: actorHeaders, body: JSON.stringify(copy) });
+    const created = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(created.error || "No se pudo duplicar el producto");
+    setRows((current) => [created, ...current]);
+    setProductDetail(created);
+  }
+  async function generateCodesForSelected() {
+    if (!selectedProductIds.length) return alert("Selecciona al menos un producto.");
+    const selected = rows.filter((row) => selectedProductIds.includes(Number(row.id)));
+    const updated: any[] = [];
+    for (const row of selected) {
+      const code = row.barcode || row.sku || `EXC-${String(row.id).padStart(5, "0")}`;
+      const response = await fetch(`/api/products/${row.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...row, barcode: code }) });
+      if (response.ok) updated.push(await response.json());
+    }
+    if (updated.length) {
+      setRows((current) => current.map((row) => updated.find((item) => item.id === row.id) || row));
+      setSelectedProductIds([]);
+      alert(`${updated.length} códigos preparados correctamente`);
+    }
+  }
+  async function changeCategoryForSelected(category: string) {
+    if (!category || !selectedProductIds.length) return;
+    const selected = rows.filter((row) => selectedProductIds.includes(Number(row.id)));
+    const updated: any[] = [];
+    for (const row of selected) {
+      const response = await fetch(`/api/products/${row.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...row, category }) });
+      if (response.ok) updated.push(await response.json());
+    }
+    setRows((current) => current.map((row) => updated.find((item) => item.id === row.id) || row));
+    setSelectedProductIds([]);
+  }
+  async function deleteSelectedProducts() {
+    if (user?.role !== "admin") return alert("Solo un administrador puede eliminar productos.");
+    if (!selectedProductIds.length) return alert("Selecciona al menos un producto.");
+    if (!window.confirm(`¿Eliminar ${selectedProductIds.length} productos seleccionados?`)) return;
+    for (const id of selectedProductIds) await fetch(`/api/products/${id}`, { method: "DELETE", headers: actorHeaders });
+    setRows((current) => current.filter((row) => !selectedProductIds.includes(Number(row.id))));
+    setSelectedProductIds([]);
+  }
+  function beginInline(row: any) {
+    setInlineEditing(row.id ?? row.product_id ?? row.code);
+    setInlineDraft({ ...row });
+  }
+  function isOrderSent(row: any) {
+    return ["Enviado", "En reparto", "Entregado", "Facturado", "Cancelado"].includes(String(row.status || ""));
+  }
+  function getOrderShipment(row: any) {
+    return (lookups.shipments || []).find((item: any) => Number(item.order_id) === Number(row.id));
+  }
+  async function openOrderLoadNote(row: any) {
+    const shipment = getOrderShipment(row);
+    if (shipment) {
+      onNavigate?.("Preparación de pedidos");
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-preparacion", { detail: shipment.id })), 120);
+      return;
+    }
+    alert("Este pedido todavía no tiene una nota de carga asociada.");
+  }
+  async function openRecordModal(row: any) {
+    setInlineEditing(null);
+    setInlineDraft({});
+    setForm({ ...row });
+    if (active === "Pedidos") {
+      const selectedClient = (lookups.clients || []).find((item: any) => Number(item.id) === Number(row.client_id));
+      setClientSearch(selectedClient ? `${selectedClient.name}${selectedClient.city ? ` · ${selectedClient.city}` : ""}` : "");
+    }
+    setEditing(row);
+    setFormOpen(true);
+    if (!["Presupuestos", "Pedidos"].includes(active)) return;
+    const lineApi = active === "Pedidos" ? "order_lines" : "quote_lines";
+    const response = await fetch(`/api/${lineApi}`);
+    const allLines = response.ok ? await response.json().catch(() => []) : [];
+    const parentKey = active === "Pedidos" ? "order_id" : "quote_id";
+    const lines = Array.isArray(allLines) ? allLines.filter((line: any) => Number(line[parentKey]) === Number(row.id)) : [];
+    const productList = lookups.products || [];
+    setQuoteLines((Array.isArray(lines) ? lines : []).map((line: any) => ({
+      ...line,
+      product_name: line.product_name || productList.find((product: any) => Number(product.id) === Number(line.product_id))?.name || `Producto #${line.product_id}`,
+    })));
+  }
+  function editorValue(field: string, value: any) {
+    const raw = String(value ?? "");
+    if (field.endsWith("_date") || ["date", "issue_date", "order_date"].includes(field)) {
+      return raw.slice(0, 10);
+    }
+    if (field.endsWith("_at") || field.includes("time")) {
+      return raw.replace(" ", "T").slice(0, 16);
+    }
+    return value ?? "";
+  }
+  function renderInlineEditor(field: string, row: any) {
+    const value = inlineDraft[field] ?? row[field] ?? "";
+    const update = (next: any) => setInlineDraft({ ...inlineDraft, [field]: next });
+    const common = { className: "inline-cell-input", value: editorValue(field, value), onChange: (event: any) => update(event.target.value) };
+    const statusOptions = active === "Facturas"
+      ? ["Proforma", "Pendiente", "Parcial", "Cobrada", "Vencida", "Anulada"]
+      : active === "Pedidos"
+      ? ["Pendiente", "Confirmado", "Preparando", "Preparado", "Enviado", "En reparto", "Entregado", "Cancelado", "Facturado"]
+      : active === "Preparación de pedidos"
+        ? ["Preparando", "Preparado"]
+        : active === "Documentos"
+          ? ["Activa", "Borrador", "Archivada"]
+        : ["Pendiente", "Activo", "Borrador", "Confirmado", "Cobrada", "Anulada", "Recibida", "Cancelada"];
+    if (field === "status") {
+      return <select {...common}>{statusOptions.map((option) => <option key={option}>{option}</option>)}</select>;
+    }
+    if (field === "movement_type") {
+      return <select {...common}>{["Entrada", "Salida", "Ajuste positivo", "Ajuste negativo", "Devolución"].map((option) => <option key={option}>{option}</option>)}</select>;
+    }
+    if (field === "product_status") return <select {...common}>{["Activo", "Inactivo", "Descatalogado", "Estacional"].map((option) => <option key={option}>{option}</option>)}</select>;
+    if (["fixed_supplier", "lot_tracking", "expiry_tracking", "returnable_packaging"].includes(field)) return <select {...common}><option value="0">No</option><option value="1">Sí</option></select>;
+    const lookup = field === "client_id" ? lookups.clients : field === "product_id" ? lookups.products : field === "warehouse_id" ? lookups.warehouses : ["supplier_id", "primary_supplier_id"].includes(field) ? lookups.suppliers : field === "collection_point_id" ? lookups.collection_points : field === "order_id" ? lookups.orders : field === "shipment_id" ? lookups.shipments : null;
+    if (lookup) {
+      return <select {...common}><option value="">Seleccionar...</option>{lookup.map((item: any) => <option key={item.id} value={item.id}>{item.name || item.code || `Registro ${item.id}`}{item.city ? ` · ${item.city}` : ""}</option>)}</select>;
+    }
+    if (field === "payment_method") return <select {...common}>{["Tarjeta", "Transferencia", "Efectivo", "Domiciliación"].map((option) => <option key={option}>{option}</option>)}</select>;
+    if (field === "quantity_unit" || field === "unit") return <select {...common}>{["unidad", "caja", "palé"].map((option) => <option key={option}>{option}</option>)}</select>;
+    if (field === "category" && active === "Gastos y tickets") return <select {...common}>{["Combustible", "Gastos de representación", "Comida", "Aparcamiento", "Material", "Otros"].map((option) => <option key={option}>{option}</option>)}</select>;
+    if (field === "type" && active === "Documentos") return <select {...common}>{["Presupuesto", "Correo", "Albarán", "Factura", "Hoja de carga", "Contrato", "Alta de cliente", "Condiciones", "General"].map((option) => <option key={option}>{option}</option>)}</select>;
+    if (field === "format" && active === "Documentos") return <select {...common}>{["HTML", "Texto plano", "PDF", "Word", "Correo electrónico"].map((option) => <option key={option}>{option}</option>)}</select>;
+    if (["content", "description", "notes"].includes(field)) return <textarea className="inline-cell-input inline-cell-textarea" value={value} onChange={(event) => update(event.target.value)} />;
+    if (field.endsWith("_date") || ["date", "issue_date", "order_date"].includes(field)) return <input {...common} type="date" />;
+    if (field.endsWith("_at") || field.includes("time")) return <input {...common} type="datetime-local" />;
+    if (["quantity", "amount", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "stock", "stock_reserved", "min_stock", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "picking_order", "target_margin_percent", "min_margin_percent", "freight_cost", "handling_cost", "real_cost", "tax_surcharge_percent", "extra_tax_percent", "packages", "vat", "discount"].includes(field)) return <input {...common} type="number" step="any" />;
+    return <input {...common} />;
+  }
+  useEffect(() => {
+    if (active !== "Pedidos") return;
+    function editRequested(event: Event) {
+      const id = Number((event as CustomEvent<number>).detail);
+      const row = rows.find((item) => Number(item.id) === id);
+      if (row) {
+        beginInline(row);
+      } else if (id) {
+        fetch(`/api/orders/${id}`)
+          .then((response) => (response.ok ? response.json() : null))
+          .then((item) => item && beginInline(item))
+          .catch(() => undefined);
+      }
+    }
+    window.addEventListener("crm:editar-pedido", editRequested);
+    return () => window.removeEventListener("crm:editar-pedido", editRequested);
+  }, [active, rows]);
+  useEffect(() => {
+    if (active !== "Preparación de pedidos") return;
+    function preparationPreviewRequested(event: Event) {
+      const id = Number((event as CustomEvent<number>).detail);
+      const row = rows.find((item) => Number(item.id) === id);
+      if (row) void openPreview(row);
+      else if (id) fetch(`/api/shipments/${id}`).then((response) => response.ok ? response.json() : null).then((item) => item && void openPreview(item)).catch(() => undefined);
+    }
+    window.addEventListener("crm:previsualizar-preparacion", preparationPreviewRequested);
+    return () => window.removeEventListener("crm:previsualizar-preparacion", preparationPreviewRequested);
+  }, [active, rows]);
+  useEffect(() => {
+    function notePreviewRequested(event: Event) {
+      const id = Number((event as CustomEvent<number>).detail);
+      if (!id) return;
+      const row = rows.find((item) => Number(item.id) === id);
+      if (row) {
+        setNotePreview(row);
+        return;
+      }
+      fetch(`/api/notes/${id}`)
+        .then((response) => (response.ok ? response.json() : null))
+        .then((item) => item && setNotePreview(item))
+        .catch(() => undefined);
+    }
+    window.addEventListener("crm:previsualizar-nota", notePreviewRequested);
+    return () => window.removeEventListener("crm:previsualizar-nota", notePreviewRequested);
+  }, [rows]);
+  useEffect(() => {
+    setNoteIncidentOrder(null);
+    const orderId = Number(notePreview?.record_id || 0);
+    if (!orderId || String(notePreview?.module || "") !== "Preparación de pedidos") return;
+    let cancelled = false;
+    setNoteIncidentOrderLoading(true);
+    Promise.all([
+      fetch("/api/orders").then((response) => response.ok ? response.json() : []),
+      fetch("/api/clients").then((response) => response.ok ? response.json() : []),
+      fetch("/api/collection_points").then((response) => response.ok ? response.json() : []),
+    ]).then(([orders, clients, points]) => {
+      if (cancelled) return;
+      const order = (Array.isArray(orders) ? orders : []).find((item: any) => Number(item.id) === orderId);
+      if (!order) return;
+      const client = (Array.isArray(clients) ? clients : []).find((item: any) => Number(item.id) === Number(order.client_id));
+      const point = (Array.isArray(points) ? points : []).find((item: any) => Number(item.id) === Number(order.collection_point_id));
+      setNoteIncidentOrder({
+        order,
+        client,
+        address: point?.address || order.address || client?.address || "Dirección no indicada",
+      });
+    }).catch(() => undefined).finally(() => {
+      if (!cancelled) setNoteIncidentOrderLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [notePreview]);
+  useEffect(() => {
+    // Una tarjeta del inicio puede pedir la vista previa mientras la sección
+    // de notas todavía está montándose. Conservamos el id hasta que el gestor
+    // pueda resolverlo, evitando que el clic se pierda en ese cambio de vista.
+    let pendingId = 0;
+    try {
+      pendingId = Number(sessionStorage.getItem("excluvas.pending-note-preview") || 0);
+      if (pendingId) sessionStorage.removeItem("excluvas.pending-note-preview");
+    } catch {}
+    if (!pendingId) return;
+    const row = rows.find((item) => Number(item.id) === pendingId);
+    if (row) {
+      setNotePreview(row);
+      return;
+    }
+    fetch(`/api/notes/${pendingId}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((item) => item && setNotePreview(item))
+      .catch(() => undefined);
+  }, [rows]);
+  useEffect(() => {
+    if (active !== "Pedidos") return;
+    function previewRequested(event: Event) {
+      const id = Number((event as CustomEvent<number>).detail);
+      const row = rows.find((item) => Number(item.id) === id);
+      if (row) void openPreview(row);
+      else if (id) fetch(`/api/orders/${id}`).then((response) => response.ok ? response.json() : null).then((item) => item && void openPreview(item)).catch(() => undefined);
+    }
+    window.addEventListener("crm:previsualizar-pedido", previewRequested);
+    return () => window.removeEventListener("crm:previsualizar-pedido", previewRequested);
+  }, [active, rows]);
+  useEffect(() => {
+    if (active !== "Clientes") return;
+    function newClientRequested() {
+      setEditing(null);
+      setForm({});
+      setFormOpen(true);
+    }
+    window.addEventListener("crm:nuevo-cliente", newClientRequested);
+    return () => window.removeEventListener("crm:nuevo-cliente", newClientRequested);
+  }, [active]);
+  useEffect(() => {
+    if (active !== "Pedidos") return;
+    function newOrderRequested() {
+      setEditing(null);
+      setQuoteLines([]);
+      setQuoteProductSearch("");
+      setForm({ code: nextOrderCode(), status: "Nuevo", quantity: 1 });
+      setFormOpen(true);
+    }
+    window.addEventListener("crm:nuevo-pedido", newOrderRequested);
+    return () => window.removeEventListener("crm:nuevo-pedido", newOrderRequested);
+  }, [active]);
+  useEffect(() => {
+    if (!formOpen && !editing) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      const modal = formAccordionRef.current;
+      if (modal && !modal.contains(event.target as Node)) {
+        setEditing(null);
+        setForm({});
+        setFormOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, [formOpen, editing]);
+  useEffect(() => {
+    const modalOpen = Boolean(formOpen || editing);
+    document.body.classList.toggle("modal-open", modalOpen);
+    return () => document.body.classList.remove("modal-open");
+  }, [formOpen, editing]);
+  async function saveInline(row: any) {
+    const rowKey = row.id ?? row.product_id;
+    const r = await fetch(`/api/${c.api}/${rowKey}`, {
+      method: "PUT",
+      headers: actorHeaders,
+      body: JSON.stringify(inlineDraft),
+    });
+    const d = await r.json();
+    if (!r.ok) return alert(d.error || "No se pudo guardar la línea");
+    setRows((current) => current.map((x) => ((x.id ?? x.product_id) === rowKey ? { ...x, ...d } : x)));
+    setInlineEditing(null);
+    setInlineDraft({});
+  }
+  async function changeOrderStatus(row: any, status: string) {
+    const r = await fetch(`/api/orders/${row.id}`, {
+      method: "PUT",
+      headers: actorHeaders,
+      body: JSON.stringify({ ...row, status }),
+    });
+    const d = await r.json();
+    if (!r.ok) return alert(d.error || "No se pudo actualizar el pedido");
+    setRows((current) => current.map((x) => (x.id === d.id ? d : x)));
+    if (active === "Pedidos" && status === "Preparado") {
+      const createLoadNote = window.confirm(
+        "El pedido está preparado. ¿Quieres crear ahora la nota de carga para el almacén?",
+      );
+      if (createLoadNote) {
+        const notes = window.prompt(
+          "Notas adicionales para el almacén y el reparto:",
+          "",
+        ) || "";
+        const client = lookups.clients.find(
+          (item: any) => Number(item.id) === Number(row.client_id),
+        );
+        const shipmentResponse = await fetch("/api/shipments", {
+          method: "POST",
+          headers: actorHeaders,
+          body: JSON.stringify({
+            code: `PREP-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`,
+            order_id: row.id,
+            client_id: row.client_id,
+            status: "Preparando",
+            address: client?.address || "",
+            expected_delivery_at: row.delivery_date || null,
+            packages: 1,
+            notes,
+            prepared_by: user?.username || "Usuario local",
+          }),
+        });
+        const shipment = await shipmentResponse.json();
+        if (!shipmentResponse.ok) {
+          alert(shipment.error || "El pedido se preparó, pero no se pudo crear la nota de carga");
+        } else {
+          alert(`Nota de carga ${shipment.code} creada para el almacén`);
+        }
+      }
+    }
+  }
+  async function convertOrder(row: any, type: "invoice" | "delivery") {
+    const r = await fetch(
+      `/api/orders/convert-${type}/${row.id}`,
+      { method: "POST" },
+    );
+    const d = await r.json();
+    if (!r.ok) return alert(d.error || "No se pudo generar el documento");
+    alert(
+      `${type === "invoice" ? "Factura" : "Albarán"} ${d.code} creado correctamente`,
+    );
+    setRows((current) =>
+      current.map((x) =>
+        x.id === row.id
+          ? { ...x, status: type === "invoice" ? "Facturado" : "Preparado" }
+          : x,
+      ),
+    );
+  }
+  async function convertDeliveryToInvoice(row: any) {
+    const r = await fetch(
+      `/api/delivery_notes/convert-invoice/${row.id}`,
+      { method: "POST", headers: actorHeaders },
+    );
+    const d = await r.json();
+    if (!r.ok) return alert(d.error || "No se pudo generar la factura");
+    alert(`Factura ${d.code} creada correctamente desde el albarán`);
+  }
+  async function convertProformaToInvoice(row: any) {
+    const code = String(row.code || "").replace(/^PRO-/, "FAC-") || `FAC-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+    const response = await fetch(`/api/invoices/${row.id}`, {
+      method: "PUT",
+      headers: actorHeaders,
+      body: JSON.stringify({ ...row, code, status: "Pendiente" }),
+    });
+    const updated = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(updated.error || "No se pudo convertir la proforma");
+    setRows((current) => current.map((item) => item.id === row.id ? updated : item));
+    alert(`Factura ${updated.code} creada a partir de la proforma`);
+  }
+  function downloadAttachment(row: any) {
+    if (!row.attachment_data) return;
+    const link = document.createElement("a");
+    link.href = row.attachment_data;
+    link.download =
+      row.attachment_name || "justificante-" + (row.code || row.id);
+    link.target = "_blank";
+    link.click();
+  }
+  function download() {
+    const head = ["id", ...visibleFields];
+    const esc = (v: any) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const csv =
+      "\ufeff" +
+      head.join(";") +
+      "\n" +
+      rows.map((r) => head.map((k) => esc(r[k])).join(";")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    );
+    a.download = `${c.api}-excluvas.csv`;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  function downloadTemplate() {
+    const head = ["id", ...c.fields];
+    const esc = (v: any) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const csv =
+      "\ufeff" +
+      head.join(";") +
+      "\n" +
+      esc("") +
+      ";" +
+      c.fields.map(() => esc("")).join(";") +
+      "\n";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    );
+    a.download = `plantilla-${c.api}-exclusivas.csv`;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  async function importCsv(file: File) {
+    const text = await file.text();
+    const lines = text
+      .replace(/^\uFEFF/, "")
+      .split(/\r?\n/)
+      .filter(Boolean);
+    if (lines.length < 2) return alert("El archivo no contiene registros");
+    const headers = lines[0].split(";").map((x) => x.replace(/^"|"$/g, ""));
+    let imported = 0;
+    for (const line of lines.slice(1)) {
+      const values = line
+        .split(";")
+        .map((x) => x.replace(/^"|"$/g, "").replaceAll('""', '"'));
+      const payload: any = {};
+      headers.forEach((h, i) => {
+        if (h !== "id" && values[i] !== undefined) payload[h] = values[i];
+      });
+      if (!Object.keys(payload).length) continue;
+      const method = payload.id ? "PUT" : "POST";
+      const endpoint = payload.id
+        ? `/api/${c.api}/${payload.id}`
+        : "/api/" + c.api;
+      delete payload.id;
+      const response = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) imported++;
+    }
+    const refreshed = await fetch("/api/" + c.api).then(
+      (r) => r.json(),
+    );
+    setRows(Array.isArray(refreshed) ? refreshed : []);
+    alert(`${imported} registros importados correctamente`);
+  }
+  async function openPreview(row: any) {
+    setPreview(row);
+    setPreviewLoading(true);
+    setPreviewClient(null);
+    setPreviewInvoice(null);
+    setPreviewSupplier(null);
+    setPreviewLines([]);
+    if (active === "Cobros") {
+      const [invoices, clients] = await Promise.all([
+        fetch("/api/invoices").then((r) => r.json()),
+        fetch("/api/clients").then((r) => r.json()),
+      ]);
+      const invoice = (Array.isArray(invoices) ? invoices : []).find(
+        (item: any) => Number(item.id) === Number(row.invoice_id),
+      ) || null;
+      setPreviewInvoice(invoice);
+      setPreviewClient(
+        (Array.isArray(clients) ? clients : []).find(
+          (item: any) => Number(item.id) === Number(invoice?.client_id || row.client_id),
+        ) || null,
+      );
+      setPreviewLoading(false);
+      return;
+    }
+    const lineTable =
+      active === "Facturas"
+        ? "invoice_lines"
+        : active === "Albaranes"
+          ? "delivery_note_lines"
+          : active === "Compras"
+            ? "purchase_order_lines"
+          : "order_lines";
+    const lineOwnerId = active === "Preparación de pedidos" ? row.order_id : row.id;
+    const [clients, lines, products, sourceOrderLines] = await Promise.all([
+      fetch("/api/clients").then((r) => r.json()),
+      fetch("/api/" + lineTable).then((r) => r.json()),
+      fetch("/api/products").then((r) => r.json()),
+      active === "Albaranes" && row.order_id
+        ? fetch("/api/order_lines").then((r) => r.json())
+        : Promise.resolve([]),
+    ]);
+    setPreviewClient(
+      clients.find((x: any) => Number(x.id) === Number(row.client_id)) || null,
+    );
+    if (active === "Compras") {
+      const suppliers = await fetch("/api/suppliers").then((r) => r.json());
+      setPreviewSupplier(
+        (Array.isArray(suppliers) ? suppliers : []).find(
+          (x: any) => Number(x.id) === Number(row.supplier_id),
+        ) || null,
+      );
+    }
+    const ownLines = (Array.isArray(lines) ? lines : []).filter(
+        (x: any) =>
+          Number(x.invoice_id || x.delivery_note_id || x.order_id || x.purchase_order_id) ===
+          Number(lineOwnerId),
+      );
+    const fallbackOrderLines = active === "Albaranes" && ownLines.length < 2
+      ? (Array.isArray(sourceOrderLines) ? sourceOrderLines : []).filter((x: any) => Number(x.order_id) === Number(row.order_id))
+      : [];
+    const selectedLines = fallbackOrderLines.length > ownLines.length ? fallbackOrderLines : ownLines;
+    const productRows = Array.isArray(products) ? products : [];
+    const preparedLines = selectedLines.map((line: any) => ({
+      ...line,
+      prepared_quantity: line.preparation_status === "Incidencia"
+        ? Number(line.prepared_quantity || 0)
+        : Number(line.prepared_quantity || 0) > 0
+          ? Number(line.prepared_quantity)
+          : Number(line.quantity || 0),
+    }));
+    setPreviewLines([...preparedLines].sort((a: any, b: any) => {
+      const pa = productRows.find((product: any) => Number(product.id) === Number(a.product_id));
+      const pb = productRows.find((product: any) => Number(product.id) === Number(b.product_id));
+      return String(pa?.warehouse_location || "ZZZ").localeCompare(String(pb?.warehouse_location || "ZZZ"), "es", { numeric: true }) || Number(pa?.picking_order || 0) - Number(pb?.picking_order || 0);
+    }));
+    setProductOptions(productRows);
+    setPreviewLoading(false);
+  }
+  async function updatePreparationLine(line: any, changes: any) {
+    const next = { ...line, ...changes };
+    setPreviewLines((current) => current.map((item) => item.id === line.id ? next : item));
+    const updatedLines = previewLines.map((item) => item.id === line.id ? next : item);
+    const hasIncident = updatedLines.some((item) => item.preparation_status === "Incidencia");
+    const allDone = updatedLines.length > 0 && updatedLines.every((item) => item.preparation_status === "Preparado");
+    const nextShipmentStatus = hasIncident ? "Preparado con incidencia" : allDone ? "Preparado" : "Preparando";
+    setPreview((current: any) => current ? { ...current, status: nextShipmentStatus } : current);
+    setRows((current) => current.map((item) => item.id === preview?.id ? { ...item, status: nextShipmentStatus } : item));
+    void fetch(`/api/order_lines/${line.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify(next) }).then(async (response) => {
+      if (!response.ok) throw new Error("No se pudo actualizar la línea de preparación.");
+      if (preview?.id && active === "Preparación de pedidos") {
+        const shipmentResponse = await fetch(`/api/shipments/${preview.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...preview, status: nextShipmentStatus, prepared_by: user?.username || "Usuario local" }) });
+        if (!shipmentResponse.ok) throw new Error("No se pudo actualizar el estado de la preparación.");
+      }
+    }).catch(() => setError("No se pudo sincronizar la última modificación de la preparación. Revisa la conexión y vuelve a intentarlo."));
+  }
+  async function markPreparationLine(line: any, prepared: boolean) {
+    const quantity = prepared ? Math.max(0, Number(line.prepared_quantity ?? line.quantity ?? 0)) : 0;
+    const requested = Number(line.quantity || 0);
+    await updatePreparationLine(line, { prepared: prepared && quantity >= requested ? 1 : 0, prepared_quantity: quantity, preparation_status: prepared && quantity >= requested ? "Preparado" : prepared && quantity > 0 ? "Parcial" : "Pendiente" });
+  }
+  async function startPreparation() {
+    if (!preview?.id || !isLoadPreparation || ["Preparando", "Preparado", "Preparado con incidencia"].includes(String(preview.status || ""))) return;
+    const now = new Date().toISOString();
+    const startedBy = user?.username || "Usuario local";
+    const changes = { status: "Preparando", preparation_started_at: now, preparation_started_by: startedBy };
+    const response = await fetch(`/api/shipments/${preview.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...preview, ...changes }) });
+    if (!response.ok) return setError("No se pudo iniciar la preparación. Revisa la conexión e inténtalo de nuevo.");
+    setPreview((current: any) => current ? { ...current, ...changes } : current);
+    setRows((current) => current.map((item) => item.id === preview.id ? { ...item, ...changes } : item));
+  }
+  async function openPreparationRow(row: any) {
+    if (!row?._virtual_order) return openPreview(row);
+    const client = (lookups.clients || []).find((item: any) => Number(item.id) === Number(row.client_id));
+    const response = await fetch("/api/shipments", {
+      method: "POST",
+      headers: actorHeaders,
+      body: JSON.stringify({
+        code: `ENV-${new Date().getFullYear()}-${String(Date.now()).slice(-8)}`,
+        order_id: row._source_order_id,
+        client_id: row.client_id,
+        status: "Preparando",
+        preparation_date: row.preparation_date || null,
+        expected_delivery_at: row.expected_delivery_at || null,
+        address: row.address || client?.address || "",
+        packages: row.packages || 1,
+        urgent: Number(row.urgent || 0),
+        notes: row.notes || "Preparación iniciada desde el pedido.",
+        prepared_by: user?.username || "Usuario local",
+      }),
+    });
+    const shipment = await response.json().catch(() => ({}));
+    if (!response.ok) return setError(shipment.error || "No se pudo crear la nota de carga para este pedido.");
+    setRows((current) => [shipment, ...current]);
+    await openPreview(shipment);
+  }
+  async function createPreparationIncident(line: any) {
+    const product = productOptions.find((item: any) => Number(item.id) === Number(line.product_id));
+    const note = incidentText.trim() || `Falta producto. Cantidad solicitada: ${line.quantity} unidades. Registrar la cantidad real disponible y resolver antes del envío.`;
+    const response = await fetch("/api/notes", { method: "POST", headers: actorHeaders, body: JSON.stringify({ title: `Incidencia en preparación · ${preview?.code || "Pedido"}`, content: `${product?.name || `Producto #${line.product_id}`}: ${note}`, priority: "Urgente", module: "Preparación de pedidos", important: 1, completed: 0, record_id: preview?.order_id || preview?.id || null }) });
+    if (!response.ok) return alert("No se pudo crear la incidencia.");
+    await updatePreparationLine(line, { prepared: 0, preparation_status: "Incidencia" });
+    setIncidentLineId(null);
+    setIncidentText("");
+    setIncidentResolution("partial");
+  }
+  async function createBulkPreparationIncident(lines: any[]) {
+    const actionableLines = lines.filter((line) => line.preparation_status !== "Incidencia");
+    if (!actionableLines.length) return setBulkIncidentError("No hay líneas nuevas con faltantes que registrar.");
+    setBulkIncidentSaving(true);
+    setBulkIncidentError("");
+    try {
+      const summary = actionableLines.map((line) => {
+        const product = productOptions.find((item: any) => Number(item.id) === Number(line.product_id));
+        const missing = Math.max(0, Number(line.quantity || 0) - Number(line.prepared_quantity || 0));
+        return `- ${product?.name || `Producto #${line.product_id}`}: faltan ${missing} unidades`;
+      }).join("\n");
+      const noteContent = `Líneas incompletas en la preparación:\n${summary}${bulkIncidentText.trim() ? `\n\nObservaciones:\n${bulkIncidentText.trim()}` : ""}`;
+      const noteResponse = await fetch("/api/notes", { method: "POST", headers: actorHeaders, body: JSON.stringify({ title: `Incidencia en preparación · ${preview?.code || "Pedido"}`, content: noteContent, priority: "Urgente", module: "Preparación de pedidos", important: 1, completed: 0, record_id: preview?.order_id || preview?.id || null }) });
+      const noteData = await noteResponse.json().catch(() => ({}));
+      if (!noteResponse.ok) throw new Error(noteData.error || "No se pudo crear la incidencia consolidada.");
+      const nextLines = previewLines.map((line) => actionableLines.some((item) => item.id === line.id) ? { ...line, prepared: 0, preparation_status: "Incidencia" } : line);
+      const lineResponses = await Promise.all(actionableLines.map((line) => fetch(`/api/order_lines/${line.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...line, prepared: 0, preparation_status: "Incidencia" }) })));
+      if (lineResponses.some((response) => !response.ok)) throw new Error("La incidencia se creó, pero no se pudieron actualizar todas las líneas del pedido.");
+      const nextShipmentStatus = "Preparado con incidencia";
+      if (preview?.id) {
+        const shipmentResponse = await fetch(`/api/shipments/${preview.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...preview, status: nextShipmentStatus, prepared_by: user?.username || "Usuario local" }) });
+        if (!shipmentResponse.ok) throw new Error("La incidencia se creó, pero no se pudo actualizar el estado de la nota de carga.");
+      }
+      setPreviewLines(nextLines);
+      setPreview((current: any) => current ? { ...current, status: nextShipmentStatus } : current);
+      setRows((current) => current.map((item) => item.id === preview?.id ? { ...item, status: nextShipmentStatus } : item));
+      setBulkIncidentOpen(false);
+      setBulkIncidentText("");
+    } catch (error: any) {
+      setBulkIncidentError(error?.message || "No se pudo registrar la incidencia. Inténtalo de nuevo.");
+    } finally {
+      setBulkIncidentSaving(false);
+    }
+  }
+  async function resolvePreparationIncident(line: any) {
+    const prepared = Number(line.prepared_quantity || 0);
+    const missing = Math.max(0, Number(line.quantity || 0) - prepared);
+    const now = new Date().toISOString();
+    const actor = user?.username || "Usuario local";
+    if (incidentResolution === "backorder") {
+      if (!missing) return alert("No quedan unidades pendientes para crear otro pedido.");
+      const sourceCode = preview?.code || `Pedido #${preview?.order_id || preview?.id || ""}`;
+      const nextDate = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const product = productOptions.find((item: any) => Number(item.id) === Number(line.product_id));
+      const unitPrice = Number(line.unit_price || product?.unit_price || 0);
+      const response = await fetch("/api/orders", { method: "POST", headers: actorHeaders, body: JSON.stringify({ code: `PEN-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`, source_order_id: preview?.order_id || preview?.id || null, client_id: preview?.client_id || null, collection_point_id: preview?.collection_point_id || null, address: preview?.address || previewClient?.address || null, status: "Nuevo", preparation_date: nextDate, shipping_date: nextDate, delivery_date: nextDate, notes: `Pendiente del pedido ${sourceCode}. Faltan ${missing} unidades de ${product?.name || "producto"}.`, amount: missing * unitPrice, lines: [{ product_id: Number(line.product_id), quantity: missing, quantity_requested: missing, quantity_unit: "unidad", units_factor: 1, unit_price: unitPrice, discount: 0, vat: Number(line.vat || 21), amount: missing * unitPrice }] }) });
+      const created = await response.json().catch(() => ({}));
+      if (!response.ok) return alert(created.error || "No se pudo crear el pedido pendiente.");
+      await updatePreparationLine(line, { prepared: 1, prepared_quantity: prepared, preparation_status: "Preparado", incident_resolution: `Nuevo pedido ${created.code || created.id}`, incident_resolved_at: now, incident_resolved_by: actor });
+    } else {
+      await updatePreparationLine(line, { prepared: 1, prepared_quantity: prepared, preparation_status: "Preparado", incident_resolution: incidentResolution === "cancel" ? "Faltante cancelado" : "Envío parcial", incident_resolved_at: now, incident_resolved_by: actor });
+    }
+    setIncidentLineId(null);
+    setIncidentText("");
+    setIncidentResolution("partial");
+  }
+  async function applyNoteIncidentAction() {
+    if (!notePreview?.id || noteActionSaving) return;
+    const actionLabels: Record<string, { status: string; resolution: string; completed: number }> = {
+      partial: { status: "Autorizada", resolution: "Envío parcial autorizado", completed: 1 },
+      backorder: { status: "Reposición solicitada", resolution: "Pendiente de reposición", completed: 0 },
+      cancel: { status: "Resuelta", resolution: "Faltante cancelado", completed: 1 },
+      review: { status: "En revisión", resolution: "Requiere revisión del responsable", completed: 0 },
+    };
+    const selected = actionLabels[noteAction] || actionLabels.review;
+    setNoteActionSaving(true);
+    setNoteActionError("");
+    try {
+      const now = new Date().toISOString();
+      let replenishmentCode = "";
+      if (noteAction === "backorder") {
+        const orderId = Number(notePreview.record_id || 0);
+        const sourceOrder = (lookups.orders || []).find((item: any) => Number(item.id) === orderId);
+        if (!orderId || !sourceOrder) throw new Error("No se ha encontrado el pedido original para crear la reposición.");
+        const linesResponse = await fetch("/api/order_lines", { headers: actorHeaders });
+        const allLines = linesResponse.ok ? await linesResponse.json() : [];
+        const missingLines = (Array.isArray(allLines) ? allLines : [])
+          .filter((line: any) => Number(line.order_id) === orderId && Number(line.quantity || 0) > Number(line.prepared_quantity || 0))
+          .map((line: any) => {
+            const missing = Math.max(0, Number(line.quantity || 0) - Number(line.prepared_quantity || 0));
+            return { ...line, missing };
+          })
+          .filter((line: any) => line.missing > 0);
+        if (!missingLines.length) throw new Error("No quedan unidades pendientes para crear un pedido de reposición.");
+        const replenishmentLines = missingLines.map((line: any) => ({
+          product_id: Number(line.product_id),
+          quantity: line.missing,
+          quantity_requested: line.missing,
+          quantity_unit: line.quantity_unit || "unidad",
+          units_factor: Number(line.units_factor || 1),
+          unit_price: Number(line.unit_price || 0),
+          discount: Number(line.discount || 0),
+          vat: Number(line.vat || 21),
+          amount: Number(line.missing) * Number(line.unit_price || 0),
+        }));
+        const orderResponse = await fetch("/api/orders", {
+          method: "POST",
+          headers: actorHeaders,
+          body: JSON.stringify({
+            code: `PEN-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`,
+            source_order_id: orderId,
+            client_id: sourceOrder.client_id || null,
+            collection_point_id: sourceOrder.collection_point_id || null,
+            address: sourceOrder.address || null,
+            status: "Nuevo",
+            preparation_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+            shipping_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+            delivery_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+            notes: `Reposición del pedido ${sourceOrder.code || orderId}. Creado desde la incidencia ${notePreview.title || "de preparación"}.`,
+            lines: replenishmentLines,
+          }),
+        });
+        const orderData = await orderResponse.json().catch(() => ({}));
+        if (!orderResponse.ok) throw new Error(orderData.error || "No se pudo crear el pedido de reposición.");
+        replenishmentCode = orderData.code || `Pedido #${orderData.id}`;
+        selected.resolution = `Pedido de reposición creado: ${replenishmentCode}`;
+        selected.status = "Resuelta";
+        selected.completed = 1;
+      }
+      const response = await fetch(`/api/notes/${notePreview.id}`, {
+        method: "PUT",
+        headers: actorHeaders,
+        body: JSON.stringify({ ...notePreview, status: selected.status, resolution: selected.resolution, completed: selected.completed, resolved_at: now, resolved_by: user?.username || "Usuario local" }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "No se pudo guardar la resolución.");
+      setNotePreview((current: any) => current ? { ...current, ...data, status: selected.status, resolution: selected.resolution, completed: selected.completed, resolved_at: now, resolved_by: user?.username || "Usuario local" } : current);
+      setRows((current) => current.map((item) => Number(item.id) === Number(notePreview.id) ? { ...item, ...data, status: selected.status, resolution: selected.resolution, completed: selected.completed, resolved_at: now, resolved_by: user?.username || "Usuario local" } : item));
+    } catch (error: any) {
+      setNoteActionError(error?.message || "No se pudo guardar la resolución.");
+    } finally {
+      setNoteActionSaving(false);
+    }
+  }
+  function openIncidentPreparation() {
+    const orderId = Number(notePreview?.record_id || 0);
+    const shipment = (lookups.shipments || []).find((item: any) => Number(item.order_id) === orderId);
+    setNotePreview(null);
+    onNavigate?.("Preparación de pedidos");
+    if (shipment?.id) window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-preparacion", { detail: Number(shipment.id) })), 160);
+  }
+  async function addPreviewLine() {
+    if (!preview || !newLine.product_id) return;
+    const invoice = active === "Facturas";
+    const order = active === "Pedidos";
+    const table = invoice
+      ? "invoice_lines"
+      : order
+        ? "order_lines"
+        : "delivery_note_lines";
+    const line = invoice
+      ? {
+          invoice_id: preview.id,
+          product_id: Number(newLine.product_id),
+          quantity: Number(newLine.quantity),
+          unit_price: Number(newLine.unit_price),
+          amount: Number(newLine.quantity) * Number(newLine.unit_price),
+        }
+      : order
+        ? {
+            order_id: preview.id,
+            product_id: Number(newLine.product_id),
+            quantity: Number(newLine.quantity),
+            unit_price: Number(newLine.unit_price),
+            amount: Number(newLine.quantity) * Number(newLine.unit_price),
+          }
+        : {
+            delivery_note_id: preview.id,
+            product_id: Number(newLine.product_id),
+            quantity: Number(newLine.quantity),
+          };
+    const response = await fetch("/api/" + table, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(line),
+    });
+    const created = await response.json();
+    if (!response.ok)
+      return alert(created.error || "No se pudo guardar la línea");
+    setPreviewLines((current) => [...current, created]);
+    setNewLine({ product_id: "", quantity: "1", unit_price: "0" });
+  }
+  function formatTableValue(field: string, value: any) {
+    if (value === null || value === undefined || value === "") return "—";
+    const lookupSource = field === "client_id" ? lookups.clients
+      : field === "product_id" ? lookups.products
+        : field === "warehouse_id" ? lookups.warehouses
+          : field === "supplier_id" ? lookups.suppliers
+            : field === "collection_point_id" ? lookups.collection_points
+              : field === "order_id" ? lookups.orders
+                : field === "invoice_id" ? lookups.invoices
+                : field === "shipment_id" ? lookups.shipments
+                  : [];
+    if (lookupSource.length && field.endsWith("_id")) {
+      const item = lookupSource.find((entry: any) => Number(entry.id) === Number(value));
+      if (item) {
+        if (field === "product_id") return active === "Stock" ? (item.name || `Producto ${value}`) : `${item.name || `Producto ${value}`}${item.sku ? ` · ${item.sku}` : ""}`;
+        if (field === "client_id") return `${item.name || `Cliente ${value}`}${item.city ? ` · ${item.city}` : ""}`;
+        return item.name || item.code || `Registro ${value}`;
+      }
+    }
+    if (["amount", "unit_price", "cost_price"].includes(field)) {
+      return Number(value).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
+    }
+    const isDateOnly = field.endsWith("_date") || ["date", "issue_date", "order_date"].includes(field);
+    const isDateTime = field.endsWith("_at") || field.includes("time") || ["created_at", "updated_at", "deleted_at"].includes(field);
+    if (isDateOnly || isDateTime) {
+      const raw = String(value).replace("T", " ");
+      const datePart = raw.slice(0, 10);
+      const match = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (match) {
+        const formatted = `${match[3]}/${match[2]}/${match[1]}`;
+        return isDateTime && raw.length >= 16 ? `${formatted} ${raw.slice(11, 16)}` : formatted;
+      }
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) return parsed.toLocaleString("es-ES", isDateOnly ? { day: "2-digit", month: "2-digit", year: "numeric" } : { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+    return String(value);
+  }
+  const dateFields = new Set([
+    "date", "issue_date", "order_date", "expected_date", "return_date", "reviewed_at", "authorized_at",
+    "movement_date", "delivery_date", "preparation_date", "shipping_date", "valid_until", "due_date",
+    "payment_date", "expense_date", "created_at", "updated_at", "deleted_at", "departure_at", "prepared_at",
+    "shipped_at", "delivery_window_start", "delivery_window_end", "expected_delivery_at", "delivered_at",
+  ]);
+  const isDateField = (field: string) => dateFields.has(field) || field.endsWith("_date") || field.endsWith("_at");
+  const isLoadPreparation = active === "Preparación de pedidos";
+  const incompletePreparationLines = previewLines.filter((line: any) => Number(line.prepared_quantity || 0) < Number(line.quantity || 0));
+  const actionableIncompletePreparationLines = incompletePreparationLines.filter((line: any) => line.preparation_status !== "Incidencia");
+  const isProducts = active === "Productos";
+  const preparationRows = isLoadPreparation
+    ? [
+        ...rows,
+        ...(Array.isArray(lookups.orders) ? lookups.orders : [])
+          .filter((order: any) =>
+            ["Nuevo", "Pendiente", "Confirmado"].includes(String(order.status || "Pendiente")) &&
+            Number(order.deleted || 0) !== 1 &&
+            !rows.some((shipment: any) => Number(shipment.order_id) === Number(order.id)),
+          )
+          .map((order: any) => {
+            const client = (lookups.clients || []).find((item: any) => Number(item.id) === Number(order.client_id));
+            return {
+              ...order,
+              id: -Math.abs(Number(order.id)),
+              order_id: order.id,
+              code: order.code,
+              client_id: order.client_id,
+              status: "Pendiente",
+              address: order.address || client?.address || "",
+              expected_delivery_at: order.delivery_date || null,
+              preparation_date: order.preparation_date || null,
+              urgent: Number(order.urgent || 0),
+              packages: order.packages || 1,
+              notes: order.notes || "Preparación pendiente de iniciar.",
+              _virtual_order: true,
+              _source_order_id: order.id,
+            };
+          }),
+      ]
+    : rows;
+  const productCategories = isProducts ? Array.from(new Set(rows.map((row) => String(row.category || "").trim()).filter(Boolean))).sort() : [];
+  const productBrands = isProducts ? Array.from(new Set(rows.map((row) => String(row.brand || "").trim()).filter(Boolean))).sort() : [];
+  const filteredRows = preparationRows.filter((row) => {
+    const normalizeSearch = (value: any) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const query = normalizeSearch(search).trim();
+    const relatedValues = ["client_id", "product_id", "supplier_id", "primary_supplier_id", "warehouse_id", "collection_point_id", "order_id", "shipment_id", "invoice_id"].flatMap((field) => {
+      const lookupName = field === "client_id" ? "clients" : field === "product_id" ? "products" : ["supplier_id", "primary_supplier_id"].includes(field) ? "suppliers" : field === "warehouse_id" ? "warehouses" : field === "collection_point_id" ? "collection_points" : field === "order_id" ? "orders" : field === "shipment_id" ? "shipments" : field === "invoice_id" ? "invoices" : "";
+      const match = lookupName && (lookups[lookupName] || []).find((item: any) => Number(item.id) === Number(row[field]));
+      return match ? [match.name, match.code, match.city, match.email, match.phone] : [];
+    });
+    const primaryValues = c.fields.slice(0, 4).map((field: string) => row[field]);
+    const searchableText = normalizeSearch([...primaryValues, ...relatedValues, JSON.stringify(row)].join(" "));
+    const matchesText = !query || query.split(/\s+/).every((token) => searchableText.includes(token));
+    if (!isProducts && !isLoadPreparation) return matchesText;
+    if (isLoadPreparation) return matchesText && (!preparationDateFilter || String(row.preparation_date || "").slice(0, 10) === preparationDateFilter);
+    const available = Number(row.stock || 0) - Number(row.stock_reserved || 0);
+    const matchesCategory = !productFilters.category || row.category === productFilters.category;
+    const matchesBrand = !productFilters.brand || row.brand === productFilters.brand;
+    const matchesStock = productFilters.stock === "todos" || (productFilters.stock === "critico" ? available <= Number(row.min_stock || 0) : available > Number(row.min_stock || 0));
+    const matchesCodes = productFilters.codes === "todos" || (productFilters.codes === "sin-codigo" ? !row.barcode : Boolean(row.barcode));
+    return matchesText && matchesCategory && matchesBrand && matchesStock && matchesCodes;
+  });
+  const sortedRows = isLoadPreparation
+    ? [...filteredRows].sort((a, b) => Number(b.urgent || 0) - Number(a.urgent || 0) || String(a.preparation_date || "9999").localeCompare(String(b.preparation_date || "9999")) || String(a.address || "").localeCompare(String(b.address || ""), "es", { numeric: true }))
+    : tableSort
+    ? [...filteredRows].sort((a, b) => {
+        const field = tableSort.field;
+        if (field === "stock_status") {
+          const rank = (row: any) => {
+            const available = Number(row.available_stock ?? Number(row.stock || 0) - Number(row.stock_reserved || 0));
+            const minimum = Number(row.min_stock || 0);
+            return available <= 0 ? 0 : available <= minimum ? 1 : minimum > 0 && available <= minimum * 1.25 ? 2 : 3;
+          };
+          const comparison = rank(a) - rank(b);
+          return (tableSort.direction === "asc" ? comparison : -comparison) || String(a.product_name || a.name || "").localeCompare(String(b.product_name || b.name || ""), "es");
+        }
+        const numericFields = ["stock", "stock_reserved", "available_stock", "min_stock", "amount", "quantity", "unit_price", "total_units", "credit_limit"];
+        const numeric = numericFields.includes(field);
+        const av = numeric ? Number(a[field] || 0) : String(a[field] || "");
+        const bv = numeric ? Number(b[field] || 0) : String(b[field] || "");
+        const aMissing = !av;
+        const bMissing = !bv;
+        if (aMissing !== bMissing) return aMissing ? 1 : -1;
+        const comparison = numeric ? (av as number) - (bv as number) : (av as string).localeCompare(bv as string, "es", { numeric: true });
+        return tableSort.direction === "asc" ? comparison : -comparison;
+      })
+    : active === "Stock" && stockSort !== "none"
+    ? [...filteredRows].sort((a, b) => {
+        if (stockSort.startsWith("status")) {
+          const rank = (row: any) => {
+            const available = Number(row.available_stock ?? Number(row.stock || 0) - Number(row.stock_reserved || 0));
+            const minimum = Number(row.min_stock || 0);
+            if (available <= 0) return 0;
+            if (available <= minimum) return 1;
+            if (minimum > 0 && available <= minimum * 1.25) return 2;
+            return 3;
+          };
+          const direction = stockSort.endsWith("desc") ? -1 : 1;
+          return (rank(a) - rank(b)) * direction || String(a.product_name || "").localeCompare(String(b.product_name || ""), "es");
+        }
+        const field = stockSort.startsWith("physical") ? "stock" : "available_stock";
+        const direction = stockSort.endsWith("desc") ? -1 : 1;
+        return (Number(a[field] || 0) - Number(b[field] || 0)) * direction;
+      })
+    : filteredRows;
+  const preparationUrgentCount = isLoadPreparation ? filteredRows.filter((row) => Number(row.urgent) === 1).length : 0;
+  const preparationIncidentCount = isLoadPreparation ? filteredRows.filter((row) => row.status === "Preparado con incidencia").length : 0;
+  const stockCellClass = (row: any, field: string) => {
+    if (active !== "Stock" || field !== "stock_status") return "";
+    const available = Number(row.available_stock ?? Number(row.stock || 0) - Number(row.stock_reserved || 0));
+    const minimum = Number(row.min_stock || 0);
+    if (available <= 0) return "stock-cell-danger";
+    if (available <= minimum) return "stock-cell-warning";
+    if (minimum > 0 && available <= minimum * 1.25) return "stock-cell-caution";
+    return "stock-cell-ok";
+  };
+  const renderFormField = (f: string, i: number) => (
+    <label key={f}>
+      <span className={active === "Pedidos" && ["client_id", "collection_point_id"].includes(f) ? "field-label-required" : undefined}>{active === "Pedidos" && f === "collection_point_id" ? "Lugar de envío" : c.labels[i]}</span>
+      {active === "Pedidos" && f === "client_id" ? (
+        <>
+          <div className="smart-client-picker"><input aria-label="Cliente" autoComplete="off" placeholder={lookups.clients?.length ? "Buscar cliente por nombre, ciudad, teléfono o email…" : "Cargando clientes…"} value={clientSearch} onChange={(event) => { const value = event.target.value; setClientSearch(value); if (!value) handleFormChange("client_id", ""); }} />{lookups.clients?.length > 0 && <button type="button" className="smart-client-clear" onClick={() => { setClientSearch(""); handleFormChange("client_id", ""); }} aria-label="Limpiar cliente" title="Limpiar cliente">×</button>}{!form.client_id && clientSearch.trim().length > 0 && <div className="smart-client-suggestions">{(lookups.clients || []).filter((item: any) => `${item.name || ""} ${item.city || ""} ${item.phone || ""} ${item.email || ""}`.toLowerCase().includes(clientSearch.trim().toLowerCase())).slice(0, 8).map((item: any) => <button type="button" key={item.id} onClick={() => { setClientSearch(`${item.name}${item.city ? ` · ${item.city}` : ""}`); handleFormChange("client_id", String(item.id)); }}><b>{item.name}{item.city ? ` · ${item.city}` : ""}</b><small>{[item.phone, item.email].filter(Boolean).join(" · ") || "Sin datos de contacto"}</small></button>)}{!(lookups.clients || []).some((item: any) => `${item.name || ""} ${item.city || ""} ${item.phone || ""} ${item.email || ""}`.toLowerCase().includes(clientSearch.trim().toLowerCase())) && <span className="smart-client-no-results">No hay clientes que coincidan.</span>}</div>}</div>
+        </>
+      ) : active === "Pedidos" && f === "collection_point_id" ? (
+        <>
+          <select aria-label="Lugar de envío" required value={form[f] ?? ""} disabled={!form.client_id} onChange={(e) => { if (e.target.value === "__new__") setNewShippingLocationOpen(true); else handleFormChange(f, e.target.value); }}>
+            <option value="">{form.client_id ? "Seleccionar ubicación del cliente…" : "Selecciona primero un cliente"}</option>
+            {(lookups.collection_points || []).filter((item: any) => Number(item.client_id) === Number(form.client_id)).map((item: any) => <option key={item.id} value={item.id}>{item.name}{item.address ? ` · ${item.address}` : ""}</option>)}
+            {form.client_id && <option value="__new__">＋ Crear nueva ubicación para este cliente</option>}
+          </select>
+          {newShippingLocationOpen && <div className="shipping-location-quick-form">
+            <b>Nueva ubicación del cliente</b>
+            <input aria-label="Nombre de la ubicación" placeholder="Nombre (ej. Almacén secundario)" value={newShippingLocation.name} onChange={(e) => setNewShippingLocation({ ...newShippingLocation, name: e.target.value })} />
+            <input aria-label="Dirección de envío" placeholder="Dirección de envío" value={newShippingLocation.address} onChange={(e) => setNewShippingLocation({ ...newShippingLocation, address: e.target.value })} />
+            <input aria-label="Ciudad de la ubicación" placeholder="Ciudad" value={newShippingLocation.city} onChange={(e) => setNewShippingLocation({ ...newShippingLocation, city: e.target.value })} />
+            <div><button type="button" className="button primary" onClick={createShippingLocation}>Guardar ubicación</button><button type="button" className="button secondary" onClick={() => setNewShippingLocationOpen(false)}>Cancelar</button></div>
+          </div>}
+        </>
+      ) : f === "client_id" || f === "product_id" || f === "warehouse_id" || f === "supplier_id" || f === "primary_supplier_id" || f === "collection_point_id" || f === "order_id" || f === "shipment_id" ? (
+        <select
+          aria-label={c.labels[i]}
+          required={c.api === "orders" ? f === "client_id" : !['warehouse_id', 'order_id', 'shipment_id', 'supplier_id', 'primary_supplier_id'].includes(f)}
+          value={form[f] ?? ""}
+          onChange={(e) => handleFormChange(f, e.target.value)}
+        >
+          <option value="">Seleccionar...</option>
+          {(lookups[f === "client_id" ? "clients" : f === "product_id" ? "products" : ["supplier_id", "primary_supplier_id"].includes(f) ? "suppliers" : f === "collection_point_id" ? "collection_points" : f === "order_id" ? "orders" : f === "shipment_id" ? "shipments" : "warehouses"] || []).map((item: any) => (
+            <option key={item.id} value={item.id}>{item.name || item.code || (f === "order_id" ? `Pedido #${item.id}` : f === "shipment_id" ? `Hoja #${item.id}` : `Registro #${item.id}`)}</option>
+          ))}
+        </select>
+      ) : active === "Productos" && f === "product_status" ? (
+        <select aria-label={c.labels[i]} value={form[f] ?? "Activo"} onChange={(e) => handleFormChange(f, e.target.value)}>{["Activo", "Inactivo", "Descatalogado", "Estacional"].map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Productos" && ["category", "family", "subfamily"].includes(f) ? (
+        <select aria-label={c.labels[i]} value={form[f] ?? ""} onChange={(e) => handleFormChange(f, e.target.value)}><option value="">Seleccionar...</option>{(f === "category" ? ["Bebidas", "Aguas", "Refrescos", "Zumos", "Vinos", "Cervezas", "Destilados", "Alimentación"] : f === "family" ? ["Agua", "Refresco", "Zumo", "Vino", "Cerveza", "Tónica", "Isotónica"] : ["Con gas", "Sin gas", "Naranja", "Limón", "Tinto", "Blanco", "Premium"]).map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Productos" && ["unit", "purchase_format", "sale_format"].includes(f) ? (
+        <select aria-label={c.labels[i]} value={form[f] ?? ""} onChange={(e) => handleFormChange(f, e.target.value)}><option value="">Seleccionar...</option>{["Unidad", "Caja", "Pack de 4", "Pack de 6", "Palé"].map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Productos" && ["fixed_supplier", "lot_tracking", "expiry_tracking", "returnable_packaging"].includes(f) ? (
+        <select aria-label={c.labels[i]} value={String(form[f] ?? "0")} onChange={(e) => handleFormChange(f, e.target.value)}><option value="0">No</option><option value="1">Sí</option></select>
+      ) : active === "Documentos" && f === "type" ? (
+        <select aria-label={c.labels[i]} value={form[f] ?? "General"} onChange={(e) => handleFormChange(f, e.target.value)}>{["Presupuesto", "Correo", "Albarán", "Factura", "Hoja de carga", "Contrato", "Alta de cliente", "Condiciones", "General"].map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Documentos" && f === "format" ? (
+        <select aria-label={c.labels[i]} value={form[f] ?? "HTML"} onChange={(e) => handleFormChange(f, e.target.value)}>{["HTML", "Texto plano", "PDF", "Word", "Correo electrónico"].map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Notas" && f === "priority" ? (
+        <select aria-label={c.labels[i]} value={form[f] ?? "Normal"} onChange={(e) => handleFormChange(f, e.target.value)}>{["Baja", "Normal", "Alta", "Urgente"].map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Notas" && f === "module" ? (
+        <select aria-label={c.labels[i]} value={form[f] ?? "General"} onChange={(e) => handleFormChange(f, e.target.value)}>{["General", "Pedidos", "Clientes", "Productos", "Stock", "Envíos", "Compras", "Facturas"].map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Pedidos" && f === "urgent" ? (
+        <select aria-label={c.labels[i]} value={String(form[f] ?? "0")} onChange={(e) => handleFormChange(f, e.target.value)}><option value="0">No</option><option value="1">Sí</option></select>
+      ) : active === "Notas" && ["important", "completed"].includes(f) ? (
+        <input type="checkbox" aria-label={c.labels[i]} checked={Boolean(Number(form[f] || 0))} onChange={(e) => handleFormChange(f, e.target.checked ? "1" : "0")} />
+      ) : f === "status" ? (
+        <select aria-label={c.labels[i]} value={form[f] ?? (active === "Pedidos" ? "Nuevo" : "Pendiente")} onChange={(e) => handleFormChange(f, e.target.value)}>
+          {(active === "Facturas" ? ["Proforma", "Pendiente", "Parcial", "Cobrada", "Vencida", "Anulada"] : [...(active === "Documentos" ? ["Activa", "Borrador", "Archivada"] : []), ...(active === "Pedidos" ? ["Nuevo"] : []), "Pendiente", "Confirmado", "Preparando", "Preparado", "Enviado", "Entregado", "Cancelado", "Cobrada"]).map((s) => <option key={s}>{s}</option>)}
+        </select>
+      ) : ["content", "description"].includes(f) || (active === "Pedidos" && f === "notes") ? (
+        <textarea aria-label={c.labels[i]} required={!['description', 'notes'].includes(f)} value={form[f] ?? ""} onChange={(e) => handleFormChange(f, e.target.value)} />
+      ) : (
+        <input
+          required={c.api === "orders"
+            ? ["code", "client_id"].includes(f)
+            : active === "Notas"
+            ? ["title", "content"].includes(f)
+            : active === "Productos"
+            ? f === "name"
+            : !["phone", "email", "address", "notes", "attachment_name", "sent_by", "delivered_by"].includes(f) && !(c.api === "expenses" && f === "code")}
+          type={["amount", "stock", "stock_reserved", "quantity", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "client_id", "product_id", "order_id", "invoice_id", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "picking_order", "target_margin_percent", "min_margin_percent", "freight_cost", "handling_cost", "real_cost", "tax_surcharge_percent", "extra_tax_percent"].includes(f) ? "number" : ["movement_date", "return_date", "reviewed_at", "authorized_at"].includes(f) ? "datetime-local" : ["expense_date", "delivery_date", "preparation_date", "shipping_date"].includes(f) ? "date" : "text"}
+          value={form[f] ?? ""}
+          readOnly={f === "created_by" || (f === "code" && isOrderForm && !editing)}
+          onChange={(e) => handleFormChange(f, e.target.value)}
+        />
+      )}
+    </label>
+  );
+  const productSections = [
+    { title: "Producto", fields: ["name", "sku", "barcode", "supplier_ref", "family", "subfamily", "category", "brand", "format", "unit", "purchase_format", "sale_format", "product_status"] },
+    { title: "Inventario y logística", fields: ["stock", "stock_reserved", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "warehouse_location", "picking_order"] },
+    { title: "Costes y márgenes", fields: ["cost_price", "unit_price", "markup_percent", "margin_percent", "target_margin_percent", "min_margin_percent", "freight_cost", "handling_cost", "real_cost"] },
+    { title: "Precios e impuestos", fields: ["vat", "tax_surcharge_percent", "extra_tax_name", "extra_tax_percent", "fixed_supplier", "primary_supplier_id", "supplier_id"] },
+    { title: "Reposición y trazabilidad", fields: ["lot_tracking", "expiry_tracking", "returnable_packaging"] },
+  ];
+  const createActionLabels: Record<string, string> = {
+    Productos: "Crear producto",
+    Pedidos: "Crear pedido",
+    Stock: "Crear movimiento de stock",
+    Envíos: "Crear envío",
+    Clientes: "Crear cliente",
+    Proveedores: "Crear proveedor",
+    Compras: "Crear compra",
+    "Compras inteligentes": "Crear solicitud de compra",
+    "Gastos y tickets": "Crear gasto",
+    Presupuestos: "Crear presupuesto",
+    Facturas: "Crear factura",
+    Albaranes: "Crear albarán",
+    "Preparación de pedidos": "Crear preparación",
+    Almacenes: "Crear almacén",
+    "Lugares de recogida": "Crear lugar de recogida",
+    Entradas: "Crear entrada",
+    Salidas: "Crear salida",
+    Cobros: "Crear cobro",
+    Devoluciones: "Crear devolución",
+    Documentos: "Crear plantilla",
+    Notas: "Crear nota",
+  };
+  function nextOrderCode() {
+    const year = new Date().getFullYear();
+    const prefix = `PED-${year}-`;
+    const highest = rows.reduce((max: number, row: any) => {
+      const code = String(row.code || "");
+      if (!code.startsWith(prefix)) return max;
+      const number = Number(code.slice(prefix.length));
+      return Number.isFinite(number) ? Math.max(max, number) : max;
+    }, 0);
+    return `${prefix}${String(highest + 1).padStart(4, "0")}`;
+  }
+  const isOrderForm = c.api === "orders";
+  const formEntity = active === "Facturas" && form.status === "Proforma" ? "proforma" : (isOrderForm ? "pedido" : (createActionLabels[active] || "Crear registro").replace(/^Crear /, ""));
+  const formTitle = `${editing ? "Editar" : "Crear"} ${formEntity}`;
+  return (
+    <>
+    <div className={`manager${isLoadPreparation ? " load-preparation-manager" : ""}`}>
+      <div className="manager-head">
+        <div>
+          <p className="eyebrow">GESTIÓN · SQLITE LOCAL</p>
+          <h2>{c.title}</h2>
+        </div>
+        <div>
+          <button
+            type="button"
+            className="button primary"
+            onClick={() => {
+              setEditing(null);
+              setQuoteLines([]);
+              if (active === "Pedidos") setClientSearch("");
+              setForm(
+                  (c.movementFilter || active === "Entradas")
+                  ? { movement_type: c.movementFilter || "Entrada", movement_date: tabletTodayInput(), created_by: user?.username || "Usuario local" }
+                  : active === "Devoluciones"
+                    ? { return_date: tabletTodayInput(), status: "Pendiente", reviewed_by: "", authorized_by: "" }
+                  : c.statusFilter
+                    ? { status: "Preparando", packages: 1 }
+                  : isOrderForm || active === "Pedidos"
+                    ? { code: nextOrderCode(), status: "Nuevo", created_by: user?.username || "Usuario local" }
+                    : {},
+              );
+              setFormOpen(true);
+            }}
+          >
+            ＋ {active === "Pedidos" ? "Crear pedido" : createActionLabels[active] || "Crear registro"}
+          </button>{" "}
+          {active === "Facturas" && (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => {
+                setEditing(null);
+                setQuoteLines([]);
+                setForm({ code: `PRO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`, issue_date: tabletTodayInput(), status: "Proforma", vat: 21 });
+                setFormOpen(true);
+              }}
+            >
+              ＋ Crear proforma
+            </button>
+          )}{" "}
+          {!isLoadPreparation && <>
+            <button type="button" className="button secondary" onClick={download}>
+              ↓ Descargar Excel/CSV
+            </button>{" "}
+            <label className="import-button">
+              ↑ Importar CSV
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) =>
+                  e.target.files?.[0] && importCsv(e.target.files[0])
+                }
+              />
+            </label>{" "}
+            <button
+              type="button"
+              className="button secondary"
+              onClick={downloadTemplate}
+            >
+              ↓ Descargar plantilla
+            </button>
+          </>}
+        </div>
+      </div>
+      {dbError && <div className="db-error">{dbError}</div>}
+      {!isLoadPreparation && <BusinessRelatedPanels active={active} rows={rows} lookups={lookups} onNavigate={onNavigate} />}
+      {isLoadPreparation && <PreparationDayCards rows={preparationRows} lookups={lookups} dateFilter={preparationDateFilter} onDateFilterChange={setPreparationDateFilter} onOpen={(row) => void openPreparationRow(row)} />}
+      {active === "Gastos y tickets" && (
+        <ExpenseScanner
+          clients={lookups.clients || []}
+          actor={user?.username || "Usuario local"}
+          onCreated={(created) => setRows((current) => [created, ...current])}
+        />
+      )}
+      <details
+        ref={formAccordionRef}
+        className="form-accordion"
+        open={formOpen || !!editing}
+        onToggle={(e: any) => setFormOpen(e.currentTarget.open)}
+      >
+        <summary>
+          {formTitle}{" "}
+          <span>{formOpen || editing ? "−" : "+"}</span>
+        </summary>
+        <form className={`record-form${active === "Productos" ? " product-master-form" : ""}`} onSubmit={save}>
+          {active === "Productos" ? (
+            <>
+              <div className="product-master-toolbar" aria-label="Acciones de la ficha de producto">
+                <span>Ficha de producto</span>
+                <small>Completa los datos por bloques y conserva el control de costes, stock y reposición.</small>
+                <div>
+                  <button type="button" className="button secondary" onClick={() => setForm({})}>Limpiar ficha</button>
+                  <button type="button" className="button secondary" onClick={() => setForm((current: any) => ({ ...current, product_status: "Activo" }))}>Marcar activo</button>
+                </div>
+              </div>
+              {productSections.map((section, sectionIndex) => (
+                <details className="product-master-section" key={section.title} open={sectionIndex < 2}>
+                  <summary><b>{section.title}</b><span>Mostrar más/menos</span></summary>
+                  <div className="product-master-grid">
+                    {section.fields.map((field) => {
+                      const index = c.fields.indexOf(field);
+                      return index >= 0 ? renderFormField(field, index) : null;
+                    })}
+                  </div>
+                </details>
+              ))}
+            </>
+          ) : isOrderForm ? (
+            <>
+            {editing && <div className="order-record-toolbar" role="toolbar" aria-label="Acciones del pedido">
+              <div><b>{isOrderSent(editing) ? "Pedido cerrado" : "Pedido editable"}</b><small>{isOrderSent(editing) ? "El pedido ya ha salido del almacén; consulta su documento desde aquí." : "Puedes modificar los datos y las líneas antes de enviarlo."}</small></div>
+              <div><button type="button" className="button secondary" onClick={() => void openPreview(editing)}>Ver detalle</button>{getOrderShipment(editing) && <button type="button" className="button workflow" onClick={() => void openOrderLoadNote(editing)}>Abrir nota de carga</button>}</div>
+            </div>}
+            <details className="order-general-accordion" open>
+              <summary><b>Datos generales del pedido</b><span><em className="order-created-date">Fecha del pedido: {formatSpanishDateValue(String(form.created_at || tabletTodayInput()).slice(0, 10), false)}</em> · {orderGeneralComplete ? <em className="accordion-complete" title="Campos obligatorios completos">✓ Completo</em> : <em className="accordion-pending">Pendiente de completar</em>} · Mostrar más/menos</span></summary>
+              <div className="order-general-fields">
+                {c.fields.filter((f: string) => !["product_id", "quantity", "unit_price", "discount", "amount", "prepared_by", "shipped_by", "delivered_by"].includes(f)).map((f: string) => renderFormField(f, c.fields.indexOf(f)))}
+              </div>
+            </details>
+            </>
+          ) : c.fields.map((f: string) => renderFormField(f, c.fields.indexOf(f)))}
+          {(active === "Presupuestos" || isOrderForm) && (
+            <section className="quote-lines-editor">
+              <div className="quote-lines-head"><div><b>Líneas del {isOrderForm ? "pedido" : "presupuesto"}</b><small>Busca y añade varios productos como en un carrito.</small></div></div>
+              <div className="quote-line-add">
+                <label className="quote-line-field quote-line-product"><span>Producto</span><div className="quote-product-picker"><input aria-label="Buscar producto" autoComplete="off" placeholder="Buscar por nombre o SKU…" value={quoteProductSearch} onChange={(event) => { const value = event.target.value; const product = (lookups.products || []).find((item: any) => String(item.name).toLowerCase() === value.trim().toLowerCase() || String(item.sku || "").toLowerCase() === value.trim().toLowerCase()); const factor = quoteUnitsFactor(product, quoteLineDraft.quantity_unit); setQuoteProductSearch(value); setQuoteLineDraft({ ...quoteLineDraft, product_id: product ? String(product.id) : "", total_units: product && factor > 0 ? String(Number(quoteLineDraft.quantity || 1) * factor) : "", unit_price: product ? String(Number(product.unit_price || 0) * factor) : quoteLineDraft.unit_price }); }} />{quoteProductSearch && <button type="button" className="quote-product-clear" aria-label="Limpiar producto" onClick={() => { setQuoteProductSearch(""); setQuoteLineDraft({ ...quoteLineDraft, product_id: "", total_units: "", unit_price: "0" }); }}>×</button>}{quoteProductSearch.trim() && !quoteLineDraft.product_id && <div className="quote-product-suggestions">{(lookups.products || []).filter((item: any) => `${item.name || ""} ${item.sku || ""} ${item.brand || ""}`.toLowerCase().includes(quoteProductSearch.trim().toLowerCase())).slice(0, 8).map((item: any) => <button type="button" key={item.id} onClick={() => { const factor = quoteUnitsFactor(item, quoteLineDraft.quantity_unit); setQuoteProductSearch(`${item.name}${item.sku ? ` · ${item.sku}` : ""}`); setQuoteLineDraft({ ...quoteLineDraft, product_id: String(item.id), total_units: factor > 0 ? String(Number(quoteLineDraft.quantity || 1) * factor) : "", unit_price: String(Number(item.unit_price || 0) * factor) }); }}><b>{item.name}</b><small>{[item.sku, item.brand, item.category].filter(Boolean).join(" · ") || "Sin referencia"}</small></button>)}{!(lookups.products || []).some((item: any) => `${item.name || ""} ${item.sku || ""} ${item.brand || ""}`.toLowerCase().includes(quoteProductSearch.trim().toLowerCase())) && <span className="quote-product-no-results">No hay productos que coincidan.</span>}</div>}</div></label>
+                <label className="quote-line-field"><span>Tipo de cantidad</span><select aria-label="Tipo de cantidad" value={quoteLineDraft.quantity_unit} onChange={(event) => { const value = event.target.value; const product = (lookups.products || []).find((item: any) => Number(item.id) === Number(quoteLineDraft.product_id)); const factor = quoteUnitsFactor(product, value); setQuoteLineDraft({ ...quoteLineDraft, quantity_unit: value, total_units: product && factor > 0 ? String(Number(quoteLineDraft.quantity || 1) * factor) : "", unit_price: product ? String(Number(product.unit_price || 0) * factor) : quoteLineDraft.unit_price }); }}><option value="unidad">Unidad</option><option value="caja">Caja</option><option value="pack_4">Pack de 4</option><option value="pack_6">Pack de 6</option><option value="palet">Palé</option></select></label>
+                <label className="quote-line-field"><span>Cantidad</span><input aria-label="Cantidad" type="number" min="1" step="any" value={quoteLineDraft.quantity} onChange={(event) => { const value = event.target.value; const factor = quoteUnitsFactor(selectedQuoteProduct, quoteLineDraft.quantity_unit); setQuoteLineDraft({ ...quoteLineDraft, quantity: value, total_units: selectedQuoteProduct && factor > 0 ? String(Number(value || 0) * factor) : "" }); }} /></label>
+                <label className="quote-line-field"><span>Precio del formato (€)</span><input aria-label="Precio del formato" type="number" min="0" step="any" value={quoteLineDraft.unit_price} onChange={(event) => setQuoteLineDraft({ ...quoteLineDraft, unit_price: event.target.value })} /></label>
+                {isOrderForm ? <label className="quote-line-field"><span>Unidades totales{quoteLineDraft.product_id ? " *" : ""}</span><input aria-label="Unidades totales" type="number" min="1" step="any" required={Boolean(quoteLineDraft.product_id)} value={quoteTotalUnits} onChange={(event) => setQuoteLineDraft({ ...quoteLineDraft, total_units: event.target.value })} placeholder="Indica las unidades" /></label> : <label className="quote-line-field"><span>Descuento %</span><input aria-label="Descuento %" type="number" min="0" max="100" step="any" value={quoteLineDraft.discount} onChange={(event) => setQuoteLineDraft({ ...quoteLineDraft, discount: event.target.value })} /></label>}
+                <button type="button" className="button secondary" onClick={addQuoteLine}>＋ Añadir línea</button>
+              </div>
+              {quoteLines.length ? <div className="quote-lines-list">{quoteLines.map((line, index) => <div className="quote-line-row" key={`${line.product_id}-${index}`}><span><b>{line.product_name}</b></span><span className="quote-line-detail"><b>{line.quantity_requested || line.quantity} {quantityUnitLabel(line.quantity_unit)}</b><small>{Number(line.quantity)} unidades totales · {Number(line.format_price ?? line.unit_price).toLocaleString("es-ES", { style: "currency", currency: "EUR" })} por formato</small></span><strong>{Number(line.amount).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong><button type="button" aria-label={`Quitar ${line.product_name}`} onClick={() => setQuoteLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}>×</button></div>)}</div> : <p className="quote-lines-empty">Todavía no has añadido productos.</p>}
+              <div className="quote-lines-total"><span>Total del {isOrderForm ? "pedido" : "presupuesto"}</span><strong>{quoteLines.reduce((sum, line) => sum + Number(line.amount || 0), 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong></div>
+            </section>
+          )}
+          {active === "Productos" && <label className="product-photo-field">Foto del producto<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) attachProductPhoto(file); }} /><small>{form.photo_name ? `Foto seleccionada: ${form.photo_name}` : "Opcional. Se conserva en la base de datos local."}</small></label>}
+          {active === "Gastos y tickets" && (
+            <label className="expense-attachment-field">
+              Ticket o justificante
+              <input
+                type="file"
+                accept="image/*,.pdf,application/pdf"
+                capture="environment"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) attachExpenseFile(file);
+                }}
+              />
+              <small>
+                Puedes hacer una foto desde la tablet o subir una imagen/PDF.
+                {form.attachment_name
+                  ? ` Archivo: ${form.attachment_name}`
+                  : ""}
+              </small>
+            </label>
+          )}
+          <button className="button primary">
+            {editing ? "Guardar cambios" : formTitle}
+          </button>
+          {editing && (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => {
+                setEditing(null);
+                setForm({});
+                setQuoteLines([]);
+                setFormOpen(false);
+              }}
+            >
+              Cancelar
+            </button>
+          )}
+        </form>
+      </details>
+      {active === "Productos" && <ProductIntelligencePanel products={rows} suppliers={lookups.suppliers || []} actor={user?.username || "Usuario local"} />}
+      {active === "Documentos" && (
+        <section className="document-template-library">
+          <div className="document-template-library-head">
+            <div>
+              <b>Biblioteca de documentos</b>
+              <span>Abre una plantilla para verla como documento, imprimirla o descargar su contenido.</span>
+            </div>
+            <span>{rows.length} plantillas</span>
+          </div>
+          <div className="document-template-cards">
+            {rows.map((row) => (
+              <button type="button" className="document-template-card" key={row.id} onClick={() => setDocumentPreview(row)}>
+                <span className="document-template-card-icon">{row.type === "Contrato" ? "§" : row.type === "Correo" ? "@" : "▤"}</span>
+                <span className="document-template-card-body">
+                  <b>{row.title}</b>
+                  <small>{row.type} · {row.format || "HTML"}</small>
+                  <em>{row.description || "Plantilla disponible para editar"}</em>
+                </span>
+                <span className="document-template-card-arrow">Abrir →</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+      <div className="panel table-panel">
+        <div className="table-tools">
+          <input
+            placeholder={isProducts ? "Buscar por nombre, SKU, referencia o código..." : "Buscar en columnas principales..."}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <span className="list-count" role="status">
+            {loading ? "Cargando registros…" : `${filteredRows.length} registros`}
+          </span>
+          {isLoadPreparation && <div className="prep-date-filter" aria-label="Filtrar preparación por fecha"><label>Preparar el día <input type="date" value={preparationDateFilter} onChange={(event) => setPreparationDateFilter(event.target.value)} /></label><button type="button" className="button secondary" onClick={() => setPreparationDateFilter(tabletTodayInput())}>Hoy</button><button type="button" className="button secondary" onClick={() => setPreparationDateFilter("")}>Todos</button></div>}
+          {isLoadPreparation && <div className="prep-summary"><b>{filteredRows.length} pedidos a preparar</b><span>{preparationUrgentCount} urgentes</span><span>{preparationIncidentCount} con incidencia</span></div>}
+          {active === "Stock" && (
+            <select className="stock-sort-select" value={stockSort} onChange={(event) => setStockSort(event.target.value)} aria-label="Ordenar stock">
+              <option value="none">Ordenar stock…</option>
+              <option value="physical_asc">Stock físico: menor a mayor</option>
+              <option value="physical_desc">Stock físico: mayor a menor</option>
+              <option value="available_asc">Saldo para cubrir pedidos: menor a mayor</option>
+              <option value="available_desc">Saldo para cubrir pedidos: mayor a menor</option>
+              <option value="status_asc">Estado: más urgente primero</option>
+              <option value="status_desc">Estado: stock saludable primero</option>
+            </select>
+          )}
+          <button
+            type="button"
+            className={`deleted-toggle${showDeleted ? " is-active" : ""}`}
+            title={showDeleted ? "Ocultar los registros enviados a la papelera" : "Mostrar los registros enviados a la papelera"}
+            aria-pressed={showDeleted}
+            onClick={() => setShowDeleted((current) => !current)}
+          >
+            {showDeleted ? "Ocultar eliminados" : "Mostrar eliminados"}
+          </button>
+        </div>
+        {active === "Stock" && <div className="stock-meaning" role="note"><b>Cómo leer la cobertura:</b><span>Stock físico = existencias actuales</span><span>Necesario = unidades requeridas por pedidos abiertos</span><span>Saldo = stock físico − necesario</span><span className="stock-meaning-alert">Saldo negativo = no se pueden cubrir todos los pedidos</span></div>}
+        {isProducts && (
+          <>
+            <div className="product-filters" aria-label="Filtros de productos">
+              <select value={productFilters.category} onChange={(event) => updateProductFilters({ category: event.target.value })}>
+                <option value="">Todas las familias</option>
+                {productCategories.map((value) => <option key={value}>{value}</option>)}
+              </select>
+              <select value={productFilters.brand} onChange={(event) => updateProductFilters({ brand: event.target.value })}>
+                <option value="">Todas las marcas</option>
+                {productBrands.map((value) => <option key={value}>{value}</option>)}
+              </select>
+              <select value={productFilters.stock} onChange={(event) => updateProductFilters({ stock: event.target.value })}>
+                <option value="todos">Todo el stock</option>
+                <option value="critico">Stock crítico</option>
+                <option value="normal">Stock disponible</option>
+              </select>
+              <select value={productFilters.codes} onChange={(event) => updateProductFilters({ codes: event.target.value })}>
+                <option value="todos">Con o sin código</option>
+                <option value="sin-codigo">Sin código</option>
+                <option value="con-codigo">Con código</option>
+              </select>
+              <button type="button" className="button secondary" onClick={() => { setSearch(""); updateProductFilters({ category: "", brand: "", stock: "todos", codes: "todos" }); }}>Limpiar filtros</button>
+            </div>
+            <div className="product-bulk-toolbar">
+              <label className="product-select-all"><input type="checkbox" checked={filteredRows.length > 0 && filteredRows.every((row) => selectedProductIds.includes(Number(row.id)))} onChange={(event) => setSelectedProductIds(event.target.checked ? filteredRows.map((row) => Number(row.id)) : [])} /> Seleccionar visibles</label>
+              <span>{selectedProductIds.length ? `${selectedProductIds.length} seleccionados` : "Selecciona productos para acciones masivas"}</span>
+              <button type="button" className="row-action workflow" disabled={!selectedProductIds.length} onClick={generateCodesForSelected}>Generar códigos</button>
+              <button type="button" className="row-action primary" disabled={!selectedProductIds.length} onClick={() => setBatchLabelProducts(rows.filter((row) => selectedProductIds.includes(Number(row.id))))}>Imprimir etiquetas</button>
+              <select className="product-bulk-category" defaultValue="" disabled={!selectedProductIds.length} onChange={(event) => { void changeCategoryForSelected(event.target.value); event.currentTarget.value = ""; }}><option value="">Cambiar familia…</option>{productCategories.map((value) => <option key={value}>{value}</option>)}</select>
+              <button type="button" className="row-action danger" disabled={!selectedProductIds.length} onClick={deleteSelectedProducts}>Eliminar seleccionados</button>
+            </div>
+          </>
+        )}
+        <div className="columns-accordion">
+          <button
+            type="button"
+            className="columns-toggle"
+            onClick={() => setColumnsOpen((v) => !v)}
+          >
+            ▦ Columnas visibles <span>{columnsOpen ? "−" : "+"}</span>
+          </button>
+          {columnsOpen && (
+            <div className="columns-options">
+              {c.fields.map((f: string, i: number) => (
+                <label key={f}>
+                  <input
+                    type="checkbox"
+                    checked={visibleFields.includes(f)}
+                    onChange={() => toggleColumn(f)}
+                  />{" "}
+                  {c.labels[i] || f}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+        <TopHorizontalScroll className="table-scroll">
+          <table>
+            <thead>
+            <tr>
+                {isProducts && <th className="product-check-column"><span className="sr-only">Seleccionar</span></th>}
+                {visibleFields.map((f: string) => (
+                  <th key={f} className={isDateField(f) ? "sortable-date-column" : undefined}>
+                    <button type="button" className="table-sort-button" onClick={() => { setStockSort("none"); setDateSort(null); setTableSort((current) => current?.field === f ? { field: f, direction: current.direction === "asc" ? "desc" : "asc" } : { field: f, direction: "asc" }); }} aria-label={`Ordenar ${c.labels[c.fields.indexOf(f)] || f}`} title="Ordenar columna">{c.labels[c.fields.indexOf(f)] || f}<span aria-hidden="true">{tableSort?.field === f ? (tableSort.direction === "asc" ? " ↑" : " ↓") : " ↕"}</span></button>
+                  </th>
+                ))}
+                <th>ACCIONES</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((r) => (
+                  <tr key={r.id ?? r.product_id} data-inline-row={r.id ?? r.product_id} data-row-modal={active === "Presupuestos" || active === "Pedidos" ? "true" : undefined} className={`${isProducts && Number(r.stock || 0) - Number(r.stock_reserved || 0) <= Number(r.min_stock || 0) ? "product-row-critical" : ""}${isLoadPreparation && Number(r.urgent) === 1 ? " prep-row-urgent" : ""}${isLoadPreparation && r.status === "Preparado con incidencia" ? " prep-row-incident" : ""}${Number(r.deleted) === 1 ? " deleted-row" : ""}${active === "Pedidos" ? " order-list-row" : ""}`} onClick={(event) => { if (inlineEditing === (r.id ?? r.product_id) || (event.target as HTMLElement).closest("button, input, select, textarea, a")) return; if (active === "Presupuestos" || active === "Pedidos") { if (active === "Pedidos" && isOrderSent(r)) void openPreview(r); else void openRecordModal(r); return; } if (isLoadPreparation) { void openPreparationRow(r); return; } beginInline(r); }}>
+                    {isProducts && <td className="product-check-column"><input type="checkbox" checked={selectedProductIds.includes(Number(r.id))} onChange={() => toggleProductSelection(Number(r.id))} aria-label={`Seleccionar ${r.name}`} /></td>}
+                    {visibleFields.map((f: string) => (
+                      <td key={f} className={`${stockCellClass(r, f)}${active === "Stock" && ["stock", "stock_reserved", "available_stock", "min_stock"].includes(f) && Number(r[f]) < 0 ? " stock-negative" : ""}`}>
+                        {inlineEditing === (r.id ?? r.product_id) ? (
+                          renderInlineEditor(f, r)
+                        ) : (
+                          formatTableValue(f, r[f])
+                        )}
+                      </td>
+                    ))}
+                    <td>
+                      <div className="row-actions">
+                        {isLoadPreparation && (
+                          <b className="prep-status-badge">{r.status || "Preparando"}</b>
+                        )}
+                        {active === "Gastos y tickets" && r.attachment_data && (
+                          <button
+                            className="row-action primary"
+                            onClick={() => downloadAttachment(r)}
+                          >
+                            Ver justificante
+                          </button>
+                        )}
+                        {active === "Productos" && (
+                          <>
+                            <button className="row-action primary" onClick={() => setProductDetail(r)}>Ficha</button>
+                            <button className="row-action primary" onClick={() => setLabelProduct(r)}>Etiqueta y códigos</button>
+                            <button className="row-action workflow" onClick={() => duplicateProduct(r)}>Duplicar</button>
+                          </>
+                        )}
+                        {active === "Documentos" && (
+                          <button className="row-action primary" onClick={() => setDocumentPreview(r)}>
+                            Abrir documento
+                          </button>
+                        )}
+                        {active === "Notas" && (
+                          <button className="row-action primary" onClick={() => setNotePreview(r)}>
+                            Vista previa
+                          </button>
+                        )}
+                        {(active === "Facturas" ||
+                          active === "Albaranes" ||
+                          active === "Preparación de pedidos" ||
+                          active === "Cobros" ||
+                          active === "Compras") && (
+                          <button
+                            className="row-action primary"
+                            onClick={() => void openPreparationRow(r)}
+                          >
+                            Vista previa
+                          </button>
+                        )}
+                        {active === "Albaranes" && (
+                          <button
+                            className="row-action workflow"
+                            onClick={() => convertDeliveryToInvoice(r)}
+                          >
+                            Crear factura
+                          </button>
+                        )}
+                        {active === "Facturas" && r.status === "Proforma" && (
+                          <button className="row-action workflow" onClick={() => convertProformaToInvoice(r)}>
+                            Convertir en factura
+                          </button>
+                        )}
+                        {active === "Pedidos" && (
+                          <>
+                            {getOrderShipment(r) && <button type="button" className="row-action workflow" onClick={() => void openOrderLoadNote(r)}>
+                              Nota de carga
+                            </button>}
+                          </>
+                        )}
+                        {inlineEditing === (r.id ?? r.product_id) ? (
+                          <>
+                            <button
+                              className="row-action save"
+                              onClick={() => saveInline(r)}
+                            >
+                              Guardar
+                            </button>
+                            <button
+                              className="row-action"
+                              onClick={() => {
+                                setInlineEditing(null);
+                                setInlineDraft({});
+                              }}
+                            >
+                              Cancelar
+                            </button>
+                          </>
+                        ) : active === "Pedidos" ? null : (
+                          <button
+                            className="row-action"
+                            onClick={() => beginInline(r)}
+                          >
+                            Editar
+                          </button>
+                        )}
+                        {user?.role === "admin" && active !== "Pedidos" && (Number(r.deleted) === 1 ? (
+                          <button className="row-action save" onClick={() => restore(r.id)}>Recuperar</button>
+                        ) : (
+                          <button className="row-action danger" onClick={() => remove(r.id)}>Eliminar</button>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </TopHorizontalScroll>
+      {loading && (
+        <div className="data-loading" role="status" aria-live="polite">
+          <span className="loading-spinner" aria-hidden="true" />
+          <LoadingIndicator label="Cargando datos desde la base de datos…" />
+        </div>
+      )}
+      {!loading && !filteredRows.length && (
+        <p className="muted empty-row">{rows.length ? "No hay productos que coincidan con los filtros." : "No hay registros todavía."}</p>
+      )}
+      </div>
+      {active === "Productos" && labelProduct && (
+        <ProductLabelModal
+          product={labelProduct}
+          actor={user?.username || "Usuario local"}
+          onClose={() => setLabelProduct(null)}
+          onSaved={(saved) => {
+            setRows((current) => current.map((item) => item.id === saved.id ? saved : item));
+            setLabelProduct(saved);
+          }}
+        />
+      )}
+      {active === "Productos" && productDetail && (
+        <ProductDetailDrawer
+          product={productDetail}
+          onClose={() => setProductDetail(null)}
+          onEdit={() => { setForm({ ...productDetail }); setEditing(productDetail); setFormOpen(true); setProductDetail(null); }}
+          onLabel={() => { setLabelProduct(productDetail); setProductDetail(null); }}
+          onDuplicate={() => { void duplicateProduct(productDetail); setProductDetail(null); }}
+        />
+      )}
+      {active === "Productos" && batchLabelProducts.length > 0 && (
+        <ProductBatchLabelModal products={batchLabelProducts} onClose={() => setBatchLabelProducts([])} />
+      )}
+      {active === "Documentos" && documentPreview && (
+        <DocumentTemplatePreview
+          template={documentPreview}
+          onClose={() => setDocumentPreview(null)}
+          actor={user?.username || "Usuario local"}
+          onSaved={(saved) => {
+            setRows((current) => current.map((row) => row.id === saved.id ? saved : row));
+            setDocumentPreview(saved);
+          }}
+        />
+      )}
+      {preview && (
+        <div className="preview-overlay" onClick={() => setPreview(null)}>
+          <div
+            className="document-preview"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button className="preview-close" onClick={() => setPreview(null)}>
+              ×
+            </button>
+            <p className="eyebrow">
+              EXCLUSIVAS INTELIGENTES · DISTRIBUIDORA DE BEBIDAS
+            </p>
+            <h2>
+              {active === "Facturas"
+                ? "FACTURA"
+                : active === "Albaranes"
+                  ? "ALBARÁN"
+                  : active === "Preparación de pedidos"
+                    ? "NOTA DE CARGA"
+                  : active === "Compras"
+                    ? "ORDEN DE COMPRA"
+                    : "PEDIDO"}{" "}
+              · {preview.code}
+            </h2>
+            <div className="document-meta">
+              <p>
+                <b>{active === "Compras" ? "Proveedor" : "Cliente"}</b>
+                <br />
+                {(active === "Compras" ? previewSupplier?.name : previewClient?.name) ||
+                  `Cliente #${preview.client_id || "sin asignar"}`}
+                <br />
+                {previewClient?.address || "Dirección no indicada"}
+                <br />
+                {previewClient?.tax_id || "NIF/CIF no indicado"}
+              </p>
+              <p>
+                <b>Fecha</b>
+                <br />
+                {preview.issue_date || preview.order_date ||
+                  preview.delivery_date ||
+                  preview.expected_delivery_at ||
+                  new Date().toLocaleDateString("es-ES")}
+                <br />
+                <b>Estado:</b> {preview.status}
+              </p>
+            </div>
+            {isLoadPreparation && !["Preparando", "Preparado", "Preparado con incidencia"].includes(String(preview.status || "")) && (
+              <div className="preparation-start-banner">
+                <div><b>Pedido pendiente de preparar</b><small>Al iniciar quedará asignado a {user?.username || "tu usuario"} con fecha y hora.</small></div>
+                <button type="button" className="button primary" onClick={() => void startPreparation()}>Empezar preparación</button>
+              </div>
+            )}
+            {isLoadPreparation && (
+              <div className="load-instructions">
+                <b>Indicaciones para almacén y reparto</b>
+                {Number(preview.urgent) === 1 && <strong className="prep-urgent-banner">⚠ PEDIDO URGENTE</strong>}
+                <p>{preview.notes || "Sin indicaciones adicionales."}</p>
+              </div>
+            )}
+            {active === "Cobros" && (
+              <section className="payment-preview-details" aria-label="Origen del cobro">
+                <div><span>Importe cobrado</span><strong>{Number(preview.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong></div>
+                <div><span>Factura de origen</span><strong>{previewInvoice?.code || (preview.invoice_id ? `Factura #${preview.invoice_id}` : "No vinculada")}</strong></div>
+                <div><span>Cliente</span><strong>{previewClient?.name || "No indicado"}</strong></div>
+                <div><span>Fecha del cobro</span><strong>{preview.payment_date ? String(preview.payment_date).slice(0, 10) : "No indicada"}</strong></div>
+                <div><span>Método de pago</span><strong>{preview.method || "No indicado"}</strong></div>
+                <div><span>Referencia</span><strong>{preview.reference || "Sin referencia"}</strong></div>
+                <div className="payment-preview-notes"><span>Notas</span><p>{preview.notes || "Sin notas adicionales."}</p></div>
+              </section>
+            )}
+            {active !== "Cobros" && <table className="preview-lines">
+              {/** En pedidos y documentos con líneas mostramos el formato además de las unidades físicas. */}
+              <thead>
+                <tr>
+                  {isLoadPreparation ? <><th>Producto</th><th>Ubicación</th></> : <th>Producto</th>}
+                  <th>{isLoadPreparation ? "Cantidad pedida" : ["Pedidos", "Presupuestos", "Facturas", "Albaranes"].includes(active) ? "Cantidad y formato" : "Cantidad"}</th>
+                  {isLoadPreparation && <th>Cantidad preparada</th>}
+                  {isLoadPreparation && <th>Estado</th>}
+                  {isLoadPreparation && <th>Acciones</th>}
+                  {!isLoadPreparation && <th>Precio</th>}
+                  {!isLoadPreparation && <th>Importe</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {previewLines.map((line: any) => {
+                  const product = productOptions.find((p: any) => Number(p.id) === Number(line.product_id));
+                  const unitPrice = Number(line.unit_price ?? line.unit_cost ?? product?.unit_price ?? 0);
+                  const amount = Number(line.amount ?? (Number(line.quantity || 0) * unitPrice));
+                  const requestedQuantity = Number(line.quantity || 0);
+                  const preparedQuantity = Number(line.prepared_quantity || 0);
+                  // La cantidad real manda sobre el estado histórico: si se
+                  // corrige una incidencia y ya coincide con lo pedido, la
+                  // línea debe volver a mostrarse como completa antes de
+                  // pulsar Validar.
+                  const lineIsComplete = preparedQuantity >= requestedQuantity;
+                  const displayLineStatus = lineIsComplete
+                    ? "Completo"
+                    : line.preparation_status === "Incidencia"
+                      ? "Incidencia"
+                      : "Incompleto";
+                  return (
+                  <Fragment key={line.id}>
+                  <tr key={line.id}>
+                    {isLoadPreparation ? <><td><div className="prep-product-cell"><b>{product?.name || `Producto #${line.product_id}`}</b></div></td><td><strong className="prep-location"><span>UBICACIÓN</span> {warehouseLocationLabel(product?.warehouse_location)}</strong></td></> : <td>{product?.name || `Producto #${line.product_id}`}</td>}
+                    <td>{isLoadPreparation || (["Pedidos", "Presupuestos", "Facturas", "Albaranes"].includes(active) && (line.quantity_unit || line.quantity_requested)) ? <div className="prep-quantity-summary"><b>{line.quantity_requested || line.quantity} {quantityUnitLabel(line.quantity_unit)}{(line.quantity_requested || line.quantity) !== 1 && !String(line.quantity_unit || "unidad").startsWith("pack_") ? "s" : ""}</b><small>· {line.quantity} unidades totales</small></div> : line.quantity}</td>
+                    {isLoadPreparation && <td><div className="prep-line-controls"><input className="prep-real-quantity" aria-label={`Cantidad preparada de ${product?.name || "producto"}`} type="number" min="0" max={requestedQuantity} step="any" value={line.prepared_quantity ?? 0} onFocus={(event) => event.currentTarget.select()} onChange={(event) => { const raw = event.target.value; setPreviewLines((current) => current.map((item) => { if (item.id !== line.id) return item; if (raw === "") return { ...item, prepared_quantity: "" }; const requested = Number(item.quantity || 0); return { ...item, prepared_quantity: Math.min(requested, Math.max(0, Number(raw) || 0)) }; })) }} onBlur={() => { if (line.prepared_quantity === "") setPreviewLines((current) => current.map((item) => item.id === line.id ? { ...item, prepared_quantity: 0 } : item)); }} /><span className="prep-unit-caption">uds.</span></div></td>}
+                    {isLoadPreparation && <td><span className={`prep-line-status prep-line-status-${displayLineStatus.toLowerCase()}`}>{displayLineStatus}</span></td>}
+                    {isLoadPreparation && <td><div className="prep-line-actions">{line.preparation_status === "Incidencia" && !lineIsComplete ? <span className="prep-incident-open">Incidencia registrada</span> : <button type="button" className="row-action save" onClick={() => void markPreparationLine(line, true)}>Validar</button>}</div></td>}
+                    {!isLoadPreparation && <td>{unitPrice.toFixed(2)} €</td>}
+                    {!isLoadPreparation && <td>{amount.toFixed(2)} €</td>}
+                  </tr>
+                  {isLoadPreparation && incidentLineId === line.id && <tr className="prep-incident-full-row"><td colSpan={6}><div className="prep-incident-panel"><div className="prep-incident-panel-head"><div><b>Registrar incidencia</b><small>{product?.name || "Producto"} · Se han preparado {Number(line.prepared_quantity || 0)} de {Number(line.quantity || 0)} unidades.</small></div><span>Faltan {Math.max(0, Number(line.quantity || 0) - Number(line.prepared_quantity || 0))} uds.</span></div><label className="prep-incident-note"><span>Qué ha ocurrido</span><textarea aria-label={`Anotación de incidencia de ${product?.name || "producto"}`} value={incidentText} onChange={(event) => setIncidentText(event.target.value)} placeholder="Ej.: se pidieron 12 y solo hay 10 unidades." rows={3} /></label><div className="prep-incident-resolution"><label><span>Cómo resolverlo</span><select value={incidentResolution} onChange={(event) => setIncidentResolution(event.target.value)}><option value="partial">Enviar parcialmente</option><option value="cancel">Cancelar lo que falta</option><option value="backorder">Crear pedido con lo que falta</option></select></label><div><button type="button" className="row-action danger" onClick={() => void createPreparationIncident(line)}>Registrar incidencia</button><button type="button" className="row-action" onClick={() => { setIncidentLineId(null); setIncidentText(""); }}>Cancelar</button></div></div></div></td></tr>}
+                  {isLoadPreparation && line.preparation_status === "Incidencia" && incidentLineId !== line.id && <tr className="prep-incident-resolve-row"><td colSpan={6}><div className="prep-incident-resolve"><b>Faltan {Math.max(0, Number(line.quantity || 0) - Number(line.prepared_quantity || 0))} unidades.</b><label>Resolver como<select value={incidentResolution} onChange={(event) => setIncidentResolution(event.target.value)}><option value="partial">Enviar parcialmente</option><option value="cancel">Cancelar lo que falta</option><option value="backorder">Crear pedido con lo que falta</option></select></label><button type="button" className="row-action danger" onClick={() => void resolvePreparationIncident(line)}>Aplicar resolución</button></div></td></tr>}
+                  </Fragment>
+                  );
+                })}
+                {previewLoading ? (
+                  <tr>
+                    <td colSpan={isLoadPreparation ? 6 : 4}><div className="preview-loading-state" role="status" aria-live="polite"><span className="loading-spinner" aria-hidden="true" /><span>Cargando líneas del documento…</span></div></td>
+                  </tr>
+                ) : !previewLines.length && (
+                  <tr>
+                    <td colSpan={isLoadPreparation ? 6 : 4} className="muted">
+                      Sin líneas de producto asociadas
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>}
+            {isLoadPreparation && actionableIncompletePreparationLines.length > 0 && (
+              <section className="prep-bulk-incident" aria-label="Incidencias de preparación">
+                <div className="prep-bulk-incident-head">
+                  <div><b>Hay líneas incompletas</b><span>{actionableIncompletePreparationLines.length} productos con unidades pendientes</span></div>
+                  {!bulkIncidentOpen && <button type="button" className="row-action danger" onClick={() => { setBulkIncidentError(""); setBulkIncidentOpen(true); }}>Registrar incidencia</button>}
+                </div>
+                <div className="prep-bulk-incident-summary">
+                  {incompletePreparationLines.map((line: any) => {
+                    const product = productOptions.find((item: any) => Number(item.id) === Number(line.product_id));
+                    const missing = Math.max(0, Number(line.quantity || 0) - Number(line.prepared_quantity || 0));
+                    return <span key={line.id}>{product?.name || `Producto #${line.product_id}`} · faltan {missing} uds.</span>;
+                  })}
+                </div>
+                {bulkIncidentOpen && <div className="prep-bulk-incident-form"><textarea aria-label="Observaciones de la incidencia" value={bulkIncidentText} onChange={(event) => setBulkIncidentText(event.target.value)} placeholder="Añade una observación común para la incidencia (opcional)." rows={3} />{bulkIncidentError && <p className="prep-bulk-incident-error" role="alert">{bulkIncidentError}</p>}<div className="prep-bulk-incident-actions"><button type="button" className="row-action danger" disabled={bulkIncidentSaving} onClick={() => void createBulkPreparationIncident(incompletePreparationLines)}>{bulkIncidentSaving ? <><span className="button-spinner" aria-hidden="true" /> Registrando…</> : "Confirmar incidencia"}</button><button type="button" className="row-action" disabled={bulkIncidentSaving} onClick={() => { setBulkIncidentOpen(false); setBulkIncidentText(""); setBulkIncidentError(""); }}>Cancelar</button></div></div>}
+              </section>
+            )}
+            {active !== "Cobros" && active !== "Compras" && <div className="add-line">
+              <select
+                value={newLine.product_id}
+                onChange={(e) => {
+                  const p = productOptions.find(
+                    (x) => String(x.id) === e.target.value,
+                  );
+                  setNewLine({
+                    ...newLine,
+                    product_id: e.target.value,
+                    unit_price: String(p?.unit_price || 0),
+                  });
+                }}
+              >
+                <option value="">Añadir producto...</option>
+                {productOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} · Stock {p.stock}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="1"
+                value={newLine.quantity}
+                onChange={(e) =>
+                  setNewLine({ ...newLine, quantity: e.target.value })
+                }
+                placeholder="Cantidad"
+              />
+              {(active === "Facturas" || active === "Pedidos") && (
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={newLine.unit_price}
+                  onChange={(e) =>
+                    setNewLine({ ...newLine, unit_price: e.target.value })
+                  }
+                  placeholder="Precio"
+                />
+              )}
+              <button className="button primary" onClick={addPreviewLine}>
+                ＋ Añadir línea
+              </button>
+            </div>}
+            {active !== "Cobros" && <div className="preview-summary">
+              {(() => {
+                const lineBase = previewLines.reduce((n: number, line: any) => {
+                  const product = productOptions.find((p: any) => Number(p.id) === Number(line.product_id));
+                  const quantity = Number(line.quantity || 0);
+                  const unitPrice = Number(line.unit_price ?? line.unit_cost ?? product?.unit_price ?? 0);
+                  const explicitAmount = Number(line.amount);
+                  const amount = Number.isFinite(explicitAmount) && explicitAmount > 0
+                    ? explicitAmount
+                    : quantity * (Number.isFinite(unitPrice) ? unitPrice : 0);
+                  return n + amount;
+                }, 0);
+                const lineVat = lineBase * (Number(preview.vat || 21) / 100);
+                return (
+                  <>
+                    <span>Base imponible: {lineBase.toFixed(2)} €</span>
+                    <span>IVA: {Number(preview.vat || 21)}%</span>
+                    <strong>
+                      Total:{" "}
+                      {(
+                        lineBase + lineVat || Number(preview.amount || 0)
+                      ).toLocaleString("es-ES", {
+                        style: "currency",
+                        currency: "EUR",
+                      })}
+                    </strong>
+                  </>
+                );
+              })()}
+            </div>}
+            <button className="button secondary" disabled={previewLoading} onClick={() => window.print()}>
+              Imprimir / guardar PDF
+            </button>
+          </div>
+        </div>
+      )}
+      {notePreview && (
+        <div className="preview-overlay" onClick={() => setNotePreview(null)}>
+          <article className="note-preview-card" onClick={(event) => event.stopPropagation()}>
+            <button className="preview-close" onClick={() => setNotePreview(null)}>×</button>
+            <p className="eyebrow">NOTAS · EXCLUSIVAS INTELIGENTES</p>
+            <h2>{notePreview.title || "Nota"}</h2>
+            <div className="note-preview-meta">
+              <span><b>Prioridad</b>{notePreview.priority || "Normal"}</span>
+              <span><b>Sección</b>{notePreview.module || "General"}</span>
+              <span><b>Estado</b>{notePreview.status || (Number(notePreview.completed) === 1 ? "Resuelta" : "Pendiente")}</span>
+            </div>
+            {String(notePreview.module || "") === "Preparación de pedidos" && <div className="note-preview-incident-context">
+              <div><b>Pedido relacionado</b><span>{notePreview.title?.split("·").slice(1).join("·").trim() || (notePreview.record_id ? `Pedido #${notePreview.record_id}` : "Sin pedido relacionado")}</span></div>
+              <div><b>Cliente</b><span>{noteIncidentOrderLoading ? "Cargando…" : noteIncidentOrder?.client?.name || "Cliente no indicado"}</span></div>
+              <div><b>Dirección de envío</b><span>{noteIncidentOrderLoading ? "Cargando…" : noteIncidentOrder?.address || "Dirección no indicada"}</span></div>
+              <div><b>Fecha del pedido</b><span>{noteIncidentOrderLoading ? "Cargando…" : noteIncidentOrder?.order?.created_at ? formatSpanishDateValue(noteIncidentOrder.order.created_at, true) : "—"}</span></div>
+              <div><b>Registrada por</b><span>{notePreview.created_by || "Usuario local"}</span></div>
+              <div><b>Fecha de registro</b><span>{notePreview.created_at ? formatSpanishDateValue(notePreview.created_at, true) : "—"}</span></div>
+              {notePreview.resolution && <div><b>Última resolución</b><span>{notePreview.resolution}{notePreview.resolved_by ? ` · ${notePreview.resolved_by}` : ""}</span></div>}
+            </div>}
+            <div className="note-preview-content">{notePreview.content || "Sin contenido adicional."}</div>
+            {String(notePreview.module || "") === "Preparación de pedidos" && <div className="note-preview-resolution">
+              <div className="note-preview-resolution-head"><b>Resolver incidencia</b><small>Guarda la decisión y deja trazabilidad de quién la autoriza.</small></div>
+              <div className="note-preview-resolution-controls">
+                <select aria-label="Acción de resolución" value={noteAction} onChange={(event) => setNoteAction(event.target.value)} disabled={noteActionSaving}>
+                  <option value="partial">Autorizar envío parcial</option>
+                  <option value="backorder">Solicitar reposición</option>
+                  <option value="cancel">Cancelar unidades faltantes</option>
+                  <option value="review">Dejar en revisión</option>
+                </select>
+                <button className="button primary" disabled={noteActionSaving} onClick={() => void applyNoteIncidentAction()}>{noteActionSaving ? "Guardando…" : "Aplicar resolución"}</button>
+              </div>
+              {noteActionError && <p className="note-preview-error" role="alert">{noteActionError}</p>}
+            </div>}
+            <div className="note-preview-actions">
+              {String(notePreview.module || "") === "Preparación de pedidos" && <button className="button secondary" onClick={openIncidentPreparation}>Abrir nota de carga</button>}
+              <button className="button secondary" onClick={() => { setForm({ ...notePreview }); setEditing(notePreview); setFormOpen(true); setNotePreview(null); }}>Editar nota</button>
+              <button className="button primary" onClick={() => setNotePreview(null)}>Cerrar</button>
+            </div>
+          </article>
+        </div>
+      )}
+    </div>
+    </>
+  );
+}
+
+function reportDate(value: any) {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+function reportMonthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function reportMonthLabel(date: Date) {
+  return date.toLocaleDateString("es-ES", { month: "short" }).replace(".", "");
+}
+
+function ReportAreaChart({
+  points,
+  label,
+}: {
+  points: { label: string; value: number }[];
+  label: string;
+}) {
+  const max = Math.max(...points.map((p) => p.value), 1);
+  const coords = points
+    .map(
+      (p, i) =>
+        `${24 + (i * 592) / Math.max(points.length - 1, 1)},${174 - (p.value / max) * 132}`,
+    )
+    .join(" ");
+  const area = `24,174 ${coords} 616,174`;
+  return (
+    <svg
+      className="report-svg"
+      viewBox="0 0 640 220"
+      role="img"
+      aria-label={label}
+    >
+      <title>{label}</title>
+      <line x1="24" y1="174" x2="616" y2="174" className="chart-axis" />
+      <line x1="24" y1="42" x2="616" y2="42" className="chart-grid" />
+      <polygon points={area} className="chart-area" />
+      <polyline points={coords} className="chart-line" />
+      {points.map((p, i) => {
+        const x = 24 + (i * 592) / Math.max(points.length - 1, 1);
+        const y = 174 - (p.value / max) * 132;
+        return (
+          <g key={p.label}>
+            <circle
+              cx={x}
+              cy={y}
+              r="4"
+              className="chart-dot"
+              data-tooltip={`${p.label}: ${p.value.toLocaleString("es-ES", { style: "currency", currency: "EUR" })}`}
+            />
+            <text x={x} y="198" textAnchor="middle" className="chart-label">
+              {p.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function ReportBars({
+  items,
+  label,
+  currency = false,
+}: {
+  items: { label: string; value: number }[];
+  label: string;
+  currency?: boolean;
+}) {
+  const max = Math.max(...items.map((p) => p.value), 1);
+  return (
+    <svg
+      className="report-svg"
+      viewBox="0 0 640 220"
+      role="img"
+      aria-label={label}
+    >
+      <title>{label}</title>
+      {items.map((item, i) => {
+        const x = 38 + (i * 570) / Math.max(items.length, 1);
+        const h = (item.value / max) * 140;
+        return (
+          <g key={`${item.label}-${i}`}>
+            <rect
+              x={x}
+              y={174 - h}
+              width={Math.min(54, 500 / Math.max(items.length, 1))}
+              height={h}
+              className={`chart-bar chart-bar-${i % 4}`}
+              data-tooltip={`${item.label}: ${currency ? item.value.toLocaleString("es-ES", { style: "currency", currency: "EUR" }) : item.value}`}
+            />
+            <text
+              x={x + 24}
+              y="198"
+              textAnchor="middle"
+              className="chart-label"
+            >
+              {item.label}
+            </text>
+          </g>
+        );
+      })}
+      <line x1="24" y1="174" x2="616" y2="174" className="chart-axis" />
+    </svg>
+  );
+}
+
+function ReportScatter({
+  items,
+  label,
+}: {
+  items: { label: string; cost: number; price: number; stock: number }[];
+  label: string;
+}) {
+  const maxX = Math.max(...items.map((p) => p.cost), 1),
+    maxY = Math.max(...items.map((p) => p.price), 1);
+  return (
+    <svg
+      className="report-svg"
+      viewBox="0 0 640 220"
+      role="img"
+      aria-label={label}
+    >
+      <title>{label}</title>
+      <line x1="46" y1="178" x2="616" y2="178" className="chart-axis" />
+      <line x1="46" y1="28" x2="46" y2="178" className="chart-axis" />
+      <text x="330" y="214" className="chart-axis-label">
+        Coste de compra (€)
+      </text>
+      <text
+        x="12"
+        y="105"
+        transform="rotate(-90 12 105)"
+        className="chart-axis-label"
+      >
+        Precio venta (€)
+      </text>
+      {items.map((item, index) => {
+        const x = 52 + (item.cost / maxX) * 552,
+          y = 172 - (item.price / maxY) * 136;
+        return (
+          <circle
+            key={`${item.label}-${index}`}
+            cx={x}
+            cy={y}
+            r={Math.max(4, Math.min(12, 4 + item.stock / 12))}
+            className="chart-scatter"
+            data-tooltip={`${item.label}: coste ${item.cost.toFixed(2)} € · venta ${item.price.toFixed(2)} € · stock ${item.stock}`}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+function ReportRadar({
+  values,
+  label,
+}: {
+  values: { label: string; value: number }[];
+  label: string;
+}) {
+  const cx = 320,
+    cy = 110,
+    radius = 72,
+    max = Math.max(...values.map((v) => v.value), 1);
+  const point = (i: number, scale: number) => {
+    const angle = -Math.PI / 2 + (i * Math.PI * 2) / values.length;
+    return `${cx + Math.cos(angle) * radius * scale},${cy + Math.sin(angle) * radius * scale}`;
+  };
+  return (
+    <svg
+      className="report-svg radar-svg"
+      viewBox="0 0 640 220"
+      role="img"
+      aria-label={label}
+    >
+      <title>{label}</title>
+      <polygon
+        points={values.map((_, i) => point(i, 1)).join(" ")}
+        className="radar-frame"
+      />
+      <polygon
+        points={values.map((_, i) => point(i, 0.5)).join(" ")}
+        className="radar-frame radar-inner"
+      />
+      <polygon
+        points={values.map((v, i) => point(i, v.value / max)).join(" ")}
+        className="radar-value"
+      />
+      {values.map((v, i) => {
+        const angle = -Math.PI / 2 + (i * Math.PI * 2) / values.length;
+        return (
+          <text
+            key={v.label}
+            x={cx + Math.cos(angle) * 96}
+            y={cy + Math.sin(angle) * 96 + 4}
+            textAnchor="middle"
+            className="chart-label"
+          >
+            {v.label}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+function Balance() {
+  const isoDay = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const today = new Date();
+  const [range, setRange] = useState({
+    from: isoDay(new Date(today.getFullYear(), today.getMonth(), 1)),
+    to: isoDay(today),
+  });
+  const [rows, setRows] = useState<any>({
+    invoices: [],
+    payments: [],
+    purchases: [],
+    expenseTickets: [],
+  });
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    setLoading(true);
+    Promise.all(
+      ["invoices", "payments", "purchase_orders", "expenses"].map((resource) =>
+        fetch(`/api/${resource}`).then((response) =>
+          response.json(),
+        ),
+      ),
+    )
+      .then(([invoices, payments, purchases, expenseTickets]) =>
+        setRows({
+          invoices: Array.isArray(invoices) ? invoices : [],
+          payments: Array.isArray(payments) ? payments : [],
+          purchases: Array.isArray(purchases) ? purchases : [],
+          expenseTickets: Array.isArray(expenseTickets) ? expenseTickets : [],
+        }),
+      )
+      .catch(() =>
+        setRows({
+          invoices: [],
+          payments: [],
+          purchases: [],
+          expenseTickets: [],
+        }),
+      )
+      .finally(() => setLoading(false));
+  }, []);
+  const inRange = (value: any) => {
+    const day = String(value || "").slice(0, 10);
+    return day >= range.from && day <= range.to;
+  };
+  const invoices = rows.invoices.filter(
+    (invoice: any) =>
+      inRange(
+        invoice.issue_date || invoice.invoice_date || invoice.created_at,
+      ) && invoice.status !== "Anulada",
+  );
+  const payments = rows.payments.filter((payment: any) =>
+    inRange(payment.payment_date || payment.created_at),
+  );
+  const purchases = rows.purchases.filter(
+    (purchase: any) =>
+      inRange(purchase.order_date || purchase.created_at) &&
+      purchase.status !== "Cancelada",
+  );
+  const expenseTickets = rows.expenseTickets.filter((expense: any) =>
+    inRange(expense.expense_date || expense.created_at),
+  );
+  const income = invoices.reduce(
+    (total: number, item: any) => total + Number(item.amount || 0),
+    0,
+  );
+  const expenses = [...purchases, ...expenseTickets].reduce(
+    (total: number, item: any) => total + Number(item.amount || 0),
+    0,
+  );
+  const collected = payments.reduce(
+    (total: number, item: any) => total + Number(item.amount || 0),
+    0,
+  );
+  const pending = Math.max(0, income - collected);
+  const balance = income - expenses;
+  const money = (value: number) =>
+    value.toLocaleString("es-ES", { style: "currency", currency: "EUR" });
+  const setPreset = (preset: "week" | "month" | "year") => {
+    const end = new Date();
+    const start =
+      preset === "week"
+        ? new Date(end.getTime() - 6 * 86400000)
+        : preset === "year"
+          ? new Date(end.getFullYear(), 0, 1)
+          : new Date(end.getFullYear(), end.getMonth(), 1);
+    setRange({ from: isoDay(start), to: isoDay(end) });
+  };
+  return (
+    <div className="balance-page reports">
+      <div className="manager-head">
+        <div>
+          <p className="eyebrow">ANÁLISIS FINANCIERO</p>
+          <h2>Balance</h2>
+          <p className="muted">
+            Ingresos, gastos, cobros y pendientes calculados desde la base de
+            datos local.
+          </p>
+        </div>
+        <span className="db-badge">● Datos reales</span>
+      </div>
+      {loading && <div className="data-loading" role="status"><span className="loading-spinner" aria-hidden="true" /><LoadingIndicator label="Cargando datos financieros…" /></div>}
+      <div className="panel report-range-panel">
+        <div>
+          <b>Periodo del balance</b>
+          <span className="muted">
+            Selecciona una semana, mes, año o cualquier rango de fechas.
+          </span>
+        </div>
+        <div className="report-range-controls">
+          <label>
+            Desde
+            <input
+              type="date"
+              value={range.from}
+              onChange={(event) =>
+                setRange({ ...range, from: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            Hasta
+            <input
+              type="date"
+              value={range.to}
+              onChange={(event) =>
+                setRange({ ...range, to: event.target.value })
+              }
+            />
+          </label>
+          <button className="report-preset" onClick={() => setPreset("week")}>
+            Semana
+          </button>
+          <button className="report-preset" onClick={() => setPreset("month")}>
+            Mes
+          </button>
+          <button className="report-preset" onClick={() => setPreset("year")}>
+            Año
+          </button>
+        </div>
+      </div>
+      <div className="report-range-cards balance-cards">
+        <article>
+          <span>INGRESOS / VENTAS</span>
+          <strong>{money(income)}</strong>
+          <small>{invoices.length} facturas emitidas</small>
+        </article>
+        <article>
+          <span>GASTOS / COMPRAS</span>
+          <strong>{money(expenses)}</strong>
+          <small>{purchases.length} compras registradas</small>
+        </article>
+        <article>
+          <span>COBRADO</span>
+          <strong>{money(collected)}</strong>
+          <small>{payments.length} cobros recibidos</small>
+        </article>
+        <article className={pending > 0 ? "warning-card" : "positive-card"}>
+          <span>PENDIENTE DE COBRO</span>
+          <strong>{money(pending)}</strong>
+          <small>Ingresos menos cobros</small>
+        </article>
+        <article className={balance >= 0 ? "positive-card" : "negative-card"}>
+          <span>BALANCE</span>
+          <strong>{money(balance)}</strong>
+          <small>Ingresos menos gastos</small>
+        </article>
+      </div>
+      <div className="report-grid-two balance-detail-grid">
+        <div className="panel report-detail-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Facturas del periodo</h3>
+              <p className="muted">Ingresos emitidos y estado de cobro</p>
+            </div>
+          </div>
+          <div className="mini-report-table">
+            <div className="mini-report-head">
+              <span>Factura</span>
+              <span>Importe</span>
+              <span>Estado</span>
+            </div>
+            {invoices.length ? (
+              invoices.slice(0, 12).map((invoice: any) => (
+                <div className="mini-report-row" key={invoice.id}>
+                  <span>{invoice.code || `Factura #${invoice.id}`}</span>
+                  <b>{money(Number(invoice.amount || 0))}</b>
+                  <span
+                    className={
+                      invoice.status === "Cobrada" ? "ok-text" : "warning-text"
+                    }
+                  >
+                    {invoice.status || "Pendiente"}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <p className="muted">No hay facturas en este periodo.</p>
+            )}
+          </div>
+        </div>
+        <div className="panel report-detail-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Gastos y compras</h3>
+              <p className="muted">Pedidos realizados a proveedores</p>
+            </div>
+          </div>
+          <div className="mini-report-table">
+            <div className="mini-report-head">
+              <span>Compra</span>
+              <span>Importe</span>
+              <span>Estado</span>
+            </div>
+            {purchases.length ? (
+              purchases.slice(0, 12).map((purchase: any) => (
+                <div className="mini-report-row" key={purchase.id}>
+                  <span>{purchase.code || `Compra #${purchase.id}`}</span>
+                  <b>{money(Number(purchase.amount || 0))}</b>
+                  <span>{purchase.status || "Pendiente"}</span>
+                </div>
+              ))
+            ) : (
+              <p className="muted">No hay compras en este periodo.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Reports() {
+  const todayReport = new Date();
+  const isoReportDay = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const [range, setRange] = useState({
+    from: isoReportDay(
+      new Date(todayReport.getFullYear(), todayReport.getMonth(), 1),
+    ),
+    to: isoReportDay(todayReport),
+  });
+  const [data, setData] = useState<any>({
+    orders: 0,
+    clients: 0,
+    products: 0,
+    invoices: 0,
+    sales: 0,
+    stockValue: 0,
+    receivables: 0,
+    margin: 0,
+    orderStatuses: {},
+    criticalProducts: [],
+    recentInvoices: [],
+    invoiceStatuses: {},
+    stockByProduct: [],
+    salesTimeline: [],
+    clientSales: [],
+    stockMovements: [],
+    shipmentStatuses: [],
+    orderAging: [],
+    productScatter: [],
+    activityHeatmap: [],
+    operationalRadar: [],
+    rangeSales: 0,
+    rangeExpenses: 0,
+    rangeCollected: 0,
+    rangeBalance: 0,
+    rangeInvoices: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    setLoading(true);
+    Promise.all(
+      [
+        "orders",
+        "clients",
+        "products",
+        "invoices",
+        "payments",
+        "inventory_movements",
+        "shipments",
+        "purchase_orders",
+        "expenses",
+      ].map((x) =>
+        fetch("/api/" + x).then((r) => r.json()),
+      ),
+    ).then(
+      ([
+        orders,
+        clients,
+        products,
+        invoices,
+        payments,
+        movements,
+        shipments,
+        purchaseOrders,
+        expenseTickets,
+      ]) =>
+        setData({
+          orders: orders.length,
+          clients: clients.length,
+          products: products.length,
+          invoices: invoices.length,
+          sales: invoices
+            .filter((x: any) => x.status !== "Anulada")
+            .reduce((n: number, x: any) => n + Number(x.amount || 0), 0),
+          stockValue: products.reduce(
+            (n: number, x: any) =>
+              n + Number(x.stock || 0) * Number(x.cost_price || 0),
+            0,
+          ),
+          receivables:
+            invoices.reduce(
+              (n: number, x: any) => n + Number(x.amount || 0),
+              0,
+            ) -
+            payments.reduce(
+              (n: number, x: any) => n + Number(x.amount || 0),
+              0,
+            ),
+          margin: products.reduce(
+            (n: number, x: any) =>
+              n +
+              Number(x.stock || 0) *
+                Math.max(
+                  0,
+                  Number(x.unit_price || 0) - Number(x.cost_price || 0),
+                ),
+            0,
+          ),
+          orderStatuses: orders.reduce(
+            (acc: any, x: any) => ({
+              ...acc,
+              [x.status || "Pendiente"]:
+                (acc[x.status || "Pendiente"] || 0) + 1,
+            }),
+            {},
+          ),
+          criticalProducts: products
+            .filter(
+              (x: any) =>
+                Number(x.stock || 0) - Number(x.stock_reserved || 0) <=
+                Number(x.min_stock || 0),
+            )
+            .sort(
+              (a: any, b: any) => Number(a.stock || 0) - Number(b.stock || 0),
+            )
+            .slice(0, 8),
+          recentInvoices: invoices.slice(0, 6),
+          invoiceStatuses: invoices.reduce(
+            (acc: any, x: any) => ({
+              ...acc,
+              [x.status || "Pendiente"]:
+                (acc[x.status || "Pendiente"] || 0) + 1,
+            }),
+            {},
+          ),
+          stockByProduct: products
+            .map((x: any) => ({
+              name: x.name,
+              value: Number(x.stock || 0) * Number(x.cost_price || 0),
+            }))
+            .filter((x: any) => x.value > 0)
+            .sort((a: any, b: any) => b.value - a.value)
+            .slice(0, 6),
+          salesTimeline: (() => {
+            const now = new Date();
+            const months = Array.from(
+              { length: 6 },
+              (_, i) => new Date(now.getFullYear(), now.getMonth() - 5 + i, 1),
+            );
+            return months.map((month) => {
+              const key = reportMonthKey(month);
+              return {
+                label: reportMonthLabel(month),
+                value: invoices
+                  .filter((x: any) => {
+                    const d = reportDate(
+                      x.issue_date || x.invoice_date || x.created_at,
+                    );
+                    return (
+                      d && reportMonthKey(d) === key && x.status !== "Anulada"
+                    );
+                  })
+                  .reduce((n: number, x: any) => n + Number(x.amount || 0), 0),
+              };
+            });
+          })(),
+          clientSales: clients
+            .map((client: any) => ({
+              label: String(client.name || "Cliente").slice(0, 12),
+              value: invoices
+                .filter(
+                  (invoice: any) =>
+                    Number(invoice.client_id) === Number(client.id),
+                )
+                .reduce(
+                  (n: number, invoice: any) => n + Number(invoice.amount || 0),
+                  0,
+                ),
+            }))
+            .filter((x: any) => x.value > 0)
+            .sort((a: any, b: any) => b.value - a.value)
+            .slice(0, 6),
+          stockMovements: (() => {
+            const now = new Date();
+            const months = Array.from(
+              { length: 6 },
+              (_, i) => new Date(now.getFullYear(), now.getMonth() - 5 + i, 1),
+            );
+            return months.map((month) => {
+              const key = reportMonthKey(month);
+              const rows = movements.filter((x: any) => {
+                const d = reportDate(x.movement_date || x.created_at);
+                return d && reportMonthKey(d) === key;
+              });
+              return {
+                label: reportMonthLabel(month),
+                value: rows.reduce(
+                  (n: number, x: any) =>
+                    n +
+                    (String(x.movement_type || "")
+                      .toLowerCase()
+                      .includes("entrada")
+                      ? Number(x.quantity || 0)
+                      : -Number(x.quantity || 0)),
+                  0,
+                ),
+              };
+            });
+          })(),
+          shipmentStatuses: Object.entries(
+            shipments.reduce(
+              (acc: any, x: any) => ({
+                ...acc,
+                [x.status || "Preparando"]:
+                  (acc[x.status || "Preparando"] || 0) + 1,
+              }),
+              {},
+            ),
+          ).map(([label, value]) => ({
+            label: String(label).slice(0, 10),
+            value: Number(value),
+          })),
+          orderAging: ["0–2 días", "3–7 días", "8–30 días", "+30 días"].map(
+            (label, index) => ({
+              label,
+              value: orders.filter((x: any) => {
+                if (["Entregado", "Cancelado"].includes(x.status)) return false;
+                const d = reportDate(x.created_at || x.order_date);
+                const days = d
+                  ? Math.max(
+                      0,
+                      Math.floor((Date.now() - d.getTime()) / 86400000),
+                    )
+                  : 0;
+                return index === 0
+                  ? days <= 2
+                  : index === 1
+                    ? days >= 3 && days <= 7
+                    : index === 2
+                      ? days >= 8 && days <= 30
+                      : days > 30;
+              }).length,
+            }),
+          ),
+          productScatter: products
+            .map((x: any) => ({
+              label: x.name || "Producto",
+              cost: Number(x.cost_price || 0),
+              price: Number(x.unit_price || 0),
+              stock: Number(x.stock || 0),
+            }))
+            .filter((x: any) => x.cost > 0 && x.price > 0)
+            .slice(0, 24),
+          activityHeatmap: ["L", "M", "X", "J", "V", "S"].map((label, day) => ({
+            label,
+            value: orders.filter((x: any) => {
+              const d = reportDate(x.created_at || x.order_date);
+              return d && (d.getDay() || 7) - 1 === day;
+            }).length,
+          })),
+          operationalRadar: [
+            { label: "Ventas", value: invoices.length },
+            { label: "Pedidos", value: orders.length },
+            { label: "Clientes", value: clients.length },
+            {
+              label: "Stock",
+              value: products.filter((x: any) => Number(x.stock || 0) > 0)
+                .length,
+            },
+            { label: "Cobros", value: payments.length },
+            { label: "Envíos", value: shipments.length },
+          ],
+          rangeSales: invoices
+            .filter((x: any) => {
+              const d = String(x.issue_date || x.created_at || "").slice(0, 10);
+              return d >= range.from && d <= range.to && x.status !== "Anulada";
+            })
+            .reduce((n: number, x: any) => n + Number(x.amount || 0), 0),
+          rangeExpenses: [...purchaseOrders, ...expenseTickets]
+            .filter((x: any) => {
+              const d = String(x.order_date || x.created_at || "").slice(0, 10);
+              return (
+                d >= range.from && d <= range.to && x.status !== "Cancelada"
+              );
+            })
+            .reduce((n: number, x: any) => n + Number(x.amount || 0), 0),
+          rangeCollected: payments
+            .filter((x: any) => {
+              const d = String(x.payment_date || x.created_at || "").slice(
+                0,
+                10,
+              );
+              return d >= range.from && d <= range.to;
+            })
+            .reduce((n: number, x: any) => n + Number(x.amount || 0), 0),
+          rangeInvoices: invoices.filter((x: any) => {
+            const d = String(x.issue_date || x.created_at || "").slice(0, 10);
+            return d >= range.from && d <= range.to;
+          }).length,
+          rangeBalance:
+            invoices
+              .filter((x: any) => {
+                const d = String(x.issue_date || x.created_at || "").slice(
+                  0,
+                  10,
+                );
+                return (
+                  d >= range.from && d <= range.to && x.status !== "Anulada"
+                );
+              })
+              .reduce((n: number, x: any) => n + Number(x.amount || 0), 0) -
+            [...purchaseOrders, ...expenseTickets]
+              .filter((x: any) => {
+                const d = String(x.order_date || x.created_at || "").slice(
+                  0,
+                  10,
+                );
+                return (
+                  d >= range.from && d <= range.to && x.status !== "Cancelada"
+                );
+              })
+              .reduce((n: number, x: any) => n + Number(x.amount || 0), 0),
+        }),
+    ).finally(() => setLoading(false));
+  }, [range.from, range.to]);
+  const moneyReport = (value: number) =>
+    Number(value || 0).toLocaleString("es-ES", {
+      style: "currency",
+      currency: "EUR",
+    });
+  const setReportPreset = (preset: "week" | "month" | "year") => {
+    const end = new Date();
+    const begin =
+      preset === "week"
+        ? new Date(end.getTime() - 6 * 86400000)
+        : preset === "year"
+          ? new Date(end.getFullYear(), 0, 1)
+          : new Date(end.getFullYear(), end.getMonth(), 1);
+    setRange({ from: isoReportDay(begin), to: isoReportDay(end) });
+  };
+  return (
+    <div className="reports">
+      <div className="manager-head">
+        <div>
+          <p className="eyebrow">INFORMES OPERATIVOS</p>
+          <h2>Visión general</h2>
+          <p className="muted">Indicadores calculados desde la base de datos.</p>
+        </div>
+      </div>
+      {loading && <div className="data-loading" role="status"><span className="loading-spinner" aria-hidden="true" /><LoadingIndicator label="Cargando informes…" /></div>}
+      <div className="financial-report-toolbar">
+        <div>
+          <b>P&amp;L</b>
+          <span>Ventas</span>
+          <span>Gastos</span>
+        </div>
+        <button className="button secondary" onClick={() => window.print()}>
+          Exportar
+        </button>
+      </div>
+      <div className="financial-kpis">
+        <article>
+          <span>Ingresos</span>
+          <strong>{moneyReport(data.rangeSales)}</strong>
+          <small>{data.rangeInvoices} facturas del periodo</small>
+        </article>
+        <article>
+          <span>Gastos totales</span>
+          <strong>{moneyReport(data.rangeExpenses)}</strong>
+          <small>Compras registradas</small>
+        </article>
+        <article className={data.rangeBalance >= 0 ? "positive" : "negative"}>
+          <span>Resultado operativo</span>
+          <strong>{moneyReport(data.rangeBalance)}</strong>
+          <small>Ingresos menos gastos</small>
+        </article>
+        <article>
+          <span>Beneficio disponible</span>
+          <strong>
+            {moneyReport(data.rangeCollected - data.rangeExpenses)}
+          </strong>
+          <small>Cobrado menos gastos</small>
+        </article>
+      </div>
+      <div className="financial-report-grid">
+        <section className="financial-pl-card">
+          <div className="financial-card-title">
+            <span>Cuenta de resultados</span>
+            <small>
+              {range.from} · {range.to}
+            </small>
+          </div>
+          <div className="financial-pl-row">
+            <span>Ingresos por ventas</span>
+            <b>{moneyReport(data.rangeSales)}</b>
+          </div>
+          <div className="financial-pl-row">
+            <span>Ingresos netos</span>
+            <b>{moneyReport(data.rangeSales)}</b>
+          </div>
+          <div className="financial-pl-row indent negative-row">
+            <span>Coste de compras</span>
+            <b>-{moneyReport(data.rangeExpenses)}</b>
+          </div>
+          <div className="financial-pl-row total positive-row">
+            <span>Margen bruto</span>
+            <b>{moneyReport(data.rangeBalance)}</b>
+          </div>
+          <div className="financial-pl-row indent">
+            <span>Cobros recibidos</span>
+            <b>{moneyReport(data.rangeCollected)}</b>
+          </div>
+          <div className="financial-pl-row total">
+            <span>Resultado operativo</span>
+            <b>{moneyReport(data.rangeBalance)}</b>
+          </div>
+          <div className="financial-pl-row">
+            <span>Pendiente de cobro</span>
+            <b>
+              {moneyReport(Math.max(0, data.rangeSales - data.rangeCollected))}
+            </b>
+          </div>
+        </section>
+        <aside className="financial-side-stack">
+          <section className="financial-side-card">
+            <h3>Desglose de gastos</h3>
+            <div className="financial-breakdown-row">
+              <span>Compras a proveedores</span>
+              <b>{data.rangeExpenses ? "100%" : "0%"}</b>
+              <i>
+                <em style={{ width: data.rangeExpenses ? "100%" : "0%" }} />
+              </i>
+            </div>
+            <div className="financial-breakdown-row">
+              <span>Gastos y tickets</span>
+              <b>En seguimiento</b>
+              <i>
+                <em style={{ width: "4%" }} />
+              </i>
+            </div>
+          </section>
+          <section className="financial-side-card">
+            <h3>Ratios clave</h3>
+            <div className="financial-ratio">
+              <span>Margen bruto</span>
+              <b>
+                {data.rangeSales
+                  ? String(
+                      ((data.rangeBalance / data.rangeSales) * 100).toFixed(1),
+                    ) + "%"
+                  : "0%"}
+              </b>
+            </div>
+            <div className="financial-ratio">
+              <span>Ratio cobrado</span>
+              <b>
+                {data.rangeSales
+                  ? String(
+                      ((data.rangeCollected / data.rangeSales) * 100).toFixed(
+                        1,
+                      ),
+                    ) + "%"
+                  : "0%"}
+              </b>
+            </div>
+            <div className="financial-ratio">
+              <span>Facturas emitidas</span>
+              <b>{data.rangeInvoices}</b>
+            </div>
+            <div className="financial-ratio">
+              <span>Por cobrar</span>
+              <b>
+                {moneyReport(
+                  Math.max(0, data.rangeSales - data.rangeCollected),
+                )}
+              </b>
+            </div>
+          </section>
+        </aside>
+      </div>
+      <div className="panel report-range-panel">
+        <div>
+          <b>Periodo financiero</b>
+          <span className="muted">
+            Ventas, compras y balance del intervalo seleccionado
+          </span>
+        </div>
+        <div className="report-range-controls">
+          <label>
+            Desde
+            <input
+              type="date"
+              value={range.from}
+              onChange={(e) => setRange({ ...range, from: e.target.value })}
+            />
+          </label>
+          <label>
+            Hasta
+            <input
+              type="date"
+              value={range.to}
+              onChange={(e) => setRange({ ...range, to: e.target.value })}
+            />
+          </label>
+          <button
+            className="report-preset"
+            onClick={() => setReportPreset("week")}
+          >
+            Semana
+          </button>
+          <button
+            className="report-preset"
+            onClick={() => setReportPreset("month")}
+          >
+            Mes
+          </button>
+          <button
+            className="report-preset"
+            onClick={() => setReportPreset("year")}
+          >
+            Año
+          </button>
+        </div>
+      </div>
+      <div className="report-range-cards">
+        <article>
+          <span>VENTAS DEL PERIODO</span>
+          <strong>{moneyReport(data.rangeSales)}</strong>
+          <small>{data.rangeInvoices} facturas emitidas</small>
+        </article>
+        <article>
+          <span>GASTOS / COMPRAS</span>
+          <strong>{moneyReport(data.rangeExpenses)}</strong>
+          <small>Pedidos a proveedores</small>
+        </article>
+        <article className={data.rangeBalance >= 0 ? "positive" : "negative"}>
+          <span>BALANCE OPERATIVO</span>
+          <strong>{moneyReport(data.rangeBalance)}</strong>
+          <small>Ventas menos compras</small>
+        </article>
+        <article>
+          <span>COBROS RECIBIDOS</span>
+          <strong>{moneyReport(data.rangeCollected)}</strong>
+          <small>Movimientos registrados</small>
+        </article>
+      </div>
+      <div className="report-cards">
+        <article>
+          <span>VENTAS</span>
+          <strong>
+            {data.sales.toLocaleString("es-ES", {
+              style: "currency",
+              currency: "EUR",
+            })}
+          </strong>
+        </article>
+        <article>
+          <span>STOCK VALORADO</span>
+          <strong>
+            {data.stockValue.toLocaleString("es-ES", {
+              style: "currency",
+              currency: "EUR",
+            })}
+          </strong>
+        </article>
+        <article>
+          <span>POR COBRAR</span>
+          <strong>
+            {Math.max(0, data.receivables).toLocaleString("es-ES", {
+              style: "currency",
+              currency: "EUR",
+            })}
+          </strong>
+        </article>
+        <article>
+          <span>MARGEN ESTIMADO</span>
+          <strong>
+            {data.margin.toLocaleString("es-ES", {
+              style: "currency",
+              currency: "EUR",
+            })}
+          </strong>
+        </article>
+        <article>
+          <span>CLIENTES</span>
+          <strong>{data.clients}</strong>
+        </article>
+        <article>
+          <span>PRODUCTOS</span>
+          <strong>{data.products}</strong>
+        </article>
+        <article>
+          <span>PEDIDOS</span>
+          <strong>{data.orders}</strong>
+        </article>
+        <article>
+          <span>FACTURAS</span>
+          <strong>{data.invoices}</strong>
+        </article>
+      </div>
+      <div className="panel chart-panel">
+        <div className="report-section-head">
+          <div>
+            <h3>Actividad por módulo</h3>
+            <p className="muted">Volumen actual de datos operativos</p>
+          </div>
+          <span className="report-period">Actualizado ahora</span>
+        </div>
+        <div className="bars">
+          {[
+            ["Clientes", data.clients],
+            ["Productos", data.products],
+            ["Pedidos", data.orders],
+            ["Facturas", data.invoices],
+          ].map(([name, value]: any) => (
+            <div className="bar-row" key={name}>
+              <span>{name}</span>
+              <i
+                style={{ width: `${Math.min(100, Math.max(6, value * 12))}%` }}
+              />
+              <b>{value}</b>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="report-grid-two">
+        <div className="panel report-detail-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Estado de facturación</h3>
+              <p className="muted">Distribución de facturas registradas</p>
+            </div>
+          </div>
+          {(() => {
+            const entries = Object.entries(data.invoiceStatuses) as any[];
+            const total =
+              entries.reduce((n, [, value]) => n + Number(value), 0) || 1;
+            const colors = ["#b91c1c", "#f59e0b", "#059669", "#64748b"];
+            let offset = 0;
+            const stops = entries
+              .map(([status, value], i) => {
+                const start = offset;
+                offset += (Number(value) / total) * 100;
+                return `${colors[i % colors.length]} ${start}% ${offset}%`;
+              })
+              .join(", ");
+            return (
+              <div className="donut-layout">
+                <div
+                  className="donut-chart"
+                  style={{
+                    background: `conic-gradient(${stops || "#e5e7eb 0 100%"})`,
+                  }}
+                >
+                  <div>
+                    {entries.reduce((n, [, value]) => n + Number(value), 0)}
+                    <small>facturas</small>
+                  </div>
+                </div>
+                <div className="chart-legend">
+                  {entries.length ? (
+                    entries.map(([status, value], i) => (
+                      <div key={status}>
+                        <i style={{ background: colors[i % colors.length] }} />{" "}
+                        <span>{status}</span>
+                        <b>{value}</b>
+                      </div>
+                    ))
+                  ) : (
+                    <span className="muted">Sin datos</span>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+        <div className="panel report-detail-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Valor del stock</h3>
+              <p className="muted">
+                Productos con mayor inversión inmovilizada
+              </p>
+            </div>
+          </div>
+          <div className="value-bars">
+            {data.stockByProduct.length ? (
+              data.stockByProduct.map((item: any, index: number) => {
+                const max = data.stockByProduct[0]?.value || 1;
+                return (
+                  <div className="value-bar-row" key={`${item.name}-${index}`}>
+                    <span title={item.name}>{item.name}</span>
+                    <div>
+                      <i
+                        style={{
+                          width: `${Math.max(4, (item.value / max) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <b>
+                      {item.value.toLocaleString("es-ES", {
+                        style: "currency",
+                        currency: "EUR",
+                      })}
+                    </b>
+                  </div>
+                );
+              })
+            ) : (
+              <p className="muted">No hay stock valorado.</p>
+            )}
+          </div>
+        </div>
+        <div className="panel report-detail-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Pedidos por estado</h3>
+              <p className="muted">Seguimiento de la operación</p>
+            </div>
+          </div>
+          <div className="status-list">
+            {Object.entries(data.orderStatuses).length ? (
+              Object.entries(data.orderStatuses).map(([status, count]: any) => (
+                <div className="status-row" key={status}>
+                  <span>{status}</span>
+                  <b>{count}</b>
+                </div>
+              ))
+            ) : (
+              <p className="muted">Sin pedidos registrados.</p>
+            )}
+          </div>
+        </div>
+        <div className="panel report-detail-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Stock que necesita atención</h3>
+              <p className="muted">Disponible frente al mínimo configurado</p>
+            </div>
+          </div>
+          <div className="mini-report-table">
+            <div className="mini-report-head">
+              <span>Producto</span>
+              <span>Disponible</span>
+              <span>Mínimo</span>
+            </div>
+            {data.criticalProducts.length ? (
+              data.criticalProducts.map((p: any) => (
+                <div className="mini-report-row" key={p.id}>
+                  <span>{p.name}</span>
+                  <b>{Number(p.stock || 0) - Number(p.stock_reserved || 0)}</b>
+                  <span>{p.min_stock || 0}</span>
+                </div>
+              ))
+            ) : (
+              <p className="muted">No hay productos en stock crítico.</p>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="report-visual-grid">
+        <section className="panel report-visual-panel report-span-two">
+          <div className="report-section-head">
+            <div>
+              <h3>Ventas por mes</h3>
+              <p className="muted">
+                Facturación emitida durante los últimos seis meses
+              </p>
+            </div>
+            <span className="report-chart-tag">ÁREA</span>
+          </div>
+          {data.salesTimeline.length ? (
+            <ReportAreaChart
+              points={data.salesTimeline}
+              label="Evolución mensual de ventas"
+            />
+          ) : (
+            <p className="muted">
+              No hay ventas suficientes para dibujar la evolución.
+            </p>
+          )}
+        </section>
+        <section className="panel report-visual-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Ventas por cliente</h3>
+              <p className="muted">Clientes con mayor facturación</p>
+            </div>
+            <span className="report-chart-tag">BARRAS</span>
+          </div>
+          {data.clientSales.length ? (
+            <ReportBars
+              items={data.clientSales}
+              label="Ventas por cliente"
+              currency
+            />
+          ) : (
+            <p className="muted">Aún no hay facturación asociada a clientes.</p>
+          )}
+        </section>
+        <section className="panel report-visual-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Flujo de almacén</h3>
+              <p className="muted">Entradas y salidas netas de unidades</p>
+            </div>
+            <span className="report-chart-tag">COLUMNAS</span>
+          </div>
+          {data.stockMovements.length ? (
+            <ReportBars
+              items={data.stockMovements.map((x: any) => ({
+                ...x,
+                value: Math.abs(x.value),
+              }))}
+              label="Movimiento neto mensual de stock"
+            />
+          ) : (
+            <p className="muted">No hay movimientos de stock registrados.</p>
+          )}
+        </section>
+        <section className="panel report-visual-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Embudo de envíos</h3>
+              <p className="muted">Pedidos por etapa logística</p>
+            </div>
+            <span className="report-chart-tag">EMBUDO</span>
+          </div>
+          <div className="report-funnel">
+            {data.shipmentStatuses.length ? (
+              data.shipmentStatuses
+                .sort((a: any, b: any) => b.value - a.value)
+                .map((item: any, i: number) => (
+                  <div
+                    className={`funnel-step funnel-step-${i % 4}`}
+                    key={item.label}
+                    style={{ width: `${Math.max(42, 100 - i * 12)}%` }}
+                  >
+                    <span>{item.label}</span>
+                    <b>{item.value}</b>
+                  </div>
+                ))
+            ) : (
+              <p className="muted">No hay envíos registrados.</p>
+            )}
+          </div>
+        </section>
+        <section className="panel report-visual-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Antigüedad de pedidos</h3>
+              <p className="muted">Cuánto tiempo llevan abiertos</p>
+            </div>
+            <span className="report-chart-tag">DISTRIBUCIÓN</span>
+          </div>
+          <ReportBars items={data.orderAging} label="Antigüedad de pedidos" />
+        </section>
+        <section className="panel report-visual-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Precio frente a coste</h3>
+              <p className="muted">
+                Cada punto es un producto; el tamaño representa stock
+              </p>
+            </div>
+            <span className="report-chart-tag">DISPERSIÓN</span>
+          </div>
+          {data.productScatter.length ? (
+            <ReportScatter
+              items={data.productScatter}
+              label="Relación entre coste, precio y stock"
+            />
+          ) : (
+            <p className="muted">
+              Faltan productos con coste y precio para comparar.
+            </p>
+          )}
+        </section>
+        <section className="panel report-visual-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Rendimiento operativo</h3>
+              <p className="muted">Volumen relativo de cada área</p>
+            </div>
+            <span className="report-chart-tag">RADAR</span>
+          </div>
+          <ReportRadar
+            values={data.operationalRadar}
+            label="Radar de rendimiento operativo"
+          />
+        </section>
+        <section className="panel report-visual-panel">
+          <div className="report-section-head">
+            <div>
+              <h3>Pedidos por día</h3>
+              <p className="muted">Concentración semanal de la actividad</p>
+            </div>
+            <span className="report-chart-tag">MAPA</span>
+          </div>
+          <div
+            className="report-heatmap"
+            role="img"
+            aria-label="Mapa de calor de pedidos por día"
+          >
+            {data.activityHeatmap.map((item: any) => (
+              <div
+                key={item.label}
+                className="heat-cell"
+                style={{
+                  opacity: Math.max(
+                    0.2,
+                    Math.min(
+                      1,
+                      item.value /
+                        Math.max(
+                          ...data.activityHeatmap.map((x: any) => x.value),
+                          1,
+                        ),
+                    ),
+                  ),
+                }}
+                data-tooltip={`${item.label}: ${item.value} pedidos`}
+              >
+                <b>{item.label}</b>
+                <span>{item.value}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+      <div className="panel report-detail-panel">
+        <div className="report-section-head">
+          <div>
+            <h3>Últimas facturas</h3>
+            <p className="muted">Importes y estado de cobro</p>
+          </div>
+        </div>
+        <div className="mini-report-table">
+          <div className="mini-report-head">
+            <span>Factura</span>
+            <span>Importe</span>
+            <span>Estado</span>
+          </div>
+          {data.recentInvoices.length ? (
+            data.recentInvoices.map((i: any) => (
+              <div className="mini-report-row" key={i.id}>
+                <span>{i.code || `Factura #${i.id}`}</span>
+                <b>
+                  {Number(i.amount || 0).toLocaleString("es-ES", {
+                    style: "currency",
+                    currency: "EUR",
+                  })}
+                </b>
+                <span
+                  className={
+                    i.status === "Cobrada" ? "ok-text" : "warning-text"
+                  }
+                >
+                  {i.status || "Pendiente"}
+                </span>
+              </div>
+            ))
+          ) : (
+            <p className="muted">No hay facturas registradas.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function History() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [actor, setActor] = useState("");
+  const [action, setAction] = useState("");
+  const [resource, setResource] = useState("");
+  const [query, setQuery] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  async function loadHistory() {
+    setLoading(true);
+    const params = new URLSearchParams({ actor, action, resource });
+    try {
+      const r = await fetch(`/api/audit_logs?${params}`, {
+        headers: { "X-Audit-Query": "true", "X-Actor": "Luis" },
+      });
+      setRows(r.ok ? await r.json() : []);
+    } catch {
+      setRows([]);
+    }
+    setLoading(false);
+  }
+  useEffect(() => {
+    loadHistory();
+    setPage(1);
+  }, [actor, action, resource]);
+  const filteredRows = rows.filter((row) => {
+    const text = `${row.actor || ""} ${row.resource || ""} ${row.action || ""} ${row.method || ""} ${row.details || ""}`.toLocaleLowerCase();
+    const date = String(row.created_at || "").slice(0, 10);
+    return (!query || text.includes(query.toLocaleLowerCase())) && (!fromDate || date >= fromDate) && (!toDate || date <= toDate);
+  });
+  const pageSize = 100;
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const visibleRows = filteredRows.slice((page - 1) * pageSize, page * pageSize);
+  return (
+    <div className="history-page">
+      <div className="manager-head">
+        <div>
+          <p className="eyebrow">CONTROL Y TRAZABILIDAD</p>
+          <h2>Historial de actividad</h2>
+          <p className="muted">
+            Registro de consultas, altas, ediciones y borrados realizados en el
+            CRM.
+          </p>
+        </div>
+        <span className="db-badge">● Auditoría activa</span>
+      </div>
+      <div className="panel history-filters">
+        <label className="history-search-field">
+          Buscar en el historial
+          <input placeholder="Usuario, módulo, acción o detalle…" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} />
+        </label>
+        <label>
+          Usuario o asistente
+          <select value={actor} onChange={(e) => setActor(e.target.value)}>
+            <option value="">Todos</option>
+            <option value="Luis">Luis</option>
+            <option value="Jose">Jose</option>
+            <option value="Asistente">Asistente</option>
+            <option value="Usuario local">Usuario local</option>
+          </select>
+        </label>
+        <label>
+          Operación
+          <select value={action} onChange={(e) => setAction(e.target.value)}>
+            <option value="">Todas</option>
+            <option value="Consulta">Consultas</option>
+            <option value="Alta">Altas</option>
+            <option value="Edición">Ediciones</option>
+            <option value="Borrado">Borrados</option>
+          </select>
+        </label>
+        <label>
+          Módulo
+          <input
+            placeholder="Ej.: products"
+            value={resource}
+            onChange={(e) => setResource(e.target.value)}
+          />
+        </label>
+        <label>
+          Desde
+          <input type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setPage(1); }} />
+        </label>
+        <label>
+          Hasta
+          <input type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setPage(1); }} />
+        </label>
+        <button
+          className="button secondary"
+          onClick={() => {
+            setActor("");
+            setAction("");
+            setResource("");
+            setQuery("");
+            setFromDate("");
+            setToDate("");
+            setPage(1);
+          }}
+        >
+          Limpiar filtros
+        </button>
+      </div>
+      <div className="panel history-table">
+        <div className="history-summary">
+          <b>{filteredRows.length}</b> movimientos encontrados · mostrando {filteredRows.length ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, filteredRows.length)}
+        </div>
+        <TopHorizontalScroll className="history-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Usuario</th>
+                <th>Operación</th>
+                <th>Recurso</th>
+                <th>Método</th>
+                <th>Detalle</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={6}>Cargando historial…</td>
+                </tr>
+              ) : rows.length ? (
+                visibleRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      {row.created_at
+                        ? new Date(row.created_at).toLocaleString("es-ES")
+                        : "—"}
+                    </td>
+                    <td>
+                      <span
+                        className={
+                          row.actor === "Asistente"
+                            ? "actor-badge assistant-actor"
+                            : "actor-badge"
+                        }
+                      >
+                        {row.actor}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        className={`audit-action action-${String(row.action).toLowerCase()}`}
+                      >
+                        {row.action}
+                      </span>
+                    </td>
+                    <td>{row.resource}</td>
+                    <td>{row.method}</td>
+                    <td>{row.details || "—"}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>No hay movimientos con esos filtros.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </TopHorizontalScroll>
+        <div className="history-pagination">
+          <span>Página {page} de {pageCount} · 100 por página</span>
+          <div>
+            <button type="button" className="button secondary" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>← Anterior</button>
+            <button type="button" className="button secondary" disabled={page >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Siguiente →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScheduledTasks() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [form, setForm] = useState<any>({
+    title: "",
+    action_text: "",
+    schedule_type: "Unica",
+    recurrence: "",
+    next_run: "",
+    status: "Activa",
+  });
+  async function load() {
+    setLoading(true); setLoadError("");
+    try {
+      const r = await fetchWithRetry("/api/scheduled_tasks");
+      if (!r.ok) throw new Error("No se ha podido cargar las tareas");
+      const data = await r.json();
+      setRows(Array.isArray(data) ? data : []);
+    } catch { setLoadError("No se han podido actualizar las tareas programadas."); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+  async function save(e: any) {
+    e.preventDefault();
+    const next = form.next_run
+      ? new Date(form.next_run).toISOString()
+      : new Date(Date.now() + 3600000).toISOString();
+    const r = await fetch("/api/scheduled_tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Actor": "Luis" },
+      body: JSON.stringify({ ...form, next_run: next, created_by: "Luis" }),
+    });
+    if (r.ok) {
+      setForm({
+        title: "",
+        action_text: "",
+        schedule_type: "Unica",
+        recurrence: "",
+        next_run: "",
+        status: "Activa",
+      });
+      load();
+    }
+  }
+  async function toggle(row: any) {
+    await fetch(`/api/scheduled_tasks/${row.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-Actor": "Luis" },
+      body: JSON.stringify({
+        ...row,
+        status: row.status === "Activa" ? "Pausada" : "Activa",
+      }),
+    });
+    load();
+  }
+  async function remove(id: number) {
+    await fetch(`/api/scheduled_tasks/${id}`, {
+      method: "DELETE",
+      headers: { "X-Actor": "Luis" },
+    });
+    load();
+  }
+  return (
+    <div className="scheduled-page">
+      <div className="manager-head">
+        <div>
+          <p className="eyebrow">AUTOMATIZACIÓN LOCAL</p>
+          <h2>Tareas programadas</h2>
+          <p className="muted">
+            Acciones únicas o recurrentes que ejecuta el asistente contra el
+            CRM.
+          </p>
+        </div>
+        <span className="db-badge">● Motor activo</span>
+      </div>
+      {loading && <div className="data-loading" role="status"><span className="loading-spinner" aria-hidden="true" /><LoadingIndicator label="Cargando tareas programadas…" /></div>}
+      {loadError && <div className="error-message">{loadError}</div>}
+      <div className="panel scheduled-form">
+        <h3>Nueva tarea</h3>
+        <form onSubmit={save}>
+          <label>
+            Título
+            <input
+              required
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+            />
+          </label>
+          <label>
+            Acción en lenguaje natural
+            <input
+              required
+              placeholder="Ej.: nota: revisar stock de bebidas"
+              value={form.action_text}
+              onChange={(e) =>
+                setForm({ ...form, action_text: e.target.value })
+              }
+            />
+          </label>
+          <label>
+            Tipo
+            <select
+              value={form.schedule_type}
+              onChange={(e) =>
+                setForm({ ...form, schedule_type: e.target.value })
+              }
+            >
+              <option>Unica</option>
+              <option>Recurrente</option>
+            </select>
+          </label>
+          <label>
+            Repetición
+            <input
+              placeholder="diaria, semanal o lunes"
+              value={form.recurrence}
+              onChange={(e) => setForm({ ...form, recurrence: e.target.value })}
+            />
+          </label>
+          <label>
+            Próxima ejecución
+            <input
+              type="datetime-local"
+              value={form.next_run}
+              onChange={(e) => setForm({ ...form, next_run: e.target.value })}
+            />
+          </label>
+          <button className="button primary">＋ Programar tarea</button>
+        </form>
+      </div>
+      <div className="panel scheduled-list">
+        <div className="history-summary">
+          <b>{rows.length}</b> tareas guardadas
+        </div>
+        <TopHorizontalScroll className="history-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Tarea</th>
+                <th>Acción</th>
+                <th>Tipo</th>
+                <th>Próxima ejecución</th>
+                <th>Estado</th>
+                <th>Último resultado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length ? (
+                rows.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      <b>{row.title}</b>
+                      <small className="task-creator">
+                        Creada por {row.created_by}
+                      </small>
+                    </td>
+                    <td>{row.action_text}</td>
+                    <td>
+                      {row.schedule_type}
+                      {row.recurrence ? ` · ${row.recurrence}` : ""}
+                    </td>
+                    <td>
+                      {row.next_run
+                        ? new Date(row.next_run).toLocaleString("es-ES")
+                        : "—"}
+                    </td>
+                    <td>
+                      <span
+                        className={`task-status task-${String(row.status).toLowerCase()}`}
+                      >
+                        {row.status}
+                      </span>
+                    </td>
+                    <td>{row.last_result || "Pendiente"}</td>
+                    <td>
+                      <button
+                        className="row-action"
+                        onClick={() => toggle(row)}
+                      >
+                        {row.status === "Activa" ? "Pausar" : "Activar"}
+                      </button>{" "}
+                      <button
+                        className="row-action danger"
+                        onClick={() => remove(row.id)}
+                      >
+                        Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7}>No hay tareas programadas todavía.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </TopHorizontalScroll>
+      </div>
+    </div>
+  );
+}
+
+function TabletCrudPanel({
+  clients,
+  products,
+  crudType,
+  setCrudType,
+  crudId,
+  crudForm,
+  setCrudForm,
+  selectCrudRecord,
+  saveCrudRecord,
+  deleteCrudRecord,
+  onBack,
+  error,
+}: any) {
+  const records = crudType === "clients" ? clients : products;
+  return (
+    <div className="tablet-crud-panel">
+      <div className="tablet-title">
+        <div>
+          <p className="eyebrow">GESTIÓN DESDE LA TABLET</p>
+          <h2>Clientes y productos</h2>
+          <p>Alta, edición y eliminación sin salir de la visita comercial.</p>
+        </div>
+        <button className="button secondary" onClick={onBack}>
+          ← Volver al pedido
+        </button>
+      </div>
+      <div className="tablet-crud-tabs">
+        <button
+          className={crudType === "clients" ? "active" : ""}
+          onClick={() => {
+            setCrudType("clients");
+            selectCrudRecord("");
+          }}
+        >
+          Clientes
+        </button>
+        <button
+          className={crudType === "products" ? "active" : ""}
+          onClick={() => {
+            setCrudType("products");
+            selectCrudRecord("");
+          }}
+        >
+          Productos
+        </button>
+      </div>
+      <div className="tablet-crud-body">
+        <section className="tablet-crud-list">
+          <h3>
+            {crudType === "clients"
+              ? "Clientes registrados"
+              : "Productos registrados"}
+          </h3>
+          <select
+            size={9}
+            value={crudId}
+            onChange={(event) => selectCrudRecord(event.target.value)}
+          >
+            <option value="">＋ Nuevo registro</option>
+            {records.map((record: any) => (
+              <option key={record.id} value={record.id}>
+                {record.name}
+              </option>
+            ))}
+          </select>
+        </section>
+        <section className="tablet-crud-form">
+          <h3>{crudId ? "Editar registro" : "Nuevo registro"}</h3>
+          <label>
+            Nombre
+            <input
+              value={crudForm.name || ""}
+              onChange={(event) =>
+                setCrudForm({ ...crudForm, name: event.target.value })
+              }
+            />
+          </label>
+          {crudType === "clients" ? (
+            <div className="tablet-crud-fields">
+              <label>
+                Teléfono
+                <input
+                  value={crudForm.phone || ""}
+                  onChange={(event) =>
+                    setCrudForm({ ...crudForm, phone: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Correo
+                <input
+                  value={crudForm.email || ""}
+                  onChange={(event) =>
+                    setCrudForm({ ...crudForm, email: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Dirección
+                <input
+                  value={crudForm.address || ""}
+                  onChange={(event) =>
+                    setCrudForm({ ...crudForm, address: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Ciudad
+                <input
+                  value={crudForm.city || ""}
+                  onChange={(event) =>
+                    setCrudForm({ ...crudForm, city: event.target.value })
+                  }
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="tablet-crud-fields">
+              <label>
+                Referencia / SKU
+                <input
+                  value={crudForm.sku || ""}
+                  onChange={(event) =>
+                    setCrudForm({ ...crudForm, sku: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Precio de venta
+                <input
+                  type="number"
+                  step="0.01"
+                  value={crudForm.unit_price ?? 0}
+                  onChange={(event) =>
+                    setCrudForm({ ...crudForm, unit_price: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Coste de compra
+                <input
+                  type="number"
+                  step="0.01"
+                  value={crudForm.cost_price ?? 0}
+                  onChange={(event) =>
+                    setCrudForm({ ...crudForm, cost_price: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Stock inicial
+                <input
+                  type="number"
+                  value={crudForm.stock ?? 0}
+                  onChange={(event) =>
+                    setCrudForm({ ...crudForm, stock: event.target.value })
+                  }
+                />
+              </label>
+            </div>
+          )}
+          <div className="tablet-crud-actions">
+            <button className="button primary" onClick={saveCrudRecord}>
+              {crudId ? "Guardar cambios" : "Crear registro"}
+            </button>
+            {crudId && (
+              <button
+                className="button danger-outline"
+                onClick={deleteCrudRecord}
+              >
+                Eliminar
+              </button>
+            )}
+          </div>
+          {error && <p className="tablet-error">{error}</p>}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function tabletTodayInput() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export function ClientOrderPortal({
+  onClose,
+  onCreated,
+  standalone = false,
+}: {
+  onClose: () => void;
+  onCreated: (order: any) => void;
+  standalone?: boolean;
+}) {
+  const [clients, setClients] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [clientId, setClientId] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
+  const [productSearch, setProductSearch] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [quantity, setQuantity] = useState(1);
+  const [quantityUnit, setQuantityUnit] = useState<"unidad" | "caja" | "pack_4" | "pack_6" | "palet">("unidad");
+  const [deliveryDate, setDeliveryDate] = useState(() => tabletTodayInput());
+  const [address, setAddress] = useState("");
+  const [notes, setNotes] = useState("");
+  const [cart, setCart] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState<any>(null);
+
+  useEffect(() => {
+    Promise.all(["clients", "products"].map((resource) =>
+      fetch(`/api/${resource}`).then((response) => response.json()),
+    )).then(([clientRows, productRows]) => {
+      setClients(Array.isArray(clientRows) ? clientRows : []);
+      setProducts(Array.isArray(productRows) ? productRows : []);
+    }).catch(() => setError("No se han podido cargar los datos del catálogo."));
+  }, []);
+
+  const selectedClient = clients.find((client) => String(client.id) === String(clientId));
+  const clientMatches = clients.filter((client) => matchesSearch(
+    `${client.name || ""} ${client.city || ""} ${client.phone || ""} ${client.email || ""}`,
+    clientSearch,
+  )).slice(0, 7);
+  const productMatches = products.filter((product) => matchesSearch(
+    `${product.name || ""} ${product.sku || ""} ${product.barcode || ""} ${product.brand || ""} ${product.format || ""}`,
+    productSearch,
+  )).slice(0, 8);
+  const total = cart.reduce((sum, line) => sum + Number(line.quantity) * Number(line.unit_price), 0);
+  const euro = (value: number) => `${value.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+  function unitFactor(product: any, unit: string) {
+    if (unit === "caja") return Math.max(1, Number(product?.units_per_case || 1));
+    if (unit === "pack_4") return 4;
+    if (unit === "pack_6") return 6;
+    if (unit === "palet") return Math.max(1, Number(product?.units_per_pallet || Number(product?.units_per_case || 1) * 10));
+    return 1;
+  }
+  function chooseClient(client: any) {
+    setClientId(String(client.id));
+    setClientSearch(client.name || "");
+    setAddress(client.address || "");
+  }
+  function addProduct() {
+    if (!selectedProduct || quantity < 1) return;
+    const factor = unitFactor(selectedProduct, quantityUnit);
+    const requested = Number(quantity);
+    setCart((current) => {
+      const existing = current.find((line) => line.product_id === selectedProduct.id && line.quantity_unit === quantityUnit);
+      if (existing) return current.map((line) => line.product_id === selectedProduct.id && line.quantity_unit === quantityUnit
+          ? { ...line, quantity_requested: Number(line.quantity_requested) + requested, quantity: Number(line.quantity) + requested * factor }
+        : line);
+      return [...current, {
+        product_id: selectedProduct.id,
+        name: selectedProduct.name,
+        quantity: requested * factor,
+        quantity_requested: requested,
+        quantity_unit: quantityUnit,
+        units_factor: factor,
+        unit_price: Number(selectedProduct.unit_price || 0),
+      }];
+    });
+    setSelectedProduct(null);
+    setProductSearch("");
+    setQuantity(1);
+  }
+  async function submitOrder(event: FormEvent) {
+    event.preventDefault();
+    if (!clientId || !cart.length || !deliveryDate) {
+      setError("Selecciona tu empresa, al menos un producto y la fecha de entrega.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Actor": "Portal web" },
+        body: JSON.stringify({
+          code: `WEB-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`,
+          client_id: Number(clientId),
+          amount: total,
+          status: "Pendiente",
+          delivery_date: deliveryDate,
+          address,
+          notes: `${notes}${notes ? "\\n" : ""}Pedido recibido desde el portal web del cliente.`,
+          lines: cart.map((line) => ({
+            product_id: line.product_id,
+            quantity: line.quantity,
+            quantity_requested: line.quantity_requested,
+            quantity_unit: line.quantity_unit,
+            units_factor: line.units_factor,
+            unit_price: line.unit_price,
+            amount: Number(line.quantity) * Number(line.unit_price),
+            vat: 21,
+          })),
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "No se ha podido enviar el pedido.");
+      setSaved(body);
+      onCreated(body);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se ha podido enviar el pedido.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  function openWhatsApp() {
+    let number = "";
+    try { number = String(localStorage.getItem("excluvas.whatsapp.number") || "").replace(/\D/g, ""); } catch {}
+    if (!number) {
+      setError("Configura primero el número de WhatsApp Business en Ajustes.");
+      return;
+    }
+    const message = `Hola, soy ${selectedClient?.name || "cliente"}. Quiero realizar un pedido${cart.length ? ` de ${cart.length} productos` : ""}.`;
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+  }
+  return (
+    <div className={standalone ? "web-order-page" : "web-order-overlay"}>
+      <div className={standalone ? "web-order-window web-order-page-window" : "web-order-window"} role={standalone ? undefined : "dialog"} aria-modal={standalone ? undefined : true} aria-label="Portal web de pedidos">
+        <header className="web-order-nav">
+          <div className="web-order-brand"><span>E</span><div><b>Exclusivas</b><small>Portal de pedidos</small></div></div>
+          <div className="web-order-nav-status"><i /> Conectado al CRM</div>
+          <button type="button" className="web-order-close" onClick={onClose} aria-label="Cerrar portal">×</button>
+        </header>
+        {!saved ? (
+          <form onSubmit={submitOrder}>
+            <section className="web-order-hero">
+              <div><p className="eyebrow">PEDIDOS ONLINE</p><h2>Haz tu pedido de bebidas</h2><p>Selecciona los productos, indica cuándo los necesitas y nosotros nos encargamos del resto.</p></div>
+              <div className="web-order-hero-note"><b>Entrega coordinada</b><span>Recibirás confirmación de tu pedido</span></div>
+            </section>
+            <div className="web-order-body">
+              <section className="web-order-card web-order-catalog">
+                <div className="web-order-section-title"><div><b>Datos de entrega</b><span>Identifica tu empresa y el destino del pedido.</span></div><strong>1</strong></div>
+                <div className="web-order-client-grid">
+                  <label className="web-order-field">Empresa o cliente
+                    <input value={clientSearch} onChange={(event) => { setClientSearch(event.target.value); setClientId(""); }} placeholder="Buscar por nombre, ciudad o teléfono…" autoComplete="off" />
+                    {clientSearch && !selectedClient && <div className="web-order-suggestions">{clientMatches.length ? clientMatches.map((client) => <button type="button" key={client.id} onClick={() => chooseClient(client)}><b>{client.name}</b><small>{client.city || "Madrid"} · {client.phone || "Sin teléfono"}</small></button>) : <span>No hay clientes que coincidan.</span>}</div>}
+                  </label>
+                  <label className="web-order-field">Fecha de entrega<input type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} /></label>
+                </div>
+                <label className="web-order-field">Dirección de entrega<input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Selecciona un cliente para cargar su dirección" /></label>
+                {selectedClient && <div className="web-order-client-info"><span>{selectedClient.email || "Correo no indicado"}</span><span>{selectedClient.phone || "Teléfono no indicado"}</span></div>}
+                <div className="web-order-section-title products"><div><b>Catálogo de productos</b><span>Busca por nombre, referencia, marca o formato.</span></div><strong>{cart.length}</strong></div>
+                <div className="web-order-product-row">
+                  <label className="web-order-field"><span className="sr-only">Buscar producto</span><input value={productSearch} onChange={(event) => { setProductSearch(event.target.value); setSelectedProduct(null); }} placeholder="Buscar producto por nombre, referencia o código…" autoComplete="off" />
+                    {productSearch && !selectedProduct && <div className="web-order-suggestions product-results">{productMatches.length ? productMatches.map((product) => <button type="button" key={product.id} onClick={() => { setSelectedProduct(product); setProductSearch(product.name || ""); }}><b>{product.name}</b><small>{product.sku || "Sin referencia"} · Stock {Number(product.stock || 0)}</small></button>) : <span>No hay productos que coincidan.</span>}</div>}
+                  </label>
+                  <input className="web-order-quantity" type="number" min="1" value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value) || 1))} aria-label="Cantidad" />
+                  <select value={quantityUnit} onChange={(event) => setQuantityUnit(event.target.value as "unidad" | "caja" | "palet")} aria-label="Tipo de cantidad"><option value="unidad">Unidades</option><option value="caja">Cajas</option><option value="palet">Palés</option></select>
+                  <button type="button" className="button primary" onClick={addProduct} disabled={!selectedProduct}>Añadir</button>
+                </div>
+                <div className="web-order-cart">{cart.length ? cart.map((line, index) => <div className="web-order-cart-line" key={`${line.product_id}-${line.quantity_unit}`}><div><b>{line.name}</b><small>{line.quantity_requested} {line.quantity_unit}{line.units_factor > 1 ? ` · ${line.quantity} unidades` : ""}</small></div><strong>{euro(Number(line.quantity) * Number(line.unit_price))}</strong><button type="button" onClick={() => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Quitar ${line.name}`}>×</button></div>) : <p className="web-order-empty">Añade productos para preparar tu pedido.</p>}</div>
+              </section>
+              <aside className="web-order-card web-order-summary">
+                <div className="web-order-section-title"><div><b>Resumen del pedido</b><span>Revisa los datos antes de enviarlo.</span></div></div>
+                <div className="web-order-summary-data"><span>Cliente <b>{selectedClient?.name || "Sin seleccionar"}</b></span><span>Entrega <b>{deliveryDate || "Sin fecha"}</b></span><span>Destino <b>{address || "Sin dirección"}</b></span></div>
+                <label className="web-order-field">Notas para el reparto<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Horario, indicaciones o comentarios…" /></label>
+                <div className="web-order-total"><span>Total previsto</span><strong>{euro(total)}</strong></div>
+                {error && <p className="web-order-error">{error}</p>}
+                <button className="button primary web-order-submit" disabled={saving}>{saving ? "Enviando pedido…" : "Enviar pedido al CRM"}</button>
+                <button type="button" className="web-order-whatsapp" onClick={openWhatsApp}>Continuar por WhatsApp</button>
+                <small className="web-order-privacy">Este portal es una simulación conectada a la base de datos local de Exclusivas.</small>
+              </aside>
+            </div>
+          </form>
+        ) : <div className="web-order-success"><div className="success-icon">✓</div><p className="eyebrow">PEDIDO RECIBIDO</p><h2>Gracias, tu pedido está en marcha</h2><p>El pedido <b>{saved.code || "web"}</b> se ha guardado en el CRM y queda pendiente de preparación.</p><button type="button" className="button primary" onClick={onClose}>Cerrar portal</button></div>}
+        {standalone && <footer className="web-order-footer"><span>Exclusivas · Distribución profesional de bebidas</span><span>Pedidos seguros · Atención comercial</span></footer>}
+      </div>
+    </div>
+  );
+}
+
+function TabletOperationsMenu({ counts, onOpenOrder, onOpenData, onOpenModule }: { counts: Record<string, number>; onOpenOrder: () => void; onOpenData: () => void; onOpenModule: (module: string) => void }) {
+  const options = [
+    ["liquidacion", "Informe de liquidación", "Resumen de ventas y cobros"],
+    ["documentos", "Estado de documentos", "Pedidos, albaranes y facturas"],
+    ["cobrados", "Documentos cobrados", "Facturas y cobros registrados"],
+    ["pendientes", "Documentos pendientes", "Facturas pendientes de cobro"],
+    ["catalogo", "Catálogo de productos", "Consulta referencias y stock"],
+    ["visitas", "Listado de visitas", "Clientes y actividad comercial"],
+    ["rutas", "Listado de rutas", "Entregas y envíos previstos"],
+  ];
+  return <div className="tablet-home-panel">
+    <div className="tablet-home-title"><p className="eyebrow">EXCLUSIVAS INTELIGENTES</p><h2>Centro de operaciones</h2><p>Consulta la información de tu ruta o registra un pedido desde la tablet.</p></div>
+    <div className="tablet-home-actions"><button type="button" className="button primary" onClick={onOpenOrder}>＋ Nuevo pedido</button><button type="button" className="button secondary" onClick={onOpenData}>Gestionar clientes y productos</button></div>
+    <div className="tablet-operation-list">{options.map(([key, title, subtitle]) => <button type="button" key={key} onClick={() => onOpenModule(key)}><span><b>{title}</b><small>{subtitle}</small></span><strong>{counts[key] ?? 0}</strong><i>›</i></button>)}</div>
+  </div>;
+}
+
+function TabletModulePanel({ module, counts, onBack }: { module: string; counts: Record<string, number>; onBack: () => void }) {
+  const labels: Record<string, string> = { liquidacion: "Informe de liquidación", documentos: "Estado de documentos", cobrados: "Documentos cobrados", pendientes: "Documentos pendientes", catalogo: "Catálogo de productos", visitas: "Listado de visitas", rutas: "Listado de rutas" };
+  const descriptions: Record<string, string> = { liquidacion: "Resumen disponible de ventas, cobros y documentos del periodo.", documentos: "Seguimiento de los documentos relacionados con la actividad comercial.", cobrados: "Documentos cobrados registrados en el CRM.", pendientes: "Documentos que todavía están pendientes de cobro.", catalogo: "Consulta el catálogo completo desde Nuevo pedido.", visitas: "Clientes disponibles para planificar visitas.", rutas: "Entregas y rutas registradas para seguimiento." };
+  return <div className="tablet-module-panel"><button type="button" className="tablet-back-button" onClick={onBack}>‹ Volver al centro de operaciones</button><p className="eyebrow">CONSULTA OPERATIVA</p><h2>{labels[module] || "Consulta"}</h2><p>{descriptions[module] || "Información del CRM."}</p><div className="tablet-module-count"><strong>{counts[module] ?? 0}</strong><span>registros disponibles</span></div><p className="tablet-module-note">Los datos se consultan directamente desde la base de datos del CRM y se actualizan al volver a esta pantalla.</p></div>;
+}
+
+function TabletOrderDemo({
+  onClose,
+  onViewOrders,
+  user,
+  requireLogin = false,
+}: {
+  onClose: () => void;
+  onViewOrders: () => void;
+  user?: any;
+  requireLogin?: boolean;
+}) {
+  const [clients, setClients] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [points, setPoints] = useState<any[]>([]);
+  const [clientId, setClientId] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
+  const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [savingClientAddress, setSavingClientAddress] = useState(false);
+  const [pointId, setPointId] = useState("");
+  const [productId, setProductId] = useState("");
+  const [productSearch, setProductSearch] = useState("");
+  const [showTabletPrices, setShowTabletPrices] = useState(false);
+  const [quantity, setQuantity] = useState(1);
+  const [quantityUnit, setQuantityUnit] = useState<"unidad" | "caja" | "pack_4" | "pack_6" | "palet">("unidad");
+  const [totalUnits, setTotalUnits] = useState(1);
+  const [deliveryDate, setDeliveryDate] = useState(() => {
+    const d = new Date(Date.now() + 86400000);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
+  const [preparationDate, setPreparationDate] = useState(() => tabletTodayInput());
+  const [shippingDate, setShippingDate] = useState(() => tabletTodayInput());
+  const [urgent, setUrgent] = useState(false);
+  const [responsible, setResponsible] = useState(user?.username || "");
+  const [tabletUsername, setTabletUsername] = useState("");
+  const [tabletPassword, setTabletPassword] = useState("");
+  const [tabletRemember, setTabletRemember] = useState(false);
+  const [tabletLoginError, setTabletLoginError] = useState("");
+  const [notes, setNotes] = useState(
+    "Avisar al responsable 30 minutos antes de la entrega.",
+  );
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseCategory, setExpenseCategory] = useState("Combustible");
+  const [expenseVendor, setExpenseVendor] = useState("");
+  const [expenseFile, setExpenseFile] = useState<any>(null);
+  const [expenseSaved, setExpenseSaved] = useState("");
+  const [cart, setCart] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<any>(null);
+  const [tabletView, setTabletView] = useState<"inicio" | "pedido" | "datos" | "resumen">(requireLogin ? "inicio" : "pedido");
+  const [tabletModule, setTabletModule] = useState("documentos");
+  const [orientation, setOrientation] = useState<"horizontal" | "vertical">(
+    "horizontal",
+  );
+  const [tabletStarted, setTabletStarted] = useState(!requireLogin);
+  const [crudType, setCrudType] = useState<"clients" | "products">("clients");
+  const [crudId, setCrudId] = useState("");
+  const [crudForm, setCrudForm] = useState<any>({
+    name: "",
+    phone: "",
+    email: "",
+    address: "",
+    city: "",
+    sku: "",
+    unit_price: 0,
+    cost_price: 0,
+    stock: 0,
+  });
+  const [documents, setDocuments] = useState<any>({
+    delivery: null,
+    shipment: null,
+  });
+  const [tabletCounts, setTabletCounts] = useState<Record<string, number>>({});
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!requireLogin) return;
+    try {
+      const remembered = localStorage.getItem("exclusivas.tablet.session");
+      if (!remembered) return;
+      const session = JSON.parse(remembered);
+      if (session?.username) {
+        setTabletUsername(session.username);
+        setResponsible(session.username);
+        setTabletRemember(true);
+        setTabletStarted(true);
+        setTabletView("inicio");
+      }
+    } catch { /* Si la preferencia no es válida, se muestra el acceso normal. */ }
+  }, [requireLogin]);
+  useEffect(() => {
+    Promise.all(
+      ["clients", "products", "collection_points", "invoices", "delivery_notes", "payments", "shipments"].map((resource) =>
+        fetch(`/api/${resource}`).then((response) =>
+          response.json(),
+        ),
+      ),
+    )
+      .then(([clientRows, productRows, pointRows, invoiceRows, deliveryRows, paymentRows, shipmentRows]) => {
+        setClients(Array.isArray(clientRows) ? clientRows : []);
+        setProducts(Array.isArray(productRows) ? productRows : []);
+        setPoints(Array.isArray(pointRows) ? pointRows : []);
+        const invoices = Array.isArray(invoiceRows) ? invoiceRows : [];
+        const deliveries = Array.isArray(deliveryRows) ? deliveryRows : [];
+        const payments = Array.isArray(paymentRows) ? paymentRows : [];
+        const shipments = Array.isArray(shipmentRows) ? shipmentRows : [];
+        setTabletCounts({ liquidacion: payments.length, documentos: invoices.length + deliveries.length, cobrados: invoices.filter((row: any) => ["Cobrada", "Pagada"].includes(row.status)).length, pendientes: invoices.filter((row: any) => !["Cobrada", "Pagada", "Anulada"].includes(row.status)).length, catalogo: Array.isArray(productRows) ? productRows.length : 0, visitas: Array.isArray(clientRows) ? clientRows.length : 0, rutas: shipments.length });
+      })
+      .catch(() => setError("No se han podido cargar los datos del CRM."));
+  }, []);
+  useEffect(() => {
+    const selected = clients.find((client) => String(client.id) === String(clientId));
+    if (selected) {
+      setDeliveryAddress(selected.address || "");
+      setPointId("");
+    } else if (!clientId) {
+      setDeliveryAddress("");
+    }
+  }, [clientId, clients]);
+  const selectedProduct = products.find(
+    (product) => String(product.id) === productId,
+  );
+  const filteredProducts = products
+    .filter((product) => {
+      if (!productSearch.trim()) return false;
+      return matchesSearch(`${product.name || ""} ${product.sku || ""} ${product.barcode || ""} ${product.brand || ""} ${product.format || ""}`, productSearch);
+    })
+    .slice(0, 8);
+  const clientOptions = clients.map((client) => ({
+    ...client,
+    display: `${client.name || "Cliente sin nombre"} · ${client.city || "Madrid"}`,
+  }));
+  const clientPoints = points.filter((point) => !clientId || Number(point.client_id) === Number(clientId));
+  const total = cart.reduce(
+    (sum, line) => sum + Number(line.quantity) * Number(line.unit_price),
+    0,
+  );
+  const tabletOrderComplete = Boolean(
+    clientId && pointId && deliveryDate && preparationDate && shippingDate && cart.length,
+  );
+  function unitFactor(product: any, unit: string) {
+    if (unit === "caja") return Math.max(1, Number(product?.units_per_case || 1));
+    if (unit === "pack_4") return 4;
+    if (unit === "pack_6") return 6;
+    if (unit === "palet") return Math.max(1, Number(product?.units_per_pallet || Number(product?.units_per_case || 1) * 10));
+    return 1;
+  }
+  function addProduct() {
+    if (!selectedProduct || quantity < 1 || totalUnits < 1) return;
+    const factor = unitFactor(selectedProduct, quantityUnit);
+    const requested = Number(quantity);
+    setCart((current) => {
+      const existing = current.find(
+        (line) => line.product_id === selectedProduct.id && line.quantity_unit === quantityUnit,
+      );
+      if (existing)
+        return current.map((line) =>
+          line.product_id === selectedProduct.id && line.quantity_unit === quantityUnit
+            ? { ...line, quantity_requested: Number(line.quantity_requested) + requested, quantity: Number(line.quantity) + Number(totalUnits) }
+            : line,
+        );
+      return [
+        ...current,
+        {
+          product_id: selectedProduct.id,
+          name: selectedProduct.name,
+          quantity: Number(totalUnits),
+          quantity_requested: requested,
+          quantity_unit: quantityUnit,
+          units_factor: factor,
+          unit_price: Number(selectedProduct.unit_price || 0),
+        },
+      ];
+    });
+    setProductId("");
+    setProductSearch("");
+    setQuantity(1);
+    setQuantityUnit("unidad");
+  }
+  function readTabletExpenseFile(file: File) {
+    if (file.size > 8 * 1024 * 1024) {
+      setError("El justificante no puede superar 8 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () =>
+      setExpenseFile({
+        name: file.name,
+        mime: file.type || "application/octet-stream",
+        data: String(reader.result || ""),
+      });
+    reader.readAsDataURL(file);
+  }
+  async function saveTabletExpense() {
+    if (!clientId) {
+      setError("Selecciona primero el cliente para asociar el gasto.");
+      return;
+    }
+    if (!expenseAmount && !expenseFile) {
+      setError("Indica un importe o adjunta el ticket.");
+      return;
+    }
+    const response = await fetch("/api/expenses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Actor": responsible },
+      body: JSON.stringify({
+        code: "GAS-" + String(Date.now()).slice(-8),
+        client_id: Number(clientId),
+        expense_date: tabletTodayInput(),
+        category: expenseCategory,
+        vendor: expenseVendor,
+        amount: Number(expenseAmount || 0),
+        vat: 21,
+        payment_method: "Tarjeta",
+        attachment_name: expenseFile?.name || "",
+        attachment_mime: expenseFile?.mime || "",
+        attachment_data: expenseFile?.data || "",
+      }),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setError(body.error || "No se ha podido guardar el gasto.");
+      return;
+    }
+    setExpenseSaved(body.code);
+    setExpenseAmount("");
+    setExpenseVendor("");
+    setExpenseFile(null);
+    window.dispatchEvent(new Event("crm-data-changed"));
+  }
+  async function createOrder() {
+    if (!clientId || !pointId || !cart.length || !deliveryDate || !preparationDate || !shippingDate) {
+      setError("Completa cliente, lugar de envío, fechas y añade al menos un producto.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Actor": responsible },
+        body: JSON.stringify({
+          code: `PED-2026-${String(Date.now()).slice(-6)}`,
+          client_id: Number(clientId),
+          amount: total,
+          status: "Nuevo",
+          created_by: responsible,
+          delivery_date: deliveryDate,
+          preparation_date: preparationDate,
+          shipping_date: shippingDate,
+          urgent: urgent ? 1 : 0,
+          collection_point_id: pointId ? Number(pointId) : null,
+          address: deliveryAddress,
+          notes,
+          lines: cart.map((line) => ({
+            product_id: line.product_id,
+            quantity: line.quantity,
+            quantity_requested: line.quantity_requested,
+            quantity_unit: line.quantity_unit,
+            units_factor: line.units_factor,
+            unit_price: line.unit_price,
+            amount: Number(line.quantity) * Number(line.unit_price),
+            vat: 21,
+          })),
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok)
+        throw new Error(body.error || "No se ha podido crear el pedido.");
+      setSaved(body);
+      window.dispatchEvent(new Event("crm-data-changed"));
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se ha podido crear el pedido.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function saveClientAddress() {
+    if (!clientId || !deliveryAddress.trim()) {
+      setError("Selecciona un cliente y escribe una dirección.");
+      return;
+    }
+    setSavingClientAddress(true);
+    try {
+      const response = await fetch(`/api/clients/${clientId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-Actor": responsible },
+        body: JSON.stringify({ address: deliveryAddress.trim() }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "No se ha podido guardar la dirección.");
+      setClients((current) => current.map((client) => String(client.id) === String(clientId) ? { ...client, address: deliveryAddress.trim() } : client));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se ha podido guardar la dirección.");
+    } finally {
+      setSavingClientAddress(false);
+    }
+  }
+  function selectCrudRecord(value: string) {
+    setCrudId(value);
+    const record = (crudType === "clients" ? clients : products).find(
+      (item) => String(item.id) === value,
+    );
+    setCrudForm(
+      record
+        ? { ...crudForm, ...record }
+        : {
+            name: "",
+            phone: "",
+            email: "",
+            address: "",
+            city: "",
+            sku: "",
+            unit_price: 0,
+            cost_price: 0,
+            stock: 0,
+          },
+    );
+  }
+  async function saveCrudRecord() {
+    if (!crudForm.name?.trim()) {
+      setError("Escribe un nombre antes de guardar.");
+      return;
+    }
+    const payload =
+      crudType === "clients"
+        ? {
+            name: crudForm.name,
+            phone: crudForm.phone || "",
+            email: crudForm.email || "",
+            address: crudForm.address || "",
+            city: crudForm.city || "",
+          }
+        : {
+            name: crudForm.name,
+            sku: crudForm.sku || `EXC-${Date.now().toString().slice(-5)}`,
+            unit_price: Number(crudForm.unit_price || 0),
+            cost_price: Number(crudForm.cost_price || 0),
+            stock: Number(crudForm.stock || 0),
+            min_stock: 5,
+            created_by: responsible,
+          };
+    const response = await fetch(
+      `/api/${crudType}${crudId ? `/${crudId}` : ""}`,
+      {
+        method: crudId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json", "X-Actor": responsible },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (!response.ok) {
+      setError("No se ha podido guardar el registro.");
+      return;
+    }
+    const refreshed = await fetch(`/api/${crudType}`).then(
+      (result) => result.json(),
+    );
+    crudType === "clients" ? setClients(refreshed) : setProducts(refreshed);
+    setCrudId("");
+    setCrudForm({
+      name: "",
+      phone: "",
+      email: "",
+      address: "",
+      city: "",
+      sku: "",
+      unit_price: 0,
+      cost_price: 0,
+      stock: 0,
+    });
+    setError("");
+  }
+  async function deleteCrudRecord() {
+    if (!crudId || !window.confirm("¿Eliminar este registro del CRM?")) return;
+    const response = await fetch(
+      `/api/${crudType}/${crudId}`,
+      { method: "DELETE", headers: { "X-Actor": responsible } },
+    );
+    if (response.ok) {
+      const refreshed = await fetch(
+        `/api/${crudType}`,
+      ).then((result) => result.json());
+      crudType === "clients" ? setClients(refreshed) : setProducts(refreshed);
+      setCrudId("");
+      setCrudForm({
+        name: "",
+        phone: "",
+        email: "",
+        address: "",
+        city: "",
+        sku: "",
+        unit_price: 0,
+        cost_price: 0,
+        stock: 0,
+      });
+    }
+  }
+  async function generateDeliveryNote() {
+    const response = await fetch(
+      `/api/orders/convert-delivery/${saved.id}`,
+      { method: "POST", headers: { "X-Actor": responsible } },
+    );
+    const body = await response.json();
+    if (response.ok)
+      setDocuments((current: any) => ({ ...current, delivery: body }));
+    else setError(body.error || "No se ha podido generar el albarán.");
+  }
+  async function generateShipment() {
+    const client = clients.find((item) => Number(item.id) === Number(clientId));
+    const point = points.find((item) => Number(item.id) === Number(pointId));
+    const response = await fetch("/api/shipments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Actor": responsible },
+      body: JSON.stringify({
+        code: `ENV-2026-${String(Date.now()).slice(-6)}`,
+        order_id: saved.id,
+        client_id: Number(clientId),
+        status: "Preparando",
+        prepared_at: new Date().toISOString(),
+        expected_delivery_at: `${deliveryDate}T12:00:00.000Z`,
+        origin_address: "Almacén Centro · Calle Logística 10, Madrid",
+        address: point?.address || deliveryAddress || client?.address || "Dirección del cliente",
+        collection_point_id: pointId ? Number(pointId) : null,
+        prepared_by: responsible,
+        notes,
+      }),
+    });
+    const body = await response.json();
+    if (response.ok)
+      setDocuments((current: any) => ({ ...current, shipment: body }));
+    else setError(body.error || "No se ha podido generar el envío.");
+  }
+  async function loginTablet() {
+    setTabletLoginError("");
+    if (!tabletUsername.trim() || !tabletPassword) {
+      setTabletLoginError("Introduce usuario y contraseña.");
+      return;
+    }
+    try {
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: tabletUsername.trim(), password: tabletPassword }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Usuario o contraseña incorrectos.");
+      setResponsible(body.user.username);
+      setTabletStarted(true);
+      setTabletView("inicio");
+      setTabletPassword("");
+      if (tabletRemember) localStorage.setItem("exclusivas.tablet.session", JSON.stringify({ username: body.user.username }));
+      else localStorage.removeItem("exclusivas.tablet.session");
+    } catch (caught) {
+      setTabletLoginError(caught instanceof Error ? caught.message : "No se ha podido iniciar sesión.");
+    }
+  }
+  function logoutTablet() {
+    setTabletStarted(false);
+    setTabletUsername("");
+    setTabletPassword("");
+    setResponsible("");
+    setSaved(null);
+    setDocuments({ delivery: null, shipment: null });
+    setTabletView("inicio");
+    setTabletRemember(false);
+    localStorage.removeItem("exclusivas.tablet.session");
+  }
+  return (
+    <div
+      className="tablet-demo-overlay"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className={`tablet-frame ${orientation}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Crear pedido desde tablet"
+      >
+        <div className="tablet-camera" />
+        <div className="tablet-screen">
+          <div className="tablet-topbar">
+            <div className="tablet-brand">
+              <span>E</span>
+              <b>Exclusivas</b>
+              <small>Pedido móvil</small>
+            </div>
+            <span className="tablet-status">● Conectado al CRM</span>
+            <button
+              className="tablet-rotate"
+              type="button"
+              title={`Girar tablet a ${orientation === "horizontal" ? "vertical" : "horizontal"}`}
+              aria-label={`Girar tablet a ${orientation === "horizontal" ? "vertical" : "horizontal"}`}
+              onClick={() =>
+                setOrientation(
+                  orientation === "horizontal" ? "vertical" : "horizontal",
+                )
+              }
+            >
+              <span aria-hidden="true">⟳</span>
+            </button>
+            <button
+              className="tablet-manage"
+              type="button"
+              title={tabletView === "pedido" ? "Gestionar datos" : "Volver al centro de operaciones"}
+              onClick={() =>
+                setTabletView(tabletView === "pedido" ? "datos" : tabletView === "datos" ? "pedido" : "inicio")
+              }
+            >
+              <span aria-hidden="true">
+                {tabletView === "pedido" ? "⚙" : "‹"}
+              </span>
+              <b>{tabletView === "pedido" ? "Datos" : tabletView === "datos" ? "Pedido" : "Menú"}</b>
+            </button>
+            {tabletStarted && <button className="tablet-logout" type="button" onClick={logoutTablet} title={`Cerrar sesión de ${responsible}`}>Salir</button>}
+            <button className="tablet-close" onClick={onClose} aria-label="Cerrar">
+              ×
+            </button>
+          </div>
+          {!tabletStarted ? (
+            <div className="tablet-welcome">
+              <div className="tablet-welcome-intro">
+                <div className="tablet-welcome-logo">E</div>
+                <div>
+                  <p className="eyebrow">EXCLUSIVAS INTELIGENTES</p>
+                  <h2>Bienvenido a tu ruta comercial</h2>
+                  <p>
+                    Registra pedidos, consulta el catálogo y prepara la entrega
+                    desde la tablet.
+                  </p>
+                </div>
+              </div>
+              <label>Usuario<input autoFocus value={tabletUsername} onChange={(event) => setTabletUsername(event.target.value)} onKeyDown={(event) => event.key === "Enter" && loginTablet()} placeholder="Usuario" /></label>
+              <label>Contraseña<input type="password" value={tabletPassword} onChange={(event) => setTabletPassword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && loginTablet()} placeholder="Contraseña" /></label>
+              <label className="tablet-remember"><input type="checkbox" checked={tabletRemember} onChange={(event) => setTabletRemember(event.target.checked)} /> Recordarme en este dispositivo</label>
+              {tabletLoginError && <p className="tablet-login-error">{tabletLoginError}</p>}
+              <button type="button" className="tablet-welcome-button" onClick={loginTablet}>Entrar en pedidos <span>→</span></button>
+              <small>Conectado al CRM local · Datos sincronizados</small>
+            </div>
+          ) : tabletView === "inicio" ? (
+            <TabletOperationsMenu counts={tabletCounts} onOpenOrder={() => setTabletView("pedido")} onOpenData={() => setTabletView("datos")} onOpenModule={(module) => { setTabletModule(module); setTabletView("resumen"); }} />
+          ) : tabletView === "resumen" ? (
+            <TabletModulePanel module={tabletModule} counts={tabletCounts} onBack={() => setTabletView("inicio")} />
+          ) : tabletView === "datos" ? (
+            <TabletCrudPanel
+              clients={clients}
+              products={products}
+              crudType={crudType}
+              setCrudType={setCrudType}
+              crudId={crudId}
+              crudForm={crudForm}
+              setCrudForm={setCrudForm}
+              selectCrudRecord={selectCrudRecord}
+              saveCrudRecord={saveCrudRecord}
+              deleteCrudRecord={deleteCrudRecord}
+              onBack={() => setTabletView("pedido")}
+              error={error}
+            />
+          ) : saved ? (
+            <div className="tablet-success">
+              <div className="success-icon">✓</div>
+              <h2>Pedido creado correctamente</h2>
+              {Array.isArray(saved.stock_alerts) && saved.stock_alerts.length > 0 && (
+                <div className="tablet-stock-alert">
+                  <b>Pedido creado con alerta de stock</b>
+                  <span>
+                    Se ha registrado correctamente, pero hay{" "}
+                    {saved.stock_alerts.length === 1 ? "un producto" : "productos"}{" "}
+                    con unidades insuficientes. Revisa la reposición antes del envío.
+                  </span>
+                </div>
+              )}
+              <p>
+                El pedido <b>{saved.code}</b> está guardado en el CRM y listo
+                para preparación.
+              </p>
+              <div className="tablet-success-data">
+                <span>
+                  Estado<strong>Pendiente</strong>
+                </span>
+                <span>
+                  Importe
+                  <strong>
+                    {total.toLocaleString("es-ES", {
+                      style: "currency",
+                      currency: "EUR",
+                    })}
+                  </strong>
+                </span>
+                <span>
+                  Entrega
+                  <strong>
+                    {new Date(`${deliveryDate}T12:00:00`).toLocaleDateString(
+                      "es-ES",
+                    )}
+                  </strong>
+                </span>
+              </div>
+              <div className="tablet-documents">
+                <h3>Documentación del pedido</h3>
+                <div>
+                  <button
+                    className="button secondary"
+                    onClick={generateDeliveryNote}
+                    disabled={!!documents.delivery}
+                  >
+                    {documents.delivery
+                      ? `Albarán ${documents.delivery.code}`
+                      : "＋ Generar albarán"}
+                  </button>
+                  <button
+                    className="button secondary"
+                    onClick={generateShipment}
+                    disabled={!!documents.shipment}
+                  >
+                    {documents.shipment
+                      ? `Envío ${documents.shipment.code}`
+                      : "＋ Crear nota de envío"}
+                  </button>
+                </div>
+                <small>
+                  {documents.delivery && documents.shipment
+                    ? "Albarán y envío registrados en el CRM."
+                    : "Genera los documentos cuando el cliente confirme el pedido."}
+                </small>
+              </div>
+              <div className="tablet-actions">
+                <button className="button secondary" onClick={onClose}>
+                  Cerrar demostración
+                </button>
+                <button className="button primary" onClick={onViewOrders}>
+                  Ver pedido en Pedidos
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="tablet-title">
+                <div>
+                  <p className="eyebrow">NUEVA VENTA EN RUTA</p>
+                  <h2>Crear pedido</h2>
+                  <p>
+                    El comercial visita al cliente y registra el pedido desde la
+                    tablet.
+                  </p>
+                </div>
+                <span className="tablet-step">
+                  1 <i /> 2 <i /> 3
+                </span>
+              </div>
+              <div className="tablet-body">
+                <details className="tablet-form-card tablet-general-accordion" open>
+                  <summary>
+                    <span>
+                      <b>Datos generales del pedido</b>
+                      <small>
+                        {clientSearch || "Cliente sin seleccionar"} · Preparación: {preparationDate || "sin fecha"} · Envío: {shippingDate || "sin fecha"}
+                      </small>
+                    </span>
+                    <em className={tabletOrderComplete ? "accordion-complete" : "accordion-pending"}>
+                      {tabletOrderComplete ? "✓ Completo" : "Pendiente de completar"}
+                    </em>
+                  </summary>
+                  <div className="tablet-general-fields">
+                  <label>
+                    Cliente
+                    <input
+                      list="tablet-clientes"
+                      value={clientSearch}
+                      placeholder="Buscar cliente por nombre, ciudad o teléfono…"
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        const selected = clientOptions.find((client) => client.display === value);
+                        setClientSearch(value);
+                        setClientId(selected ? String(selected.id) : "");
+                      }}
+                    />
+                    <datalist id="tablet-clientes">
+                      {clientOptions.map((client) => (
+                        <option key={client.id} value={client.display}>
+                          {client.phone || client.email || ""}
+                        </option>
+                      ))}
+                    </datalist>
+                    {clientSearch && !clientId && <small className="tablet-field-hint">Escribe o selecciona un cliente de la lista.</small>}
+                  </label>
+                  <label>
+                    Fecha de entrega
+                    <input
+                      type="date"
+                      value={deliveryDate}
+                      onChange={(event) => setDeliveryDate(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Día de preparación
+                    <input type="date" value={preparationDate} onChange={(event) => setPreparationDate(event.target.value)} />
+                  </label>
+                  <label>
+                    Día de envío
+                    <input type="date" value={shippingDate} onChange={(event) => setShippingDate(event.target.value)} />
+                  </label>
+                  <label>
+                    Estado del pedido
+                    <input value="Nuevo" readOnly aria-label="Estado del pedido" />
+                  </label>
+                  <label>
+                    Urgente
+                    <select value={urgent ? "Sí" : "No"} onChange={(event) => setUrgent(event.target.value === "Sí")}>
+                      <option>No</option>
+                      <option>Sí</option>
+                    </select>
+                  </label>
+                  <label>
+                    Lugar de entrega
+                    <select
+                      value={pointId}
+                      onChange={(event) => setPointId(event.target.value)}
+                    >
+                      <option value="">Dirección del cliente</option>
+                      {clientPoints.map((point) => (
+                        <option key={point.id} value={point.id}>
+                          {point.name} · {point.city}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="tablet-address-field">
+                    Dirección de entrega del cliente
+                    <textarea
+                      value={deliveryAddress}
+                      placeholder="Selecciona un cliente para cargar su dirección…"
+                      onChange={(event) => setDeliveryAddress(event.target.value)}
+                    />
+                    <button type="button" className="tablet-save-address" onClick={saveClientAddress} disabled={!clientId || savingClientAddress}>
+                      {savingClientAddress ? "Guardando…" : "Guardar esta dirección en el cliente"}
+                    </button>
+                  </label>
+                  <label>
+                    Responsable de preparación
+                    <select
+                      value={responsible}
+                      onChange={(event) => setResponsible(event.target.value)}
+                    >
+                      <option>Luis Vázquez</option>
+                      <option>José Martín</option>
+                    </select>
+                  </label>
+                  <label>
+                    Notas para almacén
+                    <textarea
+                      value={notes}
+                      onChange={(event) => setNotes(event.target.value)}
+                    />
+                  </label>
+                  <details className="tablet-expense-box">
+                    <summary>＋ Registrar gasto o ticket</summary>
+                    <p>
+                      Se asociará al cliente seleccionado y a la fecha de hoy.
+                    </p>
+                    <div className="tablet-expense-fields">
+                      <label>
+                        Categoría
+                        <select
+                          value={expenseCategory}
+                          onChange={(event) =>
+                            setExpenseCategory(event.target.value)
+                          }
+                        >
+                          <option>Combustible</option>
+                          <option>Comida</option>
+                          <option>Aparcamiento</option>
+                          <option>Material</option>
+                          <option>Otros</option>
+                        </select>
+                      </label>
+                      <label>
+                        Importe
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={expenseAmount}
+                          onChange={(event) =>
+                            setExpenseAmount(event.target.value)
+                          }
+                          placeholder="0,00"
+                        />
+                      </label>
+                      <label>
+                        Establecimiento
+                        <input
+                          value={expenseVendor}
+                          onChange={(event) =>
+                            setExpenseVendor(event.target.value)
+                          }
+                          placeholder="Nombre del establecimiento"
+                        />
+                      </label>
+                    </div>
+                    <label className="tablet-expense-file">
+                      Hacer foto o subir ticket
+                      <input
+                        type="file"
+                        accept="image/*,.pdf,application/pdf"
+                        capture="environment"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) readTabletExpenseFile(file);
+                        }}
+                      />
+                      <small>
+                        {expenseFile
+                          ? "Adjunto: " + expenseFile.name
+                          : "Imagen o PDF hasta 8 MB"}
+                      </small>
+                    </label>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      onClick={saveTabletExpense}
+                    >
+                      Guardar gasto
+                    </button>
+                    {expenseSaved && (
+                      <small className="tablet-expense-success">
+                        Gasto {expenseSaved} guardado correctamente.
+                      </small>
+                    )}
+                  </details>
+                  </div>
+                </details>
+                <section className="tablet-products-card">
+                  <div className="tablet-card-head">
+                    <div>
+                      <h3>Productos del pedido</h3>
+                      <p>Selecciona referencias y unidades.</p>
+                    </div>
+                    <div className="tablet-card-tools">
+                      <span>{cart.length} líneas</span>
+                      <button
+                        type="button"
+                        className="tablet-price-toggle"
+                        aria-pressed={showTabletPrices}
+                        onClick={() =>
+                          setShowTabletPrices((current) => !current)
+                        }
+                        title={
+                          showTabletPrices
+                            ? "Ocultar importes"
+                            : "Mostrar importes"
+                        }
+                      >
+                        {showTabletPrices
+                          ? "◉ Ocultar importes"
+                          : "◌ Mostrar importes"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="tablet-add-line">
+                    <label className="tablet-add-field tablet-product-search">
+                      <span>Producto</span>
+                      <input
+                        type="search"
+                        placeholder="Buscar producto por nombre, referencia o código…"
+                        value={productSearch}
+                        onChange={(event) => {
+                          setProductSearch(event.target.value);
+                          setProductId("");
+                        }}
+                        aria-label="Buscar producto"
+                      />
+                      {productSearch && (
+                        <div
+                          className="tablet-product-results"
+                          role="listbox"
+                          aria-label="Resultados de productos"
+                        >
+                          {filteredProducts.length ? (
+                            filteredProducts.map((product) => (
+                              <button
+                                type="button"
+                                key={product.id}
+                                role="option"
+                                aria-selected={String(product.id) === productId}
+                                onClick={() => {
+                                  setProductId(String(product.id));
+                                  setProductSearch(product.name || "");
+                                  setTotalUnits(quantity * unitFactor(product, quantityUnit));
+                                }}
+                              >
+                                <span>
+                                  <b>{product.name}</b>
+                                  <small>
+                                    {product.sku ||
+                                      product.barcode ||
+                                      "Sin referencia"}{" "}
+                                    · Stock{" "}
+                                    {Number(product.stock || 0) -
+                                      Number(product.stock_reserved || 0)}
+                                  </small>
+                                </span>
+                                {showTabletPrices && (
+                                  <strong>
+                                    {Number(
+                                      product.unit_price || 0,
+                                    ).toLocaleString("es-ES", {
+                                      style: "currency",
+                                      currency: "EUR",
+                                    })}
+                                  </strong>
+                                )}
+                              </button>
+                            ))
+                          ) : (
+                            <p>No hay productos que coincidan.</p>
+                          )}
+                        </div>
+                      )}
+                    </label>
+                    <label className="tablet-add-field">
+                      <span>Tipo de cantidad</span>
+                      <select
+                        value={quantityUnit}
+                        onChange={(event) => {
+                          const value = event.target.value as "unidad" | "caja" | "pack_4" | "pack_6" | "palet";
+                          setQuantityUnit(value);
+                          setTotalUnits(selectedProduct ? quantity * unitFactor(selectedProduct, value) : quantity);
+                        }}
+                      aria-label="Unidad de pedido"
+                      >
+                      <option value="unidad">Unidades</option>
+                      <option value="caja">Cajas</option>
+                      <option value="pack_4">Pack de 4</option>
+                      <option value="pack_6">Pack de 6</option>
+                      <option value="palet">Palés</option>
+                      </select>
+                    </label>
+                    <label className="tablet-add-field">
+                      <span>Cantidad</span>
+                      <input
+                      type="number"
+                      min="1"
+                      value={quantity}
+                      onChange={(event) => {
+                        const value = Math.max(1, Number(event.target.value) || 1);
+                        setQuantity(value);
+                        setTotalUnits(selectedProduct ? value * unitFactor(selectedProduct, quantityUnit) : value);
+                      }}
+                      aria-label="Cantidad"
+                      />
+                    </label>
+                    <label className="tablet-add-field">
+                      <span>Unidades totales</span>
+                      <input
+                      type="number"
+                      min="1"
+                      value={totalUnits}
+                      onChange={(event) => setTotalUnits(Math.max(1, Number(event.target.value) || 1))}
+                      aria-label="Unidades totales"
+                      placeholder="Unidades totales"
+                      />
+                    </label>
+                    <button className="button secondary tablet-add-button" onClick={addProduct}>
+                      Añadir línea
+                    </button>
+                  </div>
+                  <div className="tablet-cart">
+                    {cart.length ? (
+                      cart.map((line) => (
+                        <div className="tablet-cart-line" key={`${line.product_id}-${line.quantity_unit}`}>
+                                  <b>{line.name}</b>
+                          <span className="tablet-cart-quantity">
+                            <input
+                            type="number"
+                            min="1"
+                            value={line.quantity_requested || line.quantity}
+                            onChange={(event) =>
+                              setCart((current) =>
+                                current.map((item) =>
+                                  item.product_id === line.product_id
+                                    ? {
+                                        ...item,
+                                        quantity_requested: Number(event.target.value),
+                                        quantity: Number(event.target.value) * Number(item.units_factor || 1),
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                            />
+                            <small>{line.quantity_unit === "palet" ? "palés" : line.quantity_unit === "caja" ? "cajas" : "unidades"}</small>
+                          </span>
+                          <span
+                            className={
+                              showTabletPrices ? "" : "tablet-price-hidden"
+                            }
+                          >
+                            {showTabletPrices
+                              ? (
+                                  Number(line.quantity) *
+                                  Number(line.unit_price)
+                                ).toLocaleString("es-ES", {
+                                  style: "currency",
+                                  currency: "EUR",
+                                })
+                              : "•••"}
+                          </span>
+                          <button
+                            onClick={() =>
+                              setCart((current) =>
+                                current.filter(
+                                  (item) => !(item.product_id === line.product_id && item.quantity_unit === line.quantity_unit),
+                                ),
+                              )
+                            }
+                            aria-label={`Quitar ${line.name}`}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="tablet-empty-cart">
+                        Añade productos para preparar el pedido.
+                      </div>
+                    )}
+                  </div>
+                  <div className="tablet-total">
+                    <span>Total previsto</span>
+                    <strong
+                      className={showTabletPrices ? "" : "tablet-price-hidden"}
+                    >
+                      {showTabletPrices
+                        ? total.toLocaleString("es-ES", {
+                            style: "currency",
+                            currency: "EUR",
+                          })
+                        : "•••"}
+                    </strong>
+                  </div>
+                </section>
+              </div>
+              {error && <p className="tablet-error">{error}</p>}
+              <div className="tablet-footer">
+                <span>El stock se reservará al guardar el pedido.</span>
+                <div>
+                  <button className="button secondary" onClick={onClose}>
+                    Cancelar
+                  </button>
+                  <button
+                    className="button primary"
+                    onClick={createOrder}
+                    disabled={saving}
+                  >
+                    {saving ? "Guardando…" : "Crear pedido y preparar"}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UsersManager({ user }: { user: any }) {
+  const roleLabels: Record<string, string> = { admin: "Administrador", user: "Usuario", comercial: "Comercial", almacen: "Almacén" };
+  const [rows, setRows] = useState<any[]>([]);
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draft, setDraft] = useState<any>({ username: "", password: "", role: "user", permissions: [] });
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const headers = { "Content-Type": "application/json", "X-Actor": user?.username || "Usuario local" };
+  async function load() {
+    setLoading(true);
+    try { const response = await fetchWithRetry("/api/users", { headers: { "X-Actor": user?.username || "Usuario local" } }); if (!response.ok) throw new Error("No se ha podido cargar la lista de usuarios."); const data = await response.json(); setRows(Array.isArray(data) ? data : []); } catch { setError("No se ha podido cargar la lista de usuarios."); } finally { setLoading(false); }
+  }
+  useEffect(() => { load(); }, []);
+  function startNew() { setEditingId(null); setDraft({ username: "", password: "", role: "user", permissions: [] }); setError(""); setOpen(true); }
+  function startEdit(row: any) { let permissions: any[] = []; try { permissions = row.permissions === "*" ? permissionModules : JSON.parse(row.permissions || "[]"); } catch {} setEditingId(row.id); setDraft({ username: row.username, password: "", role: row.role, permissions }); setError(""); setOpen(true); }
+  function togglePermission(module: string) { setDraft((current: any) => ({ ...current, permissions: current.permissions.includes(module) ? current.permissions.filter((item: string) => item !== module) : [...current.permissions, module] })); }
+  async function save(event: FormEvent) {
+    event.preventDefault(); setSaving(true); setError("");
+    try {
+      const response = await fetch(editingId ? `/api/users/${editingId}` : "/api/users", { method: editingId ? "PUT" : "POST", headers, body: JSON.stringify(draft) });
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || "No se ha podido guardar el usuario.");
+      setOpen(false); await load();
+    } catch (e: any) { setError(e.message); } finally { setSaving(false); }
+  }
+  async function remove(row: any) {
+    if (Number(row.id) === Number(user?.id)) return setError("No puedes eliminar tu propio usuario durante la sesión.");
+    if (!window.confirm(`¿Eliminar el usuario ${row.username}?`)) return;
+    const response = await fetch(`/api/users/${row.id}`, { method: "DELETE", headers }); const data = await response.json(); if (!response.ok) return setError(data.error || "No se ha podido eliminar el usuario."); await load();
+  }
+  return <div className="users-manager">
+    <div className="manager-head users-manager-head"><div><b>Usuarios y permisos</b><p>Gestiona quién puede entrar y qué partes del CRM puede utilizar.</p></div><button className="button primary" onClick={startNew}>＋ Nuevo usuario</button></div>
+    {error && <p className="users-manager-error">{error}</p>}
+    {open && <form className="users-editor" onSubmit={save}><div className="users-editor-title"><b>{editingId ? "Editar usuario" : "Nuevo usuario"}</b><button type="button" onClick={() => setOpen(false)}>×</button></div><div className="users-editor-fields"><label>Usuario<input required value={draft.username} onChange={(e) => setDraft({ ...draft, username: e.target.value })} /></label><label>Contraseña<input type="password" required={!editingId} value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></label><label>Rol<select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })}><option value="user">Usuario</option><option value="comercial">Comercial</option><option value="almacen">Almacén</option><option value="admin">Administrador</option></select><small>Elige Administrador para acceso total o un rol operativo para limitarlo.</small></label></div><div className={`permissions-box${draft.role === "admin" ? " permissions-readonly" : ""}`}><div><b>Permisos de acceso</b><small>{draft.role === "admin" ? "Acceso completo activo. Cambia el rol para poder seleccionar permisos individuales." : "Marca las secciones que podrá consultar y utilizar este usuario."}</small></div><div className="permission-grid"><label className="permission-option disabled"><input type="checkbox" checked readOnly /> Inicio</label>{permissionModules.map((module) => <label className={`permission-option${draft.role === "admin" ? " disabled" : ""}`} key={module}><input type="checkbox" checked={draft.role === "admin" || draft.permissions.includes(module)} disabled={draft.role === "admin"} onChange={() => togglePermission(module)} /> {module}</label>)}</div></div><div className="users-editor-actions"><button type="button" className="button secondary" onClick={() => setOpen(false)}>Cancelar</button><button className="button primary" disabled={saving}>{saving ? "Guardando…" : "Guardar usuario"}</button></div></form>}
+    {loading && <div className="data-loading" role="status"><span className="loading-spinner" aria-hidden="true" /><LoadingIndicator label="Cargando usuarios…" /></div>}
+    <div className="users-table-wrap"><table className="users-table"><thead><tr><th>Usuario</th><th>Rol</th><th>Acceso</th><th>Acciones</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><b>{row.username}</b>{Number(row.id) === Number(user?.id) && <small> (sesión actual)</small>}</td><td><span className={`role-badge ${row.role === "admin" ? "admin" : "user"}`}>{roleLabels[row.role] || "Usuario"}</span></td><td>{row.role === "admin" || row.permissions === "*" ? "Acceso completo" : (() => { try { return `${JSON.parse(row.permissions || "[]").length} secciones`; } catch { return "Sin permisos"; } })()}</td><td><button className="table-action" onClick={() => startEdit(row)}>Editar</button><button className="table-action danger" onClick={() => remove(row)}>Eliminar</button></td></tr>)}{!loading && !rows.length && <tr><td colSpan={4}>No hay usuarios registrados.</td></tr>}</tbody></table></div>
+  </div>;
+}
+
+function TrashManager({ user }: { user: any }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [query, setQuery] = useState("");
+  const [table, setTable] = useState("");
+  const [actor, setActor] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const headers = { "Content-Type": "application/json", "X-Actor": user?.username || "Usuario local" };
+  async function load() {
+    setLoading(true); setError("");
+    try {
+      const params = new URLSearchParams(); if (table) params.set("table", table); if (actor) params.set("actor", actor); if (query) params.set("q", query);
+      const response = await fetch(`/api/trash?${params.toString()}`, { headers });
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || "No se pudo cargar la papelera"); setRows(Array.isArray(data) ? data : []);
+    } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, [table, actor, query]);
+  const tableOptions = [["products", "Productos"], ["clients", "Clientes"], ["orders", "Pedidos"], ["invoices", "Facturas"], ["delivery_notes", "Albaranes"], ["shipments", "Envíos"], ["expenses", "Gastos y tickets"], ["notes", "Notas"], ["suppliers", "Proveedores"], ["purchase_orders", "Compras"], ["warehouses", "Almacenes"], ["collection_points", "Lugares de recogida"], ["inventory_movements", "Movimientos de stock"], ["returns", "Devoluciones"], ["payments", "Cobros"], ["quotes", "Presupuestos"], ["users", "Usuarios"]];
+  async function restore(row: any) {
+    const response = await fetch("/api/trash/restore", { method: "POST", headers, body: JSON.stringify({ table: row.table, id: row.id }) });
+    const data = await response.json(); if (!response.ok) return setError(data.error || "No se pudo recuperar el registro"); setRows((current) => current.filter((item) => !(item.table === row.table && item.id === row.id)));
+  }
+  async function permanentlyDelete(row: any) {
+    if (!window.confirm(`¿Eliminar definitivamente ${row.record_label}? Esta acción no se puede deshacer.`)) return;
+    const response = await fetch(`/api/trash/${row.table}/${row.id}`, { method: "DELETE", headers });
+    const data = await response.json(); if (!response.ok) return setError(data.error || "No se pudo eliminar definitivamente"); setRows((current) => current.filter((item) => !(item.table === row.table && item.id === row.id)));
+  }
+  return <div className="trash-manager">
+    <div className="manager-head trash-manager-head"><div><b>Papelera</b><p>Registros eliminados de forma segura. Puedes recuperarlos cuando quieras.</p></div><span className="trash-count">{rows.length} eliminados</span></div>
+    <div className="trash-toolbar"><input placeholder="Buscar registro, sección o usuario…" value={query} onChange={(event) => setQuery(event.target.value)} /><select value={table} onChange={(event) => setTable(event.target.value)}><option value="">Todas las secciones</option>{tableOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><input placeholder="Filtrar por usuario…" value={actor} onChange={(event) => setActor(event.target.value)} /><button type="button" className="button secondary" onClick={() => void load()}>{loading ? "Actualizando…" : "Actualizar"}</button></div>
+    {error && <p className="users-manager-error">{error}</p>}
+    <div className="trash-table-wrap"><table className="trash-table"><thead><tr><th>Registro</th><th>Sección</th><th>Eliminado por</th><th>Fecha de eliminación</th><th>Acciones</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.table}-${row.id}`}><td><b>{row.record_label}</b><small>ID {row.id}</small></td><td>{row.table_label}</td><td>{row.deleted_by || "Usuario local"}</td><td>{row.deleted_at ? new Date(row.deleted_at).toLocaleString("es-ES") : "—"}</td><td><button className="table-action" onClick={() => void restore(row)}>Recuperar</button><button className="table-action danger" onClick={() => void permanentlyDelete(row)}>Eliminar definitivamente</button></td></tr>)}{!rows.length && <tr><td colSpan={5}>{loading ? "Cargando papelera…" : "La papelera está vacía."}</td></tr>}</tbody></table></div>
+  </div>;
+}
+
+function QuickExpenseModal({
+  clients,
+  actor,
+  onClose,
+  onCreated,
+}: {
+  clients: any[];
+  actor: string;
+  onClose: () => void;
+  onCreated: (row: any) => void;
+}) {
+  const [expenseDate, setExpenseDate] = useState(() => tabletTodayInput());
+  const [clientId, setClientId] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
+  const [category, setCategory] = useState("Combustible");
+  const [vendor, setVendor] = useState("");
+  const [amount, setAmount] = useState("");
+  const [notes, setNotes] = useState("");
+  const [file, setFile] = useState<any>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function selectFile(selected: File) {
+    if (selected.size > 8 * 1024 * 1024) {
+      setError("El justificante no puede superar 8 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setFile({
+      name: selected.name,
+      mime: selected.type || "application/octet-stream",
+      data: String(reader.result || ""),
+    });
+    reader.readAsDataURL(selected);
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!amount || Number(amount) < 0) {
+      setError("Indica un importe válido.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    const response = await fetch("/api/expenses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Actor": actor },
+      body: JSON.stringify({
+        code: "GAS-" + String(Date.now()).slice(-8),
+        client_id: clientId ? Number(clientId) : null,
+        expense_date: expenseDate,
+        category,
+        vendor,
+        amount: Number(amount),
+        vat: 21,
+        payment_method: "Tarjeta",
+        notes,
+        ...(file ? {
+          attachment_name: file.name,
+          attachment_mime: file.mime,
+          attachment_data: file.data,
+        } : {}),
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) {
+      setError(body.error || "No se ha podido guardar el gasto.");
+      return;
+    }
+    onCreated(body);
+  }
+
+  return (
+    <div className="home-note-modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <form className="home-note-modal quick-expense-modal" onSubmit={save}>
+        <div className="home-note-modal-head">
+          <div><b>Subir gasto</b><small>Registra un gasto desde cualquier punto del CRM.</small></div>
+          <button type="button" onClick={onClose} aria-label="Cerrar">×</button>
+        </div>
+        <div className="quick-expense-fields">
+          <label>Importe total *<input type="number" min="0" step="0.01" required value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0,00 €" autoFocus /></label>
+          <label>Fecha *<input type="date" required value={expenseDate} onChange={(event) => setExpenseDate(event.target.value)} /></label>
+          <label>Cliente <div className="quick-expense-client-search"><input list="quick-expense-clientes" value={clientSearch} onChange={(event) => { const value = event.target.value; setClientSearch(value); const selected = clients.find((client) => `${client.name}${client.city ? ` · ${client.city}` : ""}` === value); setClientId(selected ? String(selected.id) : ""); }} placeholder="Buscar cliente por nombre o ciudad…" /><button type="button" onClick={() => { setClientSearch(""); setClientId(""); }} aria-label="Quitar cliente" title="Sin cliente asociado">×</button><datalist id="quick-expense-clientes">{clients.map((client) => <option key={client.id} value={`${client.name}${client.city ? ` · ${client.city}` : ""}`} />)}</datalist></div><small className="quick-expense-client-hint">{clientId ? "Cliente asociado" : "Opcional: puede quedar como gasto general"}</small></label>
+          <label>Categoría <select value={category} onChange={(event) => setCategory(event.target.value)}><option>Combustible</option><option>Gastos de representación</option><option>Comida</option><option>Aparcamiento</option><option>Material</option><option>Otros</option></select></label>
+        </div>
+        <label>Establecimiento o proveedor<input value={vendor} onChange={(event) => setVendor(event.target.value)} placeholder="Ej.: Gasolinera, proveedor…" /></label>
+        <label>Notas<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observaciones opcionales…" /></label>
+        <div
+          className={`quick-expense-dropzone${dragActive ? " is-dragging" : ""}${file ? " has-file" : ""}`}
+          onDragOver={(event) => { event.preventDefault(); setDragActive(true); }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragActive(false);
+            const selected = event.dataTransfer.files?.[0];
+            if (selected) selectFile(selected);
+          }}
+        >
+          <span className="quick-expense-drop-icon">↑</span>
+          <b>{file ? file.name : "Arrastra aquí el justificante"}</b>
+          <small>{file ? "Documento listo para guardar" : "o haz una foto / selecciona un archivo"}</small>
+          <label className="quick-expense-file-button">
+            {file ? "Cambiar documento" : "Elegir archivo o hacer foto"}
+            <input type="file" accept="image/*,.pdf,application/pdf" capture="environment" onChange={(event) => { const selected = event.target.files?.[0]; if (selected) selectFile(selected); }} />
+          </label>
+        </div>
+        {error && <p className="home-note-form-error">{error}</p>}
+        <div className="home-note-modal-actions"><button type="button" className="button secondary" onClick={onClose}>Cancelar</button><button className="button primary" disabled={saving}>{saving ? "Guardando…" : "Guardar gasto"}</button></div>
+      </form>
+    </div>
+  );
+}
+
+export default function Home() {
+  const [active, setActive] = useState(() => {
+    if (typeof window === "undefined") return "Inicio";
+    try { return localStorage.getItem("excluvas.active-section") || "Inicio"; } catch { return "Inicio"; }
+  });
+  const [tabletOpen, setTabletOpen] = useState(false);
+  const [tabletRequiresLogin, setTabletRequiresLogin] = useState(false);
+  const [webOrderOpen, setWebOrderOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState({
+    id: 0,
+    username: "Luis",
+    role: "admin",
+    permissions: "*",
+  });
+  const allowedModules = allowedModulesFor(currentUser);
+  const [homeAmountsVisible, setHomeAmountsVisible] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notificationsSeenAt, setNotificationsSeenAt] = useState(0);
+  async function loadNotifications() {
+    try {
+      const response = await fetch(
+        "/api/audit_logs",
+        { headers: { "X-Audit-Query": "true" } },
+      );
+      const data = await response.json();
+      setNotifications(
+        (Array.isArray(data) ? data : [])
+          .filter(
+            (item: any) =>
+              item.method === "POST" &&
+              ["Alta", "Alerta stock", "Incidencia preparación"].includes(item.action),
+          )
+          .slice(0, 8),
+      );
+    } catch {}
+  }
+  const unreadNotifications = notifications.filter(
+    (item) => new Date(item.created_at).getTime() > notificationsSeenAt,
+  ).length;
+  useEffect(() => {
+    try {
+      setNotificationsSeenAt(
+        Number(localStorage.getItem("excluvas.notifications.seen") || 0),
+      );
+    } catch {}
+    loadNotifications();
+    const timer = window.setInterval(loadNotifications, 15000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (!allowedModules.includes(active)) setActive(preferredModuleFor(currentUser));
+  }, [active, currentUser]);
+  useEffect(() => {
+    if (!allowedModules.includes(active)) return;
+    try { localStorage.setItem("excluvas.active-section", active); } catch {}
+  }, [active, currentUser]);
+  function openNotifications() {
+    setNotificationOpen((open) => !open);
+    const now = Date.now();
+    setNotificationsSeenAt(now);
+    try {
+      localStorage.setItem("excluvas.notifications.seen", String(now));
+    } catch {}
+  }
+  function openNotificationTarget(item: any) {
+    if (item?.action === "Incidencia preparación") {
+      setNotificationOpen(false);
+      const match = String(item?.resource || "").match(/^preparation-incidents\/(\d+)$/);
+      const noteId = match ? Number(match[1]) : 0;
+      if (noteId) {
+        try { sessionStorage.setItem("excluvas.pending-note-preview", String(noteId)); } catch {}
+        window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-nota", { detail: noteId })), 160);
+      }
+      return;
+    }
+    const match = String(item?.resource || "").match(/^orders\/(\d+)$/);
+    const orderId = match ? Number(match[1]) : 0;
+    setNotificationOpen(false);
+    if (!orderId) {
+      setActive("Pedidos");
+      return;
+    }
+    setActive("Pedidos");
+    // El gestor necesita estar montado para recibir la orden de previsualización.
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-pedido", { detail: orderId })), 160);
+  }
+  function logoutFromMenu() {
+    localStorage.removeItem("excluvas.session");
+    sessionStorage.removeItem("excluvas.session");
+    window.location.reload();
+  }
+  useEffect(() => {
+    try {
+      const raw =
+        localStorage.getItem("excluvas.session") ||
+        sessionStorage.getItem("excluvas.session");
+      if (raw) {
+        const session = JSON.parse(raw);
+        if (["Luis", "Jose"].includes(session.username)) session.role = "admin";
+        const nextUser = { id: 0, permissions: "*", ...session };
+        setCurrentUser(nextUser);
+        const storedSection = localStorage.getItem("excluvas.active-section");
+        setActive(storedSection && allowedModulesFor(nextUser).includes(storedSection) ? storedSection : preferredModuleFor(nextUser));
+      }
+    } catch {}
+  }, []);
+  useEffect(() => {
+    if (!currentUser?.username) return;
+    let cancelled = false;
+    const resources = [
+      "clients", "orders", "products", "shipments", "suppliers",
+      "purchase_orders", "expenses", "invoices", "payments", "notes",
+    ];
+    const warmCache = async () => {
+      // Tres peticiones simultáneas mantienen ágil el arranque y evitan
+      // saturar la API mientras se prepara la navegación.
+      for (let index = 0; index < resources.length && !cancelled; index += 3) {
+        await Promise.all(resources.slice(index, index + 3).map(async (resource) => {
+          try {
+            const response = await fetch(`/api/${resource}`, {
+              headers: { "X-Actor": currentUser.username || "Usuario local" },
+            });
+            if (!response.ok || cancelled) return;
+            const data = await response.json();
+            if (Array.isArray(data)) {
+              localStorage.setItem(`excluvas.listado.${resource}.active`, JSON.stringify(data));
+            }
+          } catch { /* La precarga es opcional; la sección consultará al abrirse. */ }
+        }));
+      }
+    };
+    void warmCache();
+    return () => { cancelled = true; };
+  }, [currentUser.username]);
+  const [summary, setSummary] = useState({
+    sales: 0,
+    openOrders: 0,
+    receivables: 0,
+    criticalStock: 0,
+    products: 0,
+    clients: 0,
+    orders: 0,
+    invoices: 0,
+    deliveryNotes: 0,
+    payments: 0,
+    suppliers: 0,
+    reports: 0,
+  });
+  const [importantNotes, setImportantNotes] = useState<any[]>([]);
+  const [homeActivityTab, setHomeActivityTab] = useState("Pedidos");
+  const [homeOrders, setHomeOrders] = useState<any[]>([]);
+  const [homeShipments, setHomeShipments] = useState<any[]>([]);
+  const [homeClients, setHomeClients] = useState<any[]>([]);
+  const [homeLoading, setHomeLoading] = useState(true);
+  const [pendingOrdersOpen, setPendingOrdersOpen] = useState(false);
+  const [openOrderStatus, setOpenOrderStatus] = useState<string | null>(null);
+  const [homeNoteModalOpen, setHomeNoteModalOpen] = useState(false);
+  const [homeExpenseModalOpen, setHomeExpenseModalOpen] = useState(false);
+  const [homeNoteSaving, setHomeNoteSaving] = useState(false);
+  const [homeNoteDraft, setHomeNoteDraft] = useState({
+    title: "",
+    content: "",
+    module: "General",
+    priority: "Normal",
+  });
+  const homeActorHeaders = {
+    "Content-Type": "application/json",
+    "X-Actor": currentUser.username || "Usuario local",
+  };
+  const homeToday = tabletTodayInput();
+  const [homeOrderRangeStart, setHomeOrderRangeStart] = useState(
+    () => `${homeToday.slice(0, 8)}01`,
+  );
+  const [homeOrderRangeEnd, setHomeOrderRangeEnd] = useState(homeToday);
+  const [completingNoteId, setCompletingNoteId] = useState<number | null>(null);
+  function formatHomeAmount(value: number) {
+    return homeAmountsVisible
+      ? value.toLocaleString("es-ES", { style: "currency", currency: "EUR" })
+      : "••••••";
+  }
+  const homeOrdersInRange = homeOrders.filter((order) => {
+    const date = String(order.delivery_date || order.created_at || "").slice(
+      0,
+      10,
+    );
+    return date >= homeOrderRangeStart && date <= homeOrderRangeEnd;
+  });
+  // La preparación de pedidos se basa en las hojas de carga, no únicamente
+  // en el estado del pedido. Así el inicio muestra exactamente las mismas
+  // comandas que el tablero de Preparación de pedidos (incluidas las
+  // completadas y las que tienen incidencia).
+  const homePreparationRows = [
+    ...homeShipments.map((shipment) => {
+      const order = homeOrders.find((item) => Number(item.id) === Number(shipment.order_id));
+      return order
+        ? { ...order, ...shipment, id: order.id, preparation_date: shipment.preparation_date || order.preparation_date, delivery_date: shipment.delivery_date || order.delivery_date, preparation_status: shipment.status }
+        : shipment;
+    }),
+    ...homeOrders.filter((order) =>
+      !homeShipments.some((shipment) => Number(shipment.order_id) === Number(order.id)) &&
+      ["Nuevo", "Pendiente", "Confirmado"].includes(order.status || "Pendiente") &&
+      Number(order.deleted || 0) !== 1,
+    ),
+  ];
+  const pendingPreparationOrdersInRange = homePreparationRows.filter((order) => {
+    const date = String(order.preparation_date || "").slice(0, 10);
+    return Boolean(date) && date >= homeOrderRangeStart && date <= homeOrderRangeEnd;
+  });
+  const homePreparationStatus = (order: any) => String(order.preparation_status || order.status || "Pendiente");
+  const homePreparationStatusRows = (status: string) => pendingPreparationOrdersInRange
+    .filter((order) => homePreparationStatus(order) === status)
+    .sort((a, b) => String(b.created_at || b.updated_at || b.delivery_date || "").localeCompare(String(a.created_at || a.updated_at || a.delivery_date || "")))
+    .slice(0, 10);
+  function homeDateInRange(value: any) {
+    const date = String(value || "").slice(0, 10);
+    return date >= homeOrderRangeStart && date <= homeOrderRangeEnd;
+  }
+  const homeOrderStatusSteps = [
+    { label: "Pedidos", icon: "▣", count: homeOrdersInRange.length },
+    {
+      label: "Para preparar",
+      icon: "○",
+      count: pendingPreparationOrdersInRange.length,
+    },
+    {
+      label: "En preparación",
+      icon: "◒",
+      count: homePreparationStatusRows("Preparando").length,
+    },
+    {
+      label: "Preparados",
+      icon: "✓",
+      count: homePreparationStatusRows("Preparado").length,
+    },
+    {
+      label: "En ruta",
+      icon: "➜",
+      count: homePreparationStatusRows("En reparto").length,
+    },
+    {
+      label: "Entregados",
+      icon: "●",
+      count: homePreparationStatusRows("Entregado").length,
+    },
+  ];
+  const pendingHomeOrders = pendingPreparationOrdersInRange
+    .sort((a, b) =>
+      String(b.created_at || b.updated_at || b.delivery_date || "").localeCompare(
+        String(a.created_at || a.updated_at || a.delivery_date || ""),
+      ),
+    )
+    .slice(0, 10);
+  async function updateHomeOrder(order: any, changes: any) {
+    const response = await fetch(`/api/orders/${order.id}`, {
+      method: "PUT",
+      headers: homeActorHeaders,
+      body: JSON.stringify({ ...order, ...changes }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      alert(data.error || "No se pudo actualizar el pedido");
+      return;
+    }
+    setHomeOrders((current) => current.map((item) => (item.id === data.id ? data : item)));
+  }
+  async function deleteHomeOrder(order: any) {
+    if (!window.confirm(`¿Eliminar el pedido ${order.code}?`)) return;
+    const response = await fetch(`/api/orders/${order.id}`, {
+      method: "DELETE",
+      headers: homeActorHeaders,
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      alert(data.error || "No se pudo eliminar el pedido");
+      return;
+    }
+    setHomeOrders((current) => current.filter((item) => item.id !== order.id));
+  }
+  function goToOrder(order: any) {
+    setActive("Pedidos");
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:editar-pedido", { detail: order.id })), 0);
+  }
+  function previewHomeOrder(order: any) {
+    setActive("Pedidos");
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-pedido", { detail: order.id })), 50);
+  }
+  function renderHomeOrderActions(order: any) {
+    const nextStatus: Record<string, string> = {
+      Pendiente: "Preparando",
+      Confirmado: "Preparando",
+      Preparando: "Preparado",
+      Preparado: "En reparto",
+      "En reparto": "Entregado",
+    };
+    return (
+      <span className="home-order-actions">
+        <button type="button" onClick={() => previewHomeOrder(order)}>Vista previa</button>
+        <button type="button" onClick={() => goToOrder(order)}>Editar</button>
+        {nextStatus[order.status || "Pendiente"] && (
+          <button type="button" onClick={() => updateHomeOrder(order, { status: nextStatus[order.status || "Pendiente"] })}>
+            {order.status === "En reparto" ? "Entregar" : order.status === "Preparado" ? "Enviar" : order.status === "Preparando" ? "Marcar preparado" : "Preparar"}
+          </button>
+        )}
+        <button type="button" className="danger" onClick={() => deleteHomeOrder(order)}>Eliminar</button>
+      </span>
+    );
+  }
+  async function loadImportantNotes() {
+    try {
+      const r = await fetch("/api/notes");
+      const notes = await r.json();
+      setImportantNotes(
+        (Array.isArray(notes) ? notes : [])
+          .filter((n) => Number(n.important) === 1 && Number(n.completed) !== 1)
+          .slice(0, 6),
+      );
+    } catch {}
+  }
+  async function completeNote(note: any) {
+    if (completingNoteId === note.id) return;
+    setCompletingNoteId(note.id);
+    try {
+      const response = await fetch(
+        `/api/notes/${note.id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "X-Actor": "Luis" },
+          body: JSON.stringify({ completed: 1 }),
+        },
+      );
+      if (!response.ok) throw new Error("No se pudo completar la nota");
+      window.setTimeout(() => {
+        setImportantNotes((current) => current.filter((n) => n.id !== note.id));
+        setCompletingNoteId(null);
+      }, 420);
+    } catch {
+      setCompletingNoteId(null);
+    }
+  }
+  function openNoteTarget(note: any) {
+    const noteId = Number(note?.id || 0);
+    if (!noteId) return;
+    try { sessionStorage.setItem("excluvas.pending-note-preview", String(noteId)); } catch {}
+    // La tarjeta del inicio debe abrir el mismo detalle completo que una
+    // notificación, incluyendo las acciones de resolución de incidencias.
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-nota", { detail: noteId })), 320);
+  }
+  async function createHomeNote(event: FormEvent) {
+    event.preventDefault();
+    if (!homeNoteDraft.title.trim() || !homeNoteDraft.content.trim()) return;
+    setHomeNoteSaving(true);
+    try {
+      const response = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Actor": currentUser.username },
+        body: JSON.stringify({ ...homeNoteDraft, important: 1, completed: 0 }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudo crear la nota");
+      setHomeNoteDraft({ title: "", content: "", module: "General", priority: "Normal" });
+      setHomeNoteModalOpen(false);
+      loadImportantNotes();
+    } catch (error: any) {
+      alert(error.message || "No se pudo crear la nota");
+    } finally {
+      setHomeNoteSaving(false);
+    }
+  }
+  useEffect(() => {
+    if (active !== "Inicio") return;
+    loadImportantNotes();
+  }, [active]);
+  useEffect(() => {
+    if (active !== "Inicio") return;
+    setHomeLoading(true);
+    let cancelled = false;
+    const loadEssential = async () => {
+      try {
+        const [orders, invoices, products, clients, shipments] = await Promise.all(
+          ["orders", "invoices", "products", "clients", "shipments"].map((x) =>
+            fetchWithRetry("/api/" + x).then((r) => r.json()),
+          ),
+        );
+        if (cancelled) return;
+        setHomeOrders(Array.isArray(orders) ? orders : []);
+        setHomeShipments(Array.isArray(shipments) ? shipments : []);
+        setHomeClients(Array.isArray(clients) ? clients : []);
+        const invoicesInRange = (Array.isArray(invoices) ? invoices : []).filter((invoice: any) => homeDateInRange(invoice.issue_date || invoice.invoice_date || invoice.created_at));
+        const ordersInRange = (Array.isArray(orders) ? orders : []).filter((order: any) => homeDateInRange(order.delivery_date || order.created_at));
+        const productsList = Array.isArray(products) ? products : [];
+        setSummary((current) => ({
+          ...current,
+          sales: invoicesInRange.filter((x: any) => x.status !== "Anulada").reduce((n: number, x: any) => n + Number(x.amount || 0), 0),
+          openOrders: ordersInRange.filter((x: any) => !["Entregado", "Cancelado"].includes(x.status)).length,
+          receivables: invoicesInRange.filter((x: any) => !["Cobrada", "Pagada", "Anulada"].includes(x.status)).reduce((n: number, x: any) => n + Number(x.amount || 0), 0),
+          criticalStock: productsList.filter((x: any) => Number(x.stock || 0) <= Number(x.min_stock || 0)).length,
+          products: productsList.length, clients: Array.isArray(clients) ? clients.length : 0, orders: Array.isArray(orders) ? orders.length : 0, invoices: Array.isArray(invoices) ? invoices.length : 0, reports: (Array.isArray(invoices) ? invoices.length : 0) + (Array.isArray(orders) ? orders.length : 0),
+        }));
+        setHomeLoading(false);
+        Promise.all(["delivery_notes", "payments", "suppliers"].map((x) => fetchWithRetry("/api/" + x).then((r) => r.json())))
+          .then(([deliveryNotes, payments, suppliers]) => {
+            if (cancelled) return;
+            setSummary((current) => ({ ...current, deliveryNotes: Array.isArray(deliveryNotes) ? deliveryNotes.length : 0, payments: Array.isArray(payments) ? payments.length : 0, suppliers: Array.isArray(suppliers) ? suppliers.length : 0 }));
+          })
+          .catch(() => {});
+      } catch {
+        if (!cancelled) setHomeLoading(false);
+      }
+    };
+    void loadEssential();
+    return () => { cancelled = true; };
+  }, [active, homeOrderRangeStart, homeOrderRangeEnd]);
+  function setHomeRangePreset(preset: "hoy" | "mes" | "trimestre" | "semestre" | "anio") {
+    const today = tabletTodayInput();
+    const current = new Date();
+    const year = current.getFullYear();
+    const month = current.getMonth();
+    const format = (date: Date) =>
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    if (preset === "hoy") {
+      setHomeOrderRangeStart(today);
+    } else if (preset === "mes") {
+      setHomeOrderRangeStart(`${today.slice(0, 8)}01`);
+    } else if (preset === "trimestre") {
+      setHomeOrderRangeStart(format(new Date(year, Math.floor(month / 3) * 3, 1)));
+    } else if (preset === "semestre") {
+      // Semestre móvil: permite comparar los últimos seis meses aunque
+      // estemos dentro del segundo semestre natural del año.
+      setHomeOrderRangeStart(format(new Date(year, month - 5, 1)));
+    } else {
+      setHomeOrderRangeStart(`${year}-01-01`);
+    }
+    setHomeOrderRangeEnd(today);
+  }
+  return (
+    <main className="crm-shell">
+      <header className="topline">
+        <span>EXCLUSIVAS INTELIGENTES</span>
+      </header>
+      <div className="appbar">
+        <div
+          className="brand"
+          role="button"
+          tabIndex={0}
+          aria-label="Ir al inicio"
+          onClick={() => setActive("Inicio")}
+          onKeyDown={(e) =>
+            (e.key === "Enter" || e.key === " ") && setActive("Inicio")
+          }
+        >
+          <div className="brand-mark">E</div>
+          <div>
+            <strong>Exclusivas</strong>
+            <small>Inteligentes</small>
+          </div>
+        </div>
+        {active === "Inicio" && homeLoading && (
+          <div className="global-loading-status" role="status" aria-live="polite">
+            <span className="loading-spinner" aria-hidden="true" />
+            <LoadingIndicator label="Actualizando datos" />
+          </div>
+        )}
+        <div className="appbar-actions">
+          <div className="header-quick-actions" aria-label="Accesos rápidos">
+            <button
+              className="button primary tablet-launch"
+              onClick={() => { setTabletRequiresLogin(true); setTabletOpen(true); }}
+            >
+              Pedido desde tablet
+            </button>
+            <button
+              className="button primary"
+              onClick={() => setActive("Preparación de pedidos")}
+            >
+              Preparación de pedidos
+            </button>
+            <button
+              className="button primary"
+              onClick={() => setActive("Stock")}
+            >
+              Stock
+            </button>
+            <button
+              className="button primary"
+              onClick={() => {
+                setActive("Pedidos");
+                window.setTimeout(() => window.dispatchEvent(new Event("crm:nuevo-pedido")), 120);
+              }}
+            >
+              Nuevo pedido
+            </button>
+            <button
+              className="button primary home-expense-launch"
+              onClick={() => setHomeExpenseModalOpen(true)}
+            >
+              Subir gasto
+            </button>
+          </div>
+          <div className="notification-box">
+            <button
+              className={`icon-button notification-button ${notificationOpen ? "open" : ""}`}
+              onClick={openNotifications}
+              aria-expanded={notificationOpen}
+              aria-label="Abrir notificaciones"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+              </svg>
+              {unreadNotifications > 0 && (
+                <b className="notification-count">{unreadNotifications > 9 ? "9+" : unreadNotifications}</b>
+              )}
+            </button>
+            {notificationOpen && (
+              <div className="notification-menu" role="dialog" aria-label="Notificaciones">
+                <div className="notification-menu-head">
+                  <b>Notificaciones</b>
+                  <span>{notifications.length} avisos pendientes</span>
+                </div>
+                {notifications.length ? (
+                  notifications.map((item) => (
+                    <button
+                      className="notification-item"
+                      key={item.id}
+                      onClick={() => openNotificationTarget(item)}
+                    >
+                      <span className="notification-item-icon">＋</span>
+                      <span>
+                        <b>
+                          {item.action === "Alerta stock"
+                            ? `Alerta de stock · Pedido ${String(item.resource || "").split("/").pop() || ""}`
+                            : item.action === "Incidencia preparación"
+                              ? "Incidencia en preparación · Revisar pedido"
+                              : "Nuevo pedido registrado"}
+                        </b>
+                        <small>{new Date(item.created_at).toLocaleString("es-ES")}</small>
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="notification-empty">No hay avisos nuevos.</p>
+                )}
+              </div>
+            )}
+          </div>
+          <button
+            className={`user user-menu-trigger ${userMenuOpen ? "open" : ""}`}
+            onClick={() => setUserMenuOpen((value) => !value)}
+            aria-expanded={userMenuOpen}
+            aria-label="Abrir menú de usuario"
+          >
+          <div>
+            <b>{currentUser.username}</b>
+            <small>
+              {currentUser.role === "admin" ? "Administrador" : "Usuario"}
+            </small>
+          </div>
+          <span className="user-menu-chevron">⌄</span>
+          {userMenuOpen && (
+            <span className="user-menu" role="menu">
+              <span className="user-menu-caption">
+                Sesión iniciada como {currentUser.username}
+              </span>
+              <span className="user-menu-separator" />
+              <span
+                className="user-menu-action"
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  logoutFromMenu();
+                }}
+              >
+                Cerrar sesión
+              </span>
+            </span>
+          )}
+          </button>
+        </div>
+      </div>
+      <div className="workspace">
+        <Sidebar active={active} setActive={setActive} user={currentUser} />
+        <section
+          className={`content ${active === "Inicio" ? "home-content" : ""}`}
+        >
+          <div
+            className={
+              active === "Inicio"
+                ? "content-head"
+                : "content-head section-context"
+            }
+          >
+            <div>
+              <p className="eyebrow">
+                {new Date()
+                  .toLocaleDateString("es-ES", {
+                    weekday: "long",
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })
+                  .toUpperCase()}
+              </p>
+              <h1>{active === "Inicio" ? "Panel principal" : active}</h1>
+              <p className="muted">
+                Gestión operativa de tu distribuidora de bebidas.
+              </p>
+            </div>
+            <div className="head-actions">
+              {active !== "Inicio" && (
+                <button className="button secondary">↧ Exportar</button>
+              )}
+            </div>
+          </div>
+          {active === "Inicio" && (
+            <div className="home-global-range">
+              <div>
+                <b>Periodo</b>
+              </div>
+              <div className="home-order-range">
+                <label>
+                  Desde
+                  <input
+                    type="date"
+                    value={homeOrderRangeStart}
+                    max={homeOrderRangeEnd}
+                    onChange={(event) =>
+                      setHomeOrderRangeStart(event.target.value)
+                    }
+                  />
+                </label>
+                <span>—</span>
+                <label>
+                  Hasta
+                  <input
+                    type="date"
+                    value={homeOrderRangeEnd}
+                    min={homeOrderRangeStart}
+                    onChange={(event) => setHomeOrderRangeEnd(event.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setHomeRangePreset("hoy")}
+                >
+                  Hoy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHomeRangePreset("mes")}
+                >
+                  Este mes
+                </button>
+                <button type="button" onClick={() => setHomeRangePreset("trimestre")}>
+                  Trimestre
+                </button>
+                <button type="button" onClick={() => setHomeRangePreset("semestre")}>
+                  Semestre
+                </button>
+                <button type="button" onClick={() => setHomeRangePreset("anio")}>
+                  Año actual
+                </button>
+              </div>
+            </div>
+          )}
+          {homeExpenseModalOpen && active === "Inicio" && (
+            <QuickExpenseModal
+              clients={homeClients}
+              actor={currentUser.username || "Usuario local"}
+              onClose={() => setHomeExpenseModalOpen(false)}
+              onCreated={() => {
+                setHomeExpenseModalOpen(false);
+                alert("Gasto guardado correctamente.");
+              }}
+            />
+          )}
+          {active === "Inicio" ? (
+            <>
+              <div className="kpis">
+                <article>
+                  <span>VENTAS DEL PERIODO</span>
+                  <strong>{formatHomeAmount(summary.sales)}</strong>
+                  <button className="amount-toggle" type="button" onClick={() => setHomeAmountsVisible((visible) => !visible)} aria-label={homeAmountsVisible ? "Ocultar importes" : "Mostrar importes"} title={homeAmountsVisible ? "Ocultar importes" : "Mostrar importes"}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+                  </button>
+                  <small>facturación del periodo</small>
+                </article>
+                <article>
+                  <span>PEDIDOS ABIERTOS</span>
+                  <strong>{summary.openOrders}</strong>
+                  <b className="neutral">pendientes</b>
+                  <small>pedidos abiertos del periodo</small>
+                </article>
+                <article>
+                  <span>POR COBRAR</span>
+                  <strong>{formatHomeAmount(summary.receivables)}</strong>
+                  <button className="amount-toggle" type="button" onClick={() => setHomeAmountsVisible((visible) => !visible)} aria-label={homeAmountsVisible ? "Ocultar importes" : "Mostrar importes"} title={homeAmountsVisible ? "Ocultar importes" : "Mostrar importes"}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+                  </button>
+                  <b className="warning">pendiente</b>
+                  <small>facturas pendientes del periodo</small>
+                </article>
+                <article>
+                  <span>STOCK CRÍTICO</span>
+                  <strong>{summary.criticalStock}</strong>
+                  <b className="danger">Prioridad alta</b>
+                  <small>revisar reposición</small>
+                </article>
+              </div>
+              <section className={`panel pending-orders-panel${pendingOrdersOpen ? " open" : " collapsed"}`}>
+                <button
+                  type="button"
+                  className="pending-orders-head"
+                  aria-expanded={pendingOrdersOpen}
+                  onClick={() => setPendingOrdersOpen((open) => !open)}
+                >
+                  <span>
+                    <b>Pedidos para preparar</b>
+                    <small>{pendingHomeOrders.length} pedidos · más recientes primero</small>
+                  </span>
+                  <strong>{pendingOrdersOpen ? "⌃" : "⌄"}</strong>
+                </button>
+                {pendingOrdersOpen && (
+                  <div className="pending-orders-list">
+                    <div className="pending-orders-columns" aria-hidden="true">
+                      <span>Pedido</span>
+                      <span>Cliente</span>
+                      <span>Solicitud</span>
+                      <span>Entrega</span>
+                      <span>Estado</span>
+                      <span>Importe</span>
+                      <span>Acciones</span>
+                    </div>
+                    {pendingHomeOrders.length ? (
+                      pendingHomeOrders.map((order) => {
+                        const client = homeClients.find(
+                          (item) => Number(item.id) === Number(order.client_id),
+                        );
+                        return (
+                          <div className="pending-order-row" key={order.id}>
+                            <span className="pending-order-code">{order.code}</span>
+                            <span>{client?.name || `Cliente ${order.client_id || "sin asignar"}`}</span>
+                            <span>
+                              {order.created_at
+                                ? new Date(order.created_at).toLocaleString("es-ES", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })
+                                : "Sin fecha"}
+                            </span>
+                            <span>{order.delivery_date || "Sin fecha"}</span>
+                            <b>{order.status || "Pendiente"}</b>
+                            <strong>
+                              {Number(order.amount || 0).toLocaleString("es-ES", {
+                                style: "currency",
+                                currency: "EUR",
+                              })}
+                            </strong>
+                            {renderHomeOrderActions(order)}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p className="muted pending-orders-empty">No hay pedidos pendientes en este periodo.</p>
+                    )}
+                  </div>
+                )}
+              </section>
+              {[
+                ["Preparando", "Pedidos en preparación"],
+                ["Preparado", "Pedidos preparados"],
+                ["Preparado con incidencia", "Pedidos con incidencia"],
+                ["En reparto", "Pedidos en ruta"],
+                ["Entregado", "Pedidos entregados"],
+              ].map(([status, title]) => {
+                const statusOrders = homePreparationStatusRows(status);
+                const open = openOrderStatus === status;
+                return (
+                  <section className={`panel pending-orders-panel${open ? " open" : " collapsed"}`} key={status}>
+                    <button
+                      type="button"
+                      className="pending-orders-head"
+                      aria-expanded={open}
+                      onClick={() => setOpenOrderStatus(open ? null : status)}
+                    >
+                      <span>
+                        <b>{title}</b>
+                        <small>{statusOrders.length} pedidos · más recientes primero</small>
+                      </span>
+                      <strong>{open ? "⌃" : "⌄"}</strong>
+                    </button>
+                    {open && (
+                      <div className="pending-orders-list">
+                        {statusOrders.length ? (
+                          statusOrders.map((order) => (
+                            <div className="home-step-order-row" key={order.id}>
+                              <b>{order.code}</b>
+                              <span>
+                                {homeClients.find(
+                                  (client) => Number(client.id) === Number(order.client_id),
+                                )?.name || `Cliente ${order.client_id || "sin asignar"}`}
+                              </span>
+                              <span>{order.delivery_date || "Sin fecha"}</span>
+                              <strong>
+                                {Number(order.amount || 0).toLocaleString("es-ES", {
+                                  style: "currency",
+                                  currency: "EUR",
+                                })}
+                              </strong>
+                              {renderHomeOrderActions(order)}
+                            </div>
+                          ))
+                        ) : (
+                          <p className="muted home-step-orders-empty">
+                            No hay pedidos en esta etapa dentro del periodo seleccionado.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+              <div className="panel orders">
+                <div className="panel-head">
+                  <div>
+                    <h2>Accesos rápidos</h2>
+                    <p className="muted">Accesos rápidos a la gestión diaria</p>
+                  </div>
+                </div>
+                {(() => {
+                  const activityItems = [
+                    ["Productos", summary.products, "registros"],
+                    ["Clientes", summary.clients, "registros"],
+                    ["Pedidos", summary.openOrders, "abiertos"],
+                    ["Facturas", summary.invoices, "documentos"],
+                    ["Albaranes", summary.deliveryNotes, "documentos"],
+                    ["Cobros", summary.payments, "movimientos"],
+                    ["Informes", summary.reports, "datos"],
+                    ["Proveedores", summary.suppliers, "registros"],
+                  ];
+                  const selected = activityItems.find(([module]) => module === homeActivityTab) || activityItems[0];
+                  return (
+                    <>
+                      <div className="activity-tabs" role="tablist" aria-label="Módulos principales">
+                        {activityItems.map(([module, count]: any) => (
+                          <button
+                            type="button"
+                            key={module}
+                            role="tab"
+                            aria-selected={homeActivityTab === module}
+                            className={`${homeActivityTab === module ? "active " : ""}${module === "Pedidos" || module === "Facturas" ? "shortcut-alert" : ""}`}
+                            onClick={() => {
+                              setHomeActivityTab(module);
+                              setActive(module);
+                            }}
+                          >
+                            <b>{module}</b><strong>{count}</strong>
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        className={`activity-tab-content${selected[0] === "Pedidos" || selected[0] === "Facturas" ? " shortcut-alert" : ""}`}
+                        onClick={() => setActive(selected[0] as string)}
+                      >
+                        <div className="shortcut-title">
+                          <b>{selected[0]}</b>
+                          <strong>{selected[1]}</strong>
+                        </div>
+                        <span>
+                          {selected[1] ? `${selected[1]} ${selected[2]}` : "Sin registros"} · Gestionar →
+                        </span>
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+              <div className="panel important-notes">
+                <div className="panel-head">
+                  <div>
+                    <h2>Notas importantes</h2>
+                    <p className="muted">Avisos y tareas pendientes para hoy</p>
+                  </div>
+                  <div>
+                    <button
+                      className="button secondary"
+                      type="button"
+                      onClick={() => setHomeNoteModalOpen(true)}
+                    >
+                      + Nueva nota
+                    </button>
+                    <button
+                      className="button secondary"
+                      type="button"
+                      onClick={() => setActive("Notas")}
+                    >
+                      Ver todas
+                    </button>
+                  </div>
+                </div>
+                {importantNotes.length ? (
+                  <div className="notes-dashboard">
+                    {importantNotes.map((note) => (
+                      <article
+                        key={note.id}
+                        className={`${note.priority === "Alta" || note.priority === "Urgente" ? "note-card urgent" : "note-card"}${completingNoteId === note.id ? " note-card-completing" : ""}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openNoteTarget(note)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openNoteTarget(note);
+                          }
+                        }}
+                      >
+                        <div>
+                          <b>{note.title}</b>
+                          <p>{note.content}</p>
+                          <small>
+                            {note.module || "General"} · Prioridad{" "}
+                            {note.priority || "Normal"}
+                          </small>
+                        </div>
+                        {String(note.module || "") !== "Preparación de pedidos" && <button
+                          onClick={(event) => { event.stopPropagation(); void completeNote(note); }}
+                          aria-label={`Completar nota ${note.title}`}
+                          title="Marcar como completada"
+                        >
+                          <span className="note-check-mark">✓</span>
+                        </button>}
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted empty-row">
+                    No hay notas importantes pendientes.
+                  </p>
+                )}
+              </div>
+              {homeNoteModalOpen && (
+                <div className="home-note-modal-backdrop" role="presentation">
+                  <form className="home-note-modal" onSubmit={createHomeNote}>
+                    <div className="home-note-modal-head">
+                      <div>
+                        <b>Nueva nota importante</b>
+                        <small>Se mostrará en Inicio y quedará guardada en la base de datos.</small>
+                      </div>
+                      <button type="button" onClick={() => setHomeNoteModalOpen(false)} aria-label="Cerrar">×</button>
+                    </div>
+                    <label>Título<input autoFocus value={homeNoteDraft.title} onChange={(event) => setHomeNoteDraft({ ...homeNoteDraft, title: event.target.value })} /></label>
+                    <label>Nota<textarea value={homeNoteDraft.content} onChange={(event) => setHomeNoteDraft({ ...homeNoteDraft, content: event.target.value })} /></label>
+                    <div className="home-note-modal-fields">
+                      <label>Módulo<select value={homeNoteDraft.module} onChange={(event) => setHomeNoteDraft({ ...homeNoteDraft, module: event.target.value })}><option>General</option><option>Pedidos</option><option>Stock</option><option>Envíos</option><option>Clientes</option><option>Compras</option></select></label>
+                      <label>Prioridad<select value={homeNoteDraft.priority} onChange={(event) => setHomeNoteDraft({ ...homeNoteDraft, priority: event.target.value })}><option>Normal</option><option>Alta</option><option>Urgente</option></select></label>
+                    </div>
+                    <div className="home-note-modal-actions"><button type="button" className="button secondary" onClick={() => setHomeNoteModalOpen(false)}>Cancelar</button><button type="submit" className="button primary" disabled={homeNoteSaving}>{homeNoteSaving ? "Guardando…" : "Guardar nota"}</button></div>
+                  </form>
+                </div>
+              )}
+            </>
+          ) : active === "Balance" ? (
+            <Balance />
+          ) : active === "Contactos" ? (
+            <Contacts onNavigate={setActive} />
+          ) : active === "Informes" ? (
+            <Reports />
+          ) : active === "Historial" ? (
+            <History />
+          ) : active === "Tareas programadas" ? (
+            <ScheduledTasks />
+          ) : active === "Usuarios y permisos" ? (
+            <UsersManager user={currentUser} />
+          ) : active === "Compras inteligentes" ? (
+            <SmartPurchasing user={currentUser} />
+          ) : active === "Papelera" ? (
+            <TrashManager user={currentUser} />
+          ) : (
+            <Manager active={active} user={currentUser} onNavigate={setActive} onNewOrder={active === "Pedidos" ? () => { setTabletRequiresLogin(false); setTabletOpen(true); } : undefined} />
+          )}
+          <footer>
+            Exclusivas Inteligentes · Todo en orden para trabajar{" "}
+                        <span>● Base de datos sincronizada</span>
+          </footer>
+        </section>
+      </div>
+      {tabletOpen && (
+        <TabletOrderDemo
+          user={currentUser}
+          requireLogin={tabletRequiresLogin}
+          onClose={() => setTabletOpen(false)}
+          onViewOrders={() => {
+            setTabletOpen(false);
+            setActive("Pedidos");
+          }}
+        />
+      )}
+      {webOrderOpen && (
+        <ClientOrderPortal
+          onClose={() => setWebOrderOpen(false)}
+          onCreated={() => {
+            window.dispatchEvent(new Event("crm-data-changed"));
+          }}
+        />
+      )}
+    </main>
+  );
+}
