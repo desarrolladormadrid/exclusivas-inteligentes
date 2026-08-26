@@ -38,6 +38,7 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 - Stock debe distinguir claramente: stock en almacén, requerido por pedidos, saldo para cubrir pedidos, stock mínimo y estado. Los saldos negativos se muestran en rojo solo en el número; estado al final, antes de acciones.
 - El estado de stock debe poder ordenarse y priorizar “Sin stock”, seguido de “Bajo mínimo” y después “Disponible”.
 - Las ubicaciones de producto siguen la nomenclatura letra-número, por ejemplo `B-126`, y las notas de carga se ordenan por ubicación.
+- En una nota de carga la ubicación de picking es editable para corregir errores del almacén; el cambio se valida con formato letra-número, se guarda en la ficha del producto y deja historial con usuario, fecha y origen “Nota de carga”. Debe mostrarse como columna independiente y sin badges decorativos que oculten el dato.
 
 ## Coherencia de datos
 
