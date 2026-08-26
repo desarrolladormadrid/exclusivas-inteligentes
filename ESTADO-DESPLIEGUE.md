@@ -12,19 +12,19 @@
 - Vercel MCP instalado globalmente para Codex.
 - Configuración: `C:\Users\luis.vazquez\.codex\config.toml`
 - Servidor: `https://mcp.vercel.com`
-- Pendiente: que una nueva sesión de Codex cargue el servidor MCP y complete la autorización OAuth de Vercel.
+- Proyecto enlazado: `exclusivas-inteligentes`.
+- URL estable: `https://exclusivas-inteligentes.vercel.app`
+- Estado: desplegado en producción el 26/08/2026.
 
 ## Próximos pasos
 
-1. Comprobar la conexión con Vercel.
-2. Enlazar este proyecto con Vercel.
-3. Adaptar las llamadas actuales a `127.0.0.1:3001` para producción.
-4. Mover la clave de Gemini al servidor y eliminarla del código del navegador.
-5. Configurar las variables de Turso y Gemini en Vercel.
-6. Crear despliegue de prueba y validar login, CRUD, pedidos, stock, documentos y asistente.
+1. Adaptar las llamadas actuales a `127.0.0.1:3001` para producción, si el entorno lo requiere.
+2. Mover la clave de Gemini al servidor y eliminarla del código del navegador.
+3. Configurar o verificar las variables de Turso y Gemini en Vercel.
+4. Completar la validación funcional integral en producción.
 
 ## Verificación actual
 
 - Compilación correcta.
-- Pruebas automáticas: 2/2 correctas.
-- Navegación local comprobada sin errores de consola.
+- Pruebas automáticas y navegación local comprobadas.
+- Producción comprobada: `/` y `/portal-pedidos` responden correctamente; la vista principal carga sin error bloqueante.
