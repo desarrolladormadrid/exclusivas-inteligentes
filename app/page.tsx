@@ -785,6 +785,7 @@ function Sidebar({
   const [items, setItems] = useState(initialModules);
   const [drag, setDrag] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     "Ventas y clientes": true,
     "Logística y almacén": true,
@@ -803,6 +804,7 @@ function Sidebar({
           ...initialModules.filter((module) => !savedItems.includes(module)),
         ]);
       }
+      setSidebarCollapsed(localStorage.getItem("excluvas.sidebar.collapsed") === "1");
     } catch {}
   }, []);
   useEffect(() => {
@@ -823,7 +825,20 @@ function Sidebar({
     localStorage.setItem("excluvas.sidebar", JSON.stringify(next));
   }
   return (
-    <aside className={`sidebar${mobileOpen ? " mobile-open" : ""}`}>
+    <aside className={`sidebar${mobileOpen ? " mobile-open" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+      <button
+        type="button"
+        className="sidebar-collapse-toggle"
+        onClick={() => {
+          const next = !sidebarCollapsed;
+          setSidebarCollapsed(next);
+          localStorage.setItem("excluvas.sidebar.collapsed", next ? "1" : "0");
+        }}
+        aria-label={sidebarCollapsed ? "Abrir menú lateral" : "Plegar menú lateral"}
+        title={sidebarCollapsed ? "Abrir menú lateral" : "Plegar menú lateral"}
+      >
+        {sidebarCollapsed ? "›" : "‹"}
+      </button>
       <button type="button" className="mobile-sidebar-toggle" onClick={() => setMobileOpen((open) => !open)} aria-expanded={mobileOpen}>
         <b>{mobileOpen ? "Cerrar menú" : "Menú"}</b><em>{active}</em>
       </button>

@@ -2587,3 +2587,35 @@ body { zoom: 1.1; }
   .prep-command-board .prep-order-card small,
   .prep-command-board .prep-order-card > span { overflow-wrap: anywhere; }
 }
+
+/* El menú lateral también se puede plegar en escritorio sin ocultar el contenido. */
+.sidebar { position: relative; }
+.sidebar-collapse-toggle {
+  position: absolute;
+  top: 50%;
+  right: -12px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #cbd5da;
+  background: #fff;
+  color: #65737c;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+.sidebar-collapse-toggle:hover { border-color: var(--red); color: var(--red); }
+.sidebar.sidebar-collapsed { width: 48px; padding-left: 6px; padding-right: 6px; }
+.sidebar.sidebar-collapsed > *:not(.sidebar-collapse-toggle) { display: none; }
+.sidebar.sidebar-collapsed .sidebar-collapse-toggle { right: -12px; }
+@media (max-width: 900px) {
+  .workspace .sidebar { position: sticky; }
+  .sidebar-collapse-toggle { display: none; }
+  .workspace .sidebar.sidebar-collapsed { width: 100%; padding: 0; }
+  .workspace .sidebar.sidebar-collapsed > *:not(.sidebar-collapse-toggle):not(.mobile-sidebar-toggle) { display: none; }
+}
