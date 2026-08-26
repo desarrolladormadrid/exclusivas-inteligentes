@@ -3336,7 +3336,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
         </div>
       </div>
       {dbError && <div className="db-error">{dbError}</div>}
-      {!isLoadPreparation && <BusinessRelatedPanels active={active} rows={rows} lookups={lookups} onNavigate={onNavigate} />}
+      {!isLoadPreparation && active !== "Pedidos" && <BusinessRelatedPanels active={active} rows={rows} lookups={lookups} onNavigate={onNavigate} />}
       {isLoadPreparation && <PreparationDayCards rows={preparationRows} lookups={lookups} dateFilter={preparationDateFilter} onDateFilterChange={setPreparationDateFilter} onOpen={(row) => void openPreparationRow(row)} />}
       {active === "Gastos y tickets" && (
         <ExpenseScanner
