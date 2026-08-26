@@ -528,7 +528,7 @@ http
           ? [code, order.id, order.client_id, "Pendiente"]
           : [code, order.id, order.client_id, order.amount || 0, "Pendiente"];
         const created = db
-          .prepare(`INSERT INTO ${table} (${fields}) VALUES (?,?,?,?)`)
+          .prepare(`INSERT INTO ${table} (${fields}) VALUES (${values.map(() => "?").join(",")})`)
           .run(...values);
         const newId = Number(created.lastInsertRowid);
         if (delivery)
@@ -633,6 +633,8 @@ http
           const product = db.prepare("SELECT stock FROM products WHERE id=?").get(d.product_id);
           if (!product) return send(res, 400, { error: "Producto no encontrado" });
           db.prepare("UPDATE products SET stock=COALESCE(stock,0)+? WHERE id=?").run(Number(d.quantity), Number(d.product_id));
+          invalidateReadCache("products");
+          invalidateReadCache("stock");
           db.prepare("INSERT INTO inventory_movements(product_id,movement_type,quantity,reference,notes) VALUES(?,?,?,?,?)").run(d.product_id, "Devolución", d.quantity, d.code || "", d.reason || "Devolución de cliente");
           d.status = d.status || "Recibida";
         }
@@ -675,6 +677,8 @@ http
           }
           const sign = ["salida", "ajuste negativo", "devolución"].includes(String(d.movement_type || "").toLowerCase()) ? -1 : 1;
           db.prepare("UPDATE products SET stock=COALESCE(stock,0)+? WHERE id=?").run(sign * Number(d.quantity), Number(d.product_id));
+          invalidateReadCache("products");
+          invalidateReadCache("stock");
         }
         if (
           t === "products" &&
@@ -725,12 +729,17 @@ http
         if (t === "payments" && d.invoice_id) {
           const invoice = db.prepare("SELECT amount FROM invoices WHERE id=?").get(d.invoice_id);
           const paid = db.prepare("SELECT COALESCE(SUM(amount),0) total FROM payments WHERE invoice_id=?").get(d.invoice_id).total;
-          db.prepare("UPDATE invoices SET status=? WHERE id=?").run(Number(paid) >= Number(invoice?.amount || 0) ? "Cobrada" : "Parcial", d.invoice_id);
+          db.prepare("UPDATE invoices SET status=? WHERE id=?").run(Number(paid) + Number(d.amount || 0) >= Number(invoice?.amount || 0) ? "Cobrada" : "Parcial", d.invoice_id);
+          invalidateReadCache("invoices");
         }
         if (t === "orders" && d.product_id && d.quantity)
           db.prepare(
             "UPDATE products SET stock_reserved=COALESCE(stock_reserved,0)+? WHERE id=?",
           ).run(Number(d.quantity), Number(d.product_id));
+        if (t === "orders" && d.product_id && d.quantity) {
+          invalidateReadCache("products");
+          invalidateReadCache("stock");
+        }
         if (t === "orders" && orderLines) {
           for (const line of orderLines) {
             db.prepare("INSERT INTO order_lines(order_id,product_id,quantity,quantity_requested,quantity_unit,units_factor,unit_price,discount,vat,amount,prepared,prepared_quantity,preparation_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(Number(r.lastInsertRowid), line.product_id, line.quantity, line.quantity_requested, line.quantity_unit, line.units_factor, line.unit_price, line.discount, line.vat, line.amount, 0, 0, "Pendiente", now, now);
@@ -753,7 +762,9 @@ http
           const names = stockAlerts.map((item) => db.prepare("SELECT name FROM products WHERE id=?").get(item.product_id)?.name || `Producto #${item.product_id}`);
           db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,completed,created_at) VALUES(?,?,?,?,?,?,?,?)").run(`Revisar stock · ${d.code || "Nuevo pedido"}`, `El pedido queda reservado, pero ${names.join(", ")} quedará por debajo del stock mínimo o sin unidades suficientes. Revisa reposición antes de preparar.`, stockShortages.length ? "Urgente" : "Alta", "Stock", Number(r.lastInsertRowid), 1, 0, now);
         }
-        return send(res, 201, { id: Number(r.lastInsertRowid), ...d, stock_alerts: [...stockShortages, ...stockAlerts] });
+        const createdRecord = { id: Number(r.lastInsertRowid), ...d };
+        if (t === "orders") createdRecord.stock_alerts = [...stockShortages, ...stockAlerts];
+        return send(res, 201, createdRecord);
       }
       if (req.method === "DELETE") {
         invalidateReadCache(t);
@@ -793,8 +804,10 @@ http
           if (oldPurchase && oldPurchase.status !== "Recibida") {
             const lines = db.prepare("SELECT * FROM purchase_order_lines WHERE purchase_order_id=?").all(p[2]);
             for (const line of lines) {
-              db.prepare("INSERT INTO inventory_movements(product_id,movement_type,quantity,reference,notes) VALUES(?,?,?,?,?)").run(line.product_id, "Entrada", line.quantity, oldPurchase.code, "Recepción de compra");
+            db.prepare("INSERT INTO inventory_movements(product_id,movement_type,quantity,reference,notes) VALUES(?,?,?,?,?)").run(line.product_id, "Entrada", line.quantity, oldPurchase.code, "Recepción de compra");
               db.prepare("UPDATE products SET stock=COALESCE(stock,0)+?,cost_price=? WHERE id=?").run(Number(line.quantity), Number(line.unit_cost || 0), line.product_id);
+              invalidateReadCache("products");
+              invalidateReadCache("stock");
             }
           }
         }
@@ -842,6 +855,8 @@ http
               db.prepare(
                 "UPDATE products SET stock_reserved=MAX(0,COALESCE(stock_reserved,0)-?) WHERE id=?",
               ).run(Number(old.quantity), Number(old.product_id));
+            invalidateReadCache("products");
+            invalidateReadCache("stock");
           }
         }
         if (t === "orders") {
@@ -878,7 +893,11 @@ http
           d.stock_min = d.stock_min === undefined ? Number(d.min_stock ?? previous?.min_stock ?? 0) : Number(d.stock_min || 0);
           d.real_cost = Number(d.cost_price ?? previous?.cost_price ?? 0) + Number(d.freight_cost ?? previous?.freight_cost ?? 0) + Number(d.handling_cost ?? previous?.handling_cost ?? 0);
         }
-        const keys = Object.keys(d).filter((k) => k !== "id");
+        const writableColumns = new Set(
+          db.prepare(`PRAGMA table_info(${t})`).all().map((column) => String(column.name || "")),
+        );
+        const keys = Object.keys(d).filter((k) => k !== "id" && writableColumns.has(k));
+        if (!keys.length) return send(res, 400, { error: "No hay campos válidos para actualizar" });
         db.prepare(
           `UPDATE ${t} SET ${keys.map((k) => k + "=?").join(",")} WHERE id=?`,
         ).run(...keys.map((k) => d[k]), p[2]);
