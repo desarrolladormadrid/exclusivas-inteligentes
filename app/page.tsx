@@ -1669,7 +1669,7 @@ function PreparationDayCards({ rows, lookups, onOpen, dateFilter, onDateFilterCh
     { key: "paused", title: "Bloqueados / pospuestos", hint: "Fuera del circuito", match: (row: any) => ["Bloqueado", "Pospuesto"].includes(row.status || "") },
   ];
   const renderCard = (row: any) => { const client = getClient(row.client_id); const address = typeof row.address === "string" ? row.address : row.address?.address || row.address?.name || "Dirección no indicada"; return <button type="button" key={row.id} className={`prep-order-card${Number(row.urgent) === 1 ? " is-urgent" : ""}${row.status === "Preparado" ? " is-completed" : ""}${row.status === "Preparado con incidencia" ? " has-incident" : ""}`} onClick={() => onOpen(row)}><span className="prep-card-top"><b>{row.code}</b><em>{Number(row.urgent) === 1 ? "URGENTE" : row.status || "Pendiente"}</em></span><strong>{client?.name || `Cliente #${row.client_id || "—"}`}</strong><span>{address}</span><span className="prep-card-meta">Entrega: {formatSpanishDateValue(row.delivery_date, false)}{row.packages ? ` · ${row.packages} bultos` : ""}</span><small>{row.notes || "Sin observaciones"}</small><i>▶ Abrir comanda</i></button>; };
-  return <section className="prep-command-board" aria-label="Comandas de preparación"><div className="prep-command-toolbar"><div className="prep-command-filters"><label>Preparar el día<input type="date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value)} /></label><button type="button" className="button primary" onClick={() => onDateFilterChange(today)}>Hoy</button><button type="button" className="button secondary" onClick={() => onDateFilterChange("")}>Todos</button></div></div><div className="prep-command-summary"><span><b>{items.length}</b> pedidos</span><span><b>{items.filter((row) => Number(row.urgent) === 1).length}</b> urgentes</span><span><b>{items.filter((row) => row.status === "Preparado con incidencia").length}</b> con incidencia</span><span className="prep-command-summary-hint">Pulsa una comanda para revisar sus líneas</span></div>{!items.length ? <div className="prep-command-empty"><b>{dateFilter ? "No hay pedidos para esta fecha" : "No hay pedidos pendientes"}</b><span>{dateFilter ? "Prueba otra fecha o pulsa “Todos”." : "Cuando se creen preparaciones aparecerán aquí."}</span></div> : <div className="prep-command-columns">{groups.map((group) => { const groupItems = items.filter(group.match); return <section className={`prep-command-column prep-command-${group.key}`} key={group.key}><header><div><b>{group.title}</b><small>{group.hint}</small></div><strong>{groupItems.length}</strong></header><div>{groupItems.map(renderCard)}{!groupItems.length && <p className="prep-command-none">Sin pedidos</p>}</div></section>; })}</div>}</section>;
+  return <section className="prep-command-board" aria-label="Comandas de preparación"><div className="prep-command-toolbar"><div className="prep-command-toolbar-title"><b>Pedidos para preparar</b><span>{dateFilter ? `Preparación del ${formatSpanishDateValue(dateFilter, false)}` : "Todas las preparaciones"}</span></div><div className="prep-command-filters"><label>Preparar el día<input type="date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value)} /></label><button type="button" className="button primary" onClick={() => onDateFilterChange(today)}>Hoy</button><button type="button" className="button secondary" onClick={() => onDateFilterChange("")}>Todos</button></div></div><div className="prep-command-summary"><span><b>{items.length}</b> pedidos</span><span><b>{items.filter((row) => Number(row.urgent) === 1).length}</b> urgentes</span><span><b>{items.filter((row) => row.status === "Preparado con incidencia").length}</b> con incidencia</span><span className="prep-command-summary-hint">Pulsa una comanda para revisar sus líneas</span></div>{!items.length ? <div className="prep-command-empty"><b>{dateFilter ? "No hay pedidos para esta fecha" : "No hay pedidos pendientes"}</b><span>{dateFilter ? "Prueba otra fecha o pulsa “Todos”." : "Cuando se creen preparaciones aparecerán aquí."}</span></div> : <div className="prep-command-columns">{groups.map((group) => { const groupItems = items.filter(group.match); return <section className={`prep-command-column prep-command-${group.key}`} key={group.key}><header><div><b>{group.title}</b><small>{group.hint}</small></div><strong>{groupItems.length}</strong></header><div>{groupItems.map(renderCard)}{!groupItems.length && <p className="prep-command-none">Sin pedidos</p>}</div></section>; })}</div>}</section>;
 }
 
 function formatSpanishDateValue(value: any, includeTime = true) {
@@ -1812,6 +1812,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   const [previewLoading, setPreviewLoading] = useState(false);
   const [productOptions, setProductOptions] = useState<any[]>([]);
   const [locationSavingId, setLocationSavingId] = useState<number | null>(null);
+  const [locationDrafts, setLocationDrafts] = useState<Record<string, string>>({});
   const [newLine, setNewLine] = useState({
     product_id: "",
     quantity: "1",
@@ -2740,6 +2741,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
       return String(pa?.warehouse_location || "ZZZ").localeCompare(String(pb?.warehouse_location || "ZZZ"), "es", { numeric: true }) || Number(pa?.picking_order || 0) - Number(pb?.picking_order || 0);
     }));
     setProductOptions(productRows);
+    setLocationDrafts(Object.fromEntries(productRows.map((product: any) => [String(product.id), String(product.warehouse_location || "")] )));
     setPreviewLoading(false);
   }
   async function updatePreparationLine(line: any, changes: any) {
@@ -2775,6 +2777,23 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
       const updated = await response.json().catch(() => ({}));
       setProductOptions((current) => current.map((item) => Number(item.id) === Number(product.id) ? { ...item, warehouse_location: updated.warehouse_location || nextLocation } : item));
     }
+    setLocationSavingId(null);
+  }
+  async function savePreparationLocations() {
+    const changedProducts = productOptions.filter((product) => String(locationDrafts[String(product.id)] || "").trim().toUpperCase() !== String(product.warehouse_location || "").trim().toUpperCase());
+    if (!changedProducts.length) return;
+    const invalid = changedProducts.find((product) => !/^[A-Z]-([1-9]|[1-9]\d|[1-9]\d\d|200)$/.test(String(locationDrafts[String(product.id)] || "").trim().toUpperCase()));
+    if (invalid) return setError(`La ubicación de ${invalid.name || "un producto"} debe tener el formato letra-número, por ejemplo B-126.`);
+    setLocationSavingId(-1);
+    setError("");
+    const results = await Promise.all(changedProducts.map(async (product) => {
+      const value = String(locationDrafts[String(product.id)] || "").trim().toUpperCase();
+      const response = await fetch(`/api/products/${product.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ warehouse_location: value }) });
+      return { product, value, response };
+    }));
+    const failed = results.find((result) => !result.response.ok);
+    if (failed) setError("No se pudieron guardar todas las ubicaciones. Revisa la conexión e inténtalo de nuevo.");
+    else setProductOptions((current) => current.map((product) => { const saved = results.find((result) => Number(result.product.id) === Number(product.id)); return saved ? { ...product, warehouse_location: saved.value } : product; }));
     setLocationSavingId(null);
   }
   async function markPreparationLine(line: any, prepared: boolean) {
@@ -3854,7 +3873,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                   return (
                   <Fragment key={line.id}>
                   <tr key={line.id}>
-                    {isLoadPreparation ? <><td><div className="prep-location-field"><label><span>Ubicación de picking</span><input aria-label={`Ubicación de ${product?.name || "producto"}`} value={product?.warehouse_location || ""} placeholder="Ej. B-126" onChange={(event) => setProductOptions((current) => current.map((item) => Number(item.id) === Number(product?.id) ? { ...item, warehouse_location: event.target.value } : item))} disabled={locationSavingId === Number(product?.id)} /></label><button type="button" className="row-action save prep-location-save" onClick={() => void updatePreparationLocation(product, product?.warehouse_location || "")} disabled={locationSavingId === Number(product?.id)}>{locationSavingId === Number(product?.id) ? "Guardando…" : "Guardar ubicación"}</button></div></td><td><div className="prep-product-cell"><b>{product?.name || `Producto #${line.product_id}`}</b></div></td></> : <td>{product?.name || `Producto #${line.product_id}`}</td>}
+                    {isLoadPreparation ? <><td><div className="prep-location-field"><label><span>Ubicación de picking</span><input aria-label={`Ubicación de ${product?.name || "producto"}`} value={locationDrafts[String(product?.id)] ?? product?.warehouse_location ?? ""} placeholder="Ej. B-126" onChange={(event) => setLocationDrafts((current) => ({ ...current, [String(product?.id)]: event.target.value }))} disabled={locationSavingId === -1} /></label></div></td><td><div className="prep-product-cell"><b>{product?.name || `Producto #${line.product_id}`}</b></div></td></> : <td>{product?.name || `Producto #${line.product_id}`}</td>}
                     <td>{isLoadPreparation || (["Pedidos", "Presupuestos", "Facturas", "Albaranes"].includes(active) && (line.quantity_unit || line.quantity_requested)) ? <div className="prep-quantity-summary"><b>{line.quantity_requested || line.quantity} {quantityUnitLabel(line.quantity_unit)}{(line.quantity_requested || line.quantity) !== 1 && !String(line.quantity_unit || "unidad").startsWith("pack_") ? "s" : ""}</b><small>· {line.quantity} unidades totales</small></div> : line.quantity}</td>
                     {isLoadPreparation && <td><div className="prep-line-controls"><input className="prep-real-quantity" aria-label={`Cantidad preparada de ${product?.name || "producto"}`} type="number" min="0" max={requestedQuantity} step="any" value={line.prepared_quantity ?? 0} onFocus={(event) => event.currentTarget.select()} onChange={(event) => { const raw = event.target.value; setPreviewLines((current) => current.map((item) => { if (item.id !== line.id) return item; if (raw === "") return { ...item, prepared_quantity: "" }; const requested = Number(item.quantity || 0); return { ...item, prepared_quantity: Math.min(requested, Math.max(0, Number(raw) || 0)) }; })) }} onBlur={() => { if (line.prepared_quantity === "") setPreviewLines((current) => current.map((item) => item.id === line.id ? { ...item, prepared_quantity: 0 } : item)); }} /><span className="prep-unit-caption">uds.</span></div></td>}
                     {isLoadPreparation && <td><span className={`prep-line-status prep-line-status-${displayLineStatus.toLowerCase()}`}>{displayLineStatus}</span></td>}
@@ -3880,6 +3899,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                 )}
               </tbody>
             </table>}
+            {isLoadPreparation && <div className="prep-location-save-all"><button type="button" className="button primary" onClick={() => void savePreparationLocations()} disabled={locationSavingId === -1}>{locationSavingId === -1 ? "Guardando cambios…" : "Guardar cambios"}</button></div>}
             {isLoadPreparation && actionableIncompletePreparationLines.length > 0 && (
               <section className="prep-bulk-incident" aria-label="Incidencias de preparación">
                 <div className="prep-bulk-incident-head">
