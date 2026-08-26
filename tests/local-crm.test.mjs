@@ -137,6 +137,7 @@ test("recibir una compra crea entradas y aumenta el stock", async () => {
   const supplier = (await call("/suppliers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "__TEST_PROVEEDOR_RECEPCION__" }) })).data;
   const product = (await call("/products", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "__TEST_COMPRA__", stock: 2 }) })).data;
   const purchase = (await call("/purchase_orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "__TEST_COMPRA_" + Date.now(), supplier_id: supplier.id, status: "Pedido" }) })).data;
+  assert.equal(purchase.stock_alerts, undefined);
   const line = await call("/purchase_order_lines", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ purchase_order_id: purchase.id, product_id: product.id, quantity: 5, unit_cost: 2, amount: 10 }) });
   assert.equal(line.status, 201);
   const before = (await call("/products")).data.find((x) => x.id === product.id).stock;

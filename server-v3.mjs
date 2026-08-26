@@ -278,6 +278,10 @@ function invalidateReadCache(resource) {
   }
 }
 function cachedRows(resource, includeDeleted) {
+  // Turso es compartido por varias instancias serverless. Una caché local
+  // podría devolver reservas de stock obsoletas después de una escritura
+  // realizada por otra instancia.
+  if (remoteMode) return null;
   const key = `${resource}:${includeDeleted ? 1 : 0}`;
   const cached = readCache.get(key);
   if (!cached || Date.now() - cached.createdAt > READ_CACHE_MS) {
@@ -287,6 +291,7 @@ function cachedRows(resource, includeDeleted) {
   return cached.rows;
 }
 function storeRows(resource, includeDeleted, rows) {
+  if (remoteMode) return rows;
   readCache.set(`${resource}:${includeDeleted ? 1 : 0}`, { createdAt: Date.now(), rows });
   return rows;
 }

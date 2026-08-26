@@ -286,6 +286,10 @@ function invalidateReadCache(resource) {
   }
 }
 function cachedRows(resource, includeDeleted) {
+  // Turso es compartido por varias instancias serverless. Una caché local
+  // podría devolver reservas de stock obsoletas después de una escritura
+  // realizada por otra instancia.
+  if (remoteMode) return null;
   const key = `${resource}:${includeDeleted ? 1 : 0}`;
   const cached = readCache.get(key);
   if (!cached || Date.now() - cached.createdAt > READ_CACHE_MS) {
@@ -295,6 +299,7 @@ function cachedRows(resource, includeDeleted) {
   return cached.rows;
 }
 function storeRows(resource, includeDeleted, rows) {
+  if (remoteMode) return rows;
   readCache.set(`${resource}:${includeDeleted ? 1 : 0}`, { createdAt: Date.now(), rows });
   return rows;
 }
@@ -864,7 +869,9 @@ export async function crmApiHandler(req, res) {
           const names = stockAlerts.map((item) => db.prepare("SELECT name FROM products WHERE id=?").get(item.product_id)?.name || `Producto #${item.product_id}`);
           db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,completed,created_at) VALUES(?,?,?,?,?,?,?,?)").run(`Revisar stock · ${d.code || "Nuevo pedido"}`, `El pedido queda reservado, pero ${names.join(", ")} quedará por debajo del stock mínimo o sin unidades suficientes. Revisa reposición antes de preparar.`, stockShortages.length ? "Urgente" : "Alta", "Stock", Number(r.lastInsertRowid), 1, 0, now);
         }
-        return send(res, 201, { id: Number(r.lastInsertRowid), ...d, stock_alerts: [...stockShortages, ...stockAlerts] });
+        const createdRecord = { id: Number(r.lastInsertRowid), ...d };
+        if (t === "orders") createdRecord.stock_alerts = [...stockShortages, ...stockAlerts];
+        return send(res, 201, createdRecord);
       }
       if (req.method === "DELETE") {
         invalidateReadCache(t);
