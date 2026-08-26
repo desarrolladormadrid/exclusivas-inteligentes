@@ -1752,7 +1752,7 @@ function BusinessRelatedPanels({ active, rows, lookups, onNavigate }: { active: 
   </section>;
 }
 
-function Manager({ active, user, onNewOrder, onNavigate }: { active: string; user?: any; onNewOrder?: () => void; onNavigate?: (module: string) => void }) {
+function Manager({ active, user, onNavigate }: { active: string; user?: any; onNavigate?: (module: string) => void }) {
   const c = cfg[active];
   const actorHeaders = {
     "Content-Type": "application/json",
@@ -7442,8 +7442,6 @@ export default function Home() {
     if (typeof window === "undefined") return "Inicio";
     try { return localStorage.getItem("excluvas.active-section") || "Inicio"; } catch { return "Inicio"; }
   });
-  const [tabletOpen, setTabletOpen] = useState(false);
-  const [tabletRequiresLogin, setTabletRequiresLogin] = useState(false);
   const [webOrderOpen, setWebOrderOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
     id: 0,
@@ -7905,12 +7903,6 @@ export default function Home() {
         )}
         <div className="appbar-actions">
           <div className="header-quick-actions" aria-label="Accesos rápidos">
-            <button
-              className="button primary tablet-launch"
-              onClick={() => { setTabletRequiresLogin(true); setTabletOpen(true); }}
-            >
-              Pedido desde tablet
-            </button>
             <button
               className="button primary"
               onClick={() => setActive("Preparación de pedidos")}
@@ -8428,7 +8420,7 @@ export default function Home() {
           ) : active === "Papelera" ? (
             <TrashManager user={currentUser} />
           ) : (
-            <Manager active={active} user={currentUser} onNavigate={setActive} onNewOrder={active === "Pedidos" ? () => { setTabletRequiresLogin(false); setTabletOpen(true); } : undefined} />
+            <Manager active={active} user={currentUser} onNavigate={setActive} />
           )}
           <footer>
             Exclusivas Inteligentes · Todo en orden para trabajar{" "}
@@ -8436,17 +8428,6 @@ export default function Home() {
           </footer>
         </section>
       </div>
-      {tabletOpen && (
-        <TabletOrderDemo
-          user={currentUser}
-          requireLogin={tabletRequiresLogin}
-          onClose={() => setTabletOpen(false)}
-          onViewOrders={() => {
-            setTabletOpen(false);
-            setActive("Pedidos");
-          }}
-        />
-      )}
       {webOrderOpen && (
         <ClientOrderPortal
           onClose={() => setWebOrderOpen(false)}
