@@ -439,7 +439,7 @@
   .appbar { height: 64px; padding: 0 0 0 14px; z-index: 100; }
   .brand { margin-top: 8px; }
   .user { margin: 8px 0 0 auto; min-width: 126px; }
-  .workspace { padding-top: 38px; }
+  .workspace { padding-top: 64px; min-height: calc(100vh - 64px); }
 }
 .crm-shell {
   max-width: none !important;
@@ -2605,7 +2605,7 @@ footer span {
 /* Tablet vertical: sustituye el sidebar fijo por un menú compacto y evita
    que las comandas estrechas corten la dirección o las observaciones. */
 @media (max-width: 900px) {
-  .workspace { display: block; min-height: calc(100vh - 64px); }
+  .workspace { display: block; min-height: calc(100vh - 74px); padding-top: 74px; }
   .workspace .sidebar {
     position: sticky;
     top: 0;
@@ -2622,7 +2622,23 @@ footer span {
     border-bottom: 1px solid #d1dadd;
     background: #eef2f4;
   }
-  .mobile-sidebar-toggle { display: flex; }
+  .mobile-sidebar-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 42px;
+    padding: 0 12px;
+    border: 0;
+    background: #eef2f4;
+    color: #26343d;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    box-sizing: border-box;
+  }
+  .mobile-sidebar-toggle b { font-size: 12px; font-weight: 700; }
+  .mobile-sidebar-toggle em { margin-left: 4px; color: #7b8790; font-size: 11px; font-style: normal; }
   .workspace .sidebar:not(.mobile-open) .side-label,
   .workspace .sidebar:not(.mobile-open) > .sidebar-group,
   .workspace .sidebar:not(.mobile-open) > .nav-item { display: none; }

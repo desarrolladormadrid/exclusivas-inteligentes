@@ -9,9 +9,9 @@
 | A · Acceso, rutas e inicio | PASS | Las rutas `/crm`, `/comercial`, `/almacen`, `/web` y `/portal-pedidos` responden 200. Login incorrecto devuelve 401; Comercial y Almacén entran en sus áreas previstas. Notificaciones de pedido, stock e incidencia abren su contexto; lectura e historial pasan. |
 | B · Maestros y catálogo | PARCIAL | Alta y edición persistente de proveedor, producto, cliente y ubicación; búsqueda de productos y recorrido visual de Productos. Ficha de producto, código de barras SVG y QR PNG verificados en producción, incluidos sus enlaces descargables. Pendiente completar foto y validaciones exhaustivas del formulario. |
 | C · Ventas y documentos | PARCIAL | Pedido con dos líneas, envío generado, preparación de línea, incidencia con faltante, resolución como envío parcial y reposición, presupuesto con línea, factura, cobro parcial/final y reservas. Pendiente cerrar facturación/albarán visual de extremo a extremo. |
-| D · Almacén y compras | PARCIAL | Reserva/liberación de stock, recepción de compra y pruebas locales de movimientos, devoluciones y stock enviado. Pendiente recorrido visual completo de entrada, salida, ajustes y prioridades. |
+| D · Almacén y compras | PARCIAL | Reserva/liberación de stock, recepción de compra y gastos con justificante, devoluciones y prueba visual en producción de entrada y salida: el stock pasó 10→14→12 y la salida generó su hoja de carga. También se validaron desde la interfaz ajuste positivo, ajuste negativo y devolución, con stock 20→23→21→20, prioridad configurable y una compra recibida que incrementó stock 10→15. Pendiente completar compras inteligentes y adjuntos reales. |
 | E · Notas, administración y configuración | PARCIAL | Nota importante, completar, papelera/recuperación, auditoría y previsualización de plantillas. La edición/guardado/restauración de una plantilla ya está verificada; también se corrigió la presentación de saltos en el listado. Pendiente descarga/impresión automatizada y matriz completa de permisos. |
-| F · Transversales | PARCIAL | Escritorio, tablet y móvil comprobados; consola limpia; URL y endpoints de producción correctos. Pendiente tablet vertical/tacto, respuestas lentas, nombres largos y recorrido transversal completo con incidencia. |
+| F · Transversales | PARCIAL | Escritorio, tablet, móvil y tablet vertical comprobados; la vertical se corrigió para evitar solape del menú con la cabecera y pasó de nuevo en local y producción. Consola, URL y endpoints de producción correctos. Pendiente tacto, respuestas lentas, nombres largos y recorrido transversal completo con incidencia. |
 
 ## Baterías ejecutadas
 
@@ -38,6 +38,11 @@
 - Los códigos de barras se ofrecen como enlace SVG descargable en la ficha y en la vista de etiqueta; el QR mantiene su descarga PNG.
 - Se aplicaron en Turso las columnas de resolución de incidencias de `order_lines` y `notes`; el comando reproducible queda en `npm run db:migrate-remote`.
 - Las líneas que ya tienen una resolución no vuelven a ofrecer “Registrar incidencia”, evitando duplicados.
+- Se verificaron en producción una entrada y una salida desde la interfaz, con actualización de stock y generación automática de hoja de carga para la salida; los registros temporales se retiraron al finalizar.
+- Se verificaron también desde la interfaz los movimientos de ajuste positivo, ajuste negativo y devolución; la vista Stock mostró prioridad configurable, saldo, mínimo y estado “Disponible”.
+- Se validó en producción el alta manual de un gasto con fecha, categoría, proveedor, importe decimal, IVA, forma de pago y justificante identificado; se comprobó su persistencia visual y después se retiró el registro temporal.
+- Se validó en producción una compra con proveedor, fechas, importe y línea de producto; al pasarla a “Recibida” creó la entrada de inventario y actualizó el stock esperado. Los datos temporales se retiraron al finalizar.
+- La revisión vertical detectó y corrigió el solape del menú compacto con la cabecera; la captura posterior en local y producción conserva el scroll interno de tablas sin cortar la pantalla.
 
 ## Higiene y restauración
 
@@ -48,4 +53,4 @@
 
 ## Evidencias visuales
 
-Las capturas de producción y los estados de fallo conservados están en `tests/screenshots/`, incluyendo `production-sections-documentos.png`, `production-document-template-preview.png`, `production-document-template-edit-restored.png`, `production-sections-preparación-de-pedidos.png`, `production-preparation-backorder.png`, `production-product-detail.png`, `production-product-label.png`, `production-expense-validation.png`, `notification-flow-deleted-filter.png`, `stock-alert-modal-production.png` y `production-sections-failed.png`.
+Las capturas de producción y los estados de fallo conservados están en `tests/screenshots/`, incluyendo `production-sections-documentos.png`, `production-document-template-preview.png`, `production-document-template-edit-restored.png`, `production-document-actions.png`, `production-sections-preparación-de-pedidos.png`, `production-preparation-backorder.png`, `production-warehouse-entry.png`, `production-warehouse-exit.png`, `production-stock-priority.png`, `production-purchase-received.png`, `production-expense-created.png`, `production-responsive-vertical-fixed.png`, `production-product-detail.png`, `production-product-label.png`, `production-expense-validation.png`, `notification-flow-deleted-filter.png`, `stock-alert-modal-production.png` y `production-sections-failed.png`. La captura local del ajuste responsive queda en `tests/screenshots/local-responsive-vertical-fixed.png`.
