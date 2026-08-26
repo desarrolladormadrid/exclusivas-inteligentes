@@ -2516,3 +2516,7 @@ body { zoom: 1.1; }
   .users-manager-head,
   .trash-manager-head { min-height: 0; padding-bottom: 10px; }
 }
+
+/* El periodo activo del inicio permanece visible tras aplicar el filtro. */
+.home-order-range button.active { border-color: #b91c1c; background: #b91c1c; color: #fff; font-weight: 700; }
+.home-order-range button.active:hover { border-color: #991b1b; background: #991b1b; color: #fff; }

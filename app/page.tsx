@@ -7589,9 +7589,10 @@ export default function Home() {
     "X-Actor": currentUser.username || "Usuario local",
   };
   const homeToday = tabletTodayInput();
-  const [homeOrderRangeStart, setHomeOrderRangeStart] = useState(
-    () => `${homeToday.slice(0, 8)}01`,
-  );
+  const [homeRangePreset, setHomeRangePresetState] = useState<
+    "hoy" | "mes" | "trimestre" | "semestre" | "anio" | null
+  >("hoy");
+  const [homeOrderRangeStart, setHomeOrderRangeStart] = useState(homeToday);
   const [homeOrderRangeEnd, setHomeOrderRangeEnd] = useState(homeToday);
   const [completingNoteId, setCompletingNoteId] = useState<number | null>(null);
   function formatHomeAmount(value: number) {
@@ -7832,6 +7833,7 @@ export default function Home() {
     return () => { cancelled = true; };
   }, [active, homeOrderRangeStart, homeOrderRangeEnd]);
   function setHomeRangePreset(preset: "hoy" | "mes" | "trimestre" | "semestre" | "anio") {
+    setHomeRangePresetState(preset);
     const today = tabletTodayInput();
     const current = new Date();
     const year = current.getFullYear();
@@ -8043,9 +8045,10 @@ export default function Home() {
                     type="date"
                     value={homeOrderRangeStart}
                     max={homeOrderRangeEnd}
-                    onChange={(event) =>
-                      setHomeOrderRangeStart(event.target.value)
-                    }
+                    onChange={(event) => {
+                      setHomeRangePresetState(null);
+                      setHomeOrderRangeStart(event.target.value);
+                    }}
                   />
                 </label>
                 <span>—</span>
@@ -8055,28 +8058,35 @@ export default function Home() {
                     type="date"
                     value={homeOrderRangeEnd}
                     min={homeOrderRangeStart}
-                    onChange={(event) => setHomeOrderRangeEnd(event.target.value)}
+                    onChange={(event) => {
+                      setHomeRangePresetState(null);
+                      setHomeOrderRangeEnd(event.target.value);
+                    }}
                   />
                 </label>
                 <button
                   type="button"
+                  className={homeRangePreset === "hoy" ? "active" : ""}
+                  aria-pressed={homeRangePreset === "hoy"}
                   onClick={() => setHomeRangePreset("hoy")}
                 >
                   Hoy
                 </button>
                 <button
                   type="button"
+                  className={homeRangePreset === "mes" ? "active" : ""}
+                  aria-pressed={homeRangePreset === "mes"}
                   onClick={() => setHomeRangePreset("mes")}
                 >
                   Este mes
                 </button>
-                <button type="button" onClick={() => setHomeRangePreset("trimestre")}>
+                <button type="button" className={homeRangePreset === "trimestre" ? "active" : ""} aria-pressed={homeRangePreset === "trimestre"} onClick={() => setHomeRangePreset("trimestre")}>
                   Trimestre
                 </button>
-                <button type="button" onClick={() => setHomeRangePreset("semestre")}>
+                <button type="button" className={homeRangePreset === "semestre" ? "active" : ""} aria-pressed={homeRangePreset === "semestre"} onClick={() => setHomeRangePreset("semestre")}>
                   Semestre
                 </button>
-                <button type="button" onClick={() => setHomeRangePreset("anio")}>
+                <button type="button" className={homeRangePreset === "anio" ? "active" : ""} aria-pressed={homeRangePreset === "anio"} onClick={() => setHomeRangePreset("anio")}>
                   Año actual
                 </button>
               </div>
