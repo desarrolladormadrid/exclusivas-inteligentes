@@ -1,6 +1,12 @@
 {
   "version": 2,
   "buildCommand": "npm run build",
+  "rewrites": [
+    { "source": "/", "destination": "/api/index" },
+    { "source": "/portal-pedidos", "destination": "/api/index" },
+    { "source": "/_next/:path*", "destination": "/api/index" },
+    { "source": "/favicon.ico", "destination": "/api/index" }
+  ],
   "functions": {
     "api/index.mjs": {
       "includeFiles": "dist/**"
