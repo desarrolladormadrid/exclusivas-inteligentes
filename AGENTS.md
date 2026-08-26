@@ -71,6 +71,8 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 Antes de dar por terminada una sección o una mejora, revisar también estos puntos aunque el usuario no los mencione expresamente:
 
 - Detectar y eliminar títulos, subtítulos, paneles, filtros o acciones duplicadas que expresen lo mismo. La cabecera debe ser compacta y el contenido operativo debe tener prioridad.
+- Optimizar el espacio de cada cabecera: si un texto repite el valor que ya muestran un selector, una fecha o un botón (por ejemplo, “Hoy · fecha”), eliminar la repetición y colocar los controles en una única línea compacta y bien alineada.
+- Revisar siempre la densidad visual antes de entregar una vista: aprovechar el ancho disponible, reducir alturas vacías y reservar el espacio principal para listados, tarjetas y acciones de trabajo.
 - Comprobar que al plegar un sidebar, acordeón o panel el espacio liberado lo ocupa realmente el contenido; nunca debe quedar una franja vacía ni mantenerse un margen antiguo.
 - Revisar todas las vistas en escritorio, tablet horizontal, tablet vertical y móvil. No basta con que el contenido quepa: debe poder usarse, leerse y desplazarse sin solapamientos ni recortes.
 - Verificar que las tarjetas, tablas, modales, notas y mensajes largos hacen salto de línea y que las acciones importantes siguen visibles.
