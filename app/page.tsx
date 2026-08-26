@@ -3873,7 +3873,13 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                         ) : (
                           f === "client_id" && r.client_name
                             ? `${r.client_name}${r.client_city ? ` · ${r.client_city}` : ""}`
-                            : formatTableValue(f, r[f])
+                            : (f === "address" || f === "origin_address") && (r[f] === "[object Object]" || (r[f] && typeof r[f] === "object"))
+                              ? (typeof r[f] === "object"
+                                ? String(r[f].address || r[f].name || r[f].label || "—")
+                                : String(getClient(r.client_id)?.address || "—"))
+                              : formatTableValue(f, r[f]) === "[object Object]"
+                                ? "—"
+                                : formatTableValue(f, r[f])
                         )}
                       </td>
                     ))}

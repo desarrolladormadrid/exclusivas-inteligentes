@@ -33,7 +33,8 @@ try {
     await passwordAfterReload.fill('Temporal2026');
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   }
-  await page.waitForTimeout(1800);
+  await page.waitForFunction(() => !document.body.innerText.includes('Actualizando datos'), { timeout: 30000 }).catch(() => undefined);
+  await page.waitForTimeout(500);
   await page.getByRole('button', { name: 'Abrir notificaciones' }).click();
   const notification = page.getByText(new RegExp(`Nuevo pedido.*${code}.*ID ${orderId}`)).first();
   await notification.waitFor({ state: 'visible', timeout: 10000 });
