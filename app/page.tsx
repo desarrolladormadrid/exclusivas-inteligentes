@@ -1811,6 +1811,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   const [bulkIncidentError, setBulkIncidentError] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [productOptions, setProductOptions] = useState<any[]>([]);
+  const [locationSavingId, setLocationSavingId] = useState<number | null>(null);
   const [newLine, setNewLine] = useState({
     product_id: "",
     quantity: "1",
@@ -2757,6 +2758,27 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
         if (!shipmentResponse.ok) throw new Error("No se pudo actualizar el estado de la preparación.");
       }
     }).catch(() => setError("No se pudo sincronizar la última modificación de la preparación. Revisa la conexión y vuelve a intentarlo."));
+  }
+  async function updatePreparationLocation(product: any, value: string) {
+    if (!product?.id) return;
+    const nextLocation = String(value || "").trim().toUpperCase();
+    if (nextLocation && !/^[A-Z]-([1-9]|[1-9]\d|[1-9]\d\d|200)$/.test(nextLocation)) {
+      setError("La ubicación debe tener el formato letra-número, por ejemplo B-126.");
+      setProductOptions((current) => current.map((item) => Number(item.id) === Number(product.id) ? { ...item, warehouse_location: product.warehouse_location || "" } : item));
+      return;
+    }
+    if (nextLocation === String(product.warehouse_location || "").trim().toUpperCase()) return;
+    setLocationSavingId(Number(product.id));
+    setError("");
+    const response = await fetch(`/api/products/${product.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ warehouse_location: nextLocation }) });
+    if (!response.ok) {
+      setError("No se pudo guardar la ubicación del producto.");
+      setProductOptions((current) => current.map((item) => Number(item.id) === Number(product.id) ? { ...item, warehouse_location: product.warehouse_location || "" } : item));
+    } else {
+      const updated = await response.json().catch(() => ({}));
+      setProductOptions((current) => current.map((item) => Number(item.id) === Number(product.id) ? { ...item, warehouse_location: updated.warehouse_location || nextLocation } : item));
+    }
+    setLocationSavingId(null);
   }
   async function markPreparationLine(line: any, prepared: boolean) {
     const quantity = prepared ? Math.max(0, Number(line.prepared_quantity ?? line.quantity ?? 0)) : 0;
@@ -3806,7 +3828,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
               {/** En pedidos y documentos con líneas mostramos el formato además de las unidades físicas. */}
               <thead>
                 <tr>
-                  {isLoadPreparation ? <><th>Producto</th><th>Ubicación</th></> : <th>Producto</th>}
+                  {isLoadPreparation ? <><th>Ubicación</th><th>Producto</th></> : <th>Producto</th>}
                   <th>{isLoadPreparation ? "Cantidad pedida" : ["Pedidos", "Presupuestos", "Facturas", "Albaranes"].includes(active) ? "Cantidad y formato" : "Cantidad"}</th>
                   {isLoadPreparation && <th>Cantidad preparada</th>}
                   {isLoadPreparation && <th>Estado</th>}
@@ -3835,7 +3857,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                   return (
                   <Fragment key={line.id}>
                   <tr key={line.id}>
-                    {isLoadPreparation ? <><td><div className="prep-product-cell"><b>{product?.name || `Producto #${line.product_id}`}</b></div></td><td><strong className="prep-location"><span>UBICACIÓN</span> {warehouseLocationLabel(product?.warehouse_location)}</strong></td></> : <td>{product?.name || `Producto #${line.product_id}`}</td>}
+                    {isLoadPreparation ? <><td><label className="prep-location-field"><span>Ubicación de picking</span><input aria-label={`Ubicación de ${product?.name || "producto"}`} value={product?.warehouse_location || ""} placeholder="Ej. B-126" onChange={(event) => setProductOptions((current) => current.map((item) => Number(item.id) === Number(product?.id) ? { ...item, warehouse_location: event.target.value } : item))} onBlur={(event) => void updatePreparationLocation(product, event.currentTarget.value)} disabled={locationSavingId === Number(product?.id)} /></label></td><td><div className="prep-product-cell"><b>{product?.name || `Producto #${line.product_id}`}</b></div></td></> : <td>{product?.name || `Producto #${line.product_id}`}</td>}
                     <td>{isLoadPreparation || (["Pedidos", "Presupuestos", "Facturas", "Albaranes"].includes(active) && (line.quantity_unit || line.quantity_requested)) ? <div className="prep-quantity-summary"><b>{line.quantity_requested || line.quantity} {quantityUnitLabel(line.quantity_unit)}{(line.quantity_requested || line.quantity) !== 1 && !String(line.quantity_unit || "unidad").startsWith("pack_") ? "s" : ""}</b><small>· {line.quantity} unidades totales</small></div> : line.quantity}</td>
                     {isLoadPreparation && <td><div className="prep-line-controls"><input className="prep-real-quantity" aria-label={`Cantidad preparada de ${product?.name || "producto"}`} type="number" min="0" max={requestedQuantity} step="any" value={line.prepared_quantity ?? 0} onFocus={(event) => event.currentTarget.select()} onChange={(event) => { const raw = event.target.value; setPreviewLines((current) => current.map((item) => { if (item.id !== line.id) return item; if (raw === "") return { ...item, prepared_quantity: "" }; const requested = Number(item.quantity || 0); return { ...item, prepared_quantity: Math.min(requested, Math.max(0, Number(raw) || 0)) }; })) }} onBlur={() => { if (line.prepared_quantity === "") setPreviewLines((current) => current.map((item) => item.id === line.id ? { ...item, prepared_quantity: 0 } : item)); }} /><span className="prep-unit-caption">uds.</span></div></td>}
                     {isLoadPreparation && <td><span className={`prep-line-status prep-line-status-${displayLineStatus.toLowerCase()}`}>{displayLineStatus}</span></td>}

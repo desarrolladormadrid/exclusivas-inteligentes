@@ -30,7 +30,7 @@ try { db.exec("ALTER TABLE document_templates ADD COLUMN format TEXT DEFAULT 'HT
 db.exec(`CREATE TABLE IF NOT EXISTS returns(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,client_id INTEGER,invoice_id INTEGER,product_id INTEGER,quantity REAL DEFAULT 0,reason TEXT,status TEXT DEFAULT 'Pendiente',amount REAL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
 db.exec(`CREATE TABLE IF NOT EXISTS collection_points(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE,name TEXT NOT NULL,client_id INTEGER,address TEXT,city TEXT,contact TEXT,phone TEXT,email TEXT,opening_hours TEXT,notes TEXT);`);
 try { db.exec("ALTER TABLE collection_points ADD COLUMN client_id INTEGER"); } catch {}
-db.exec(`CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,actor TEXT DEFAULT 'Usuario local',method TEXT NOT NULL,resource TEXT NOT NULL,action TEXT NOT NULL,details TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
+db.exec(`CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,actor TEXT DEFAULT 'Usuario local',method TEXT NOT NULL,resource TEXT NOT NULL,action TEXT NOT NULL,details TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS product_location_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,previous_location TEXT,current_location TEXT,changed_by TEXT DEFAULT 'Usuario local',changed_at TEXT DEFAULT CURRENT_TIMESTAMP,source TEXT DEFAULT 'CRM');`);
 db.exec(`CREATE TABLE IF NOT EXISTS scheduled_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,action_text TEXT NOT NULL,schedule_type TEXT DEFAULT 'Unica',recurrence TEXT,next_run TEXT,status TEXT DEFAULT 'Activa',last_run TEXT,last_result TEXT,created_by TEXT DEFAULT 'Usuario local',created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,client_id INTEGER,expense_date TEXT NOT NULL,category TEXT DEFAULT 'Otros',vendor TEXT,amount REAL DEFAULT 0,vat REAL DEFAULT 21,payment_method TEXT DEFAULT 'Tarjeta',notes TEXT,attachment_name TEXT,attachment_mime TEXT,attachment_data TEXT,created_at TEXT,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS whatsapp_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,wa_id TEXT,client_id INTEGER,direction TEXT DEFAULT 'Entrante',message_type TEXT DEFAULT 'Texto',content TEXT,media_name TEXT,media_mime TEXT,media_data TEXT,status TEXT DEFAULT 'Pendiente',transcription TEXT,human_review INTEGER DEFAULT 0,suggested_action TEXT,created_at TEXT,updated_at TEXT);`);
@@ -195,6 +195,7 @@ for (const [name, table, columns] of [
   ["idx_whatsapp_client_date", "whatsapp_messages", "client_id, created_at"],
   ["idx_whatsapp_review", "whatsapp_messages", "human_review, status"],
   ["idx_price_history_product_date", "product_price_history", "product_id, created_at"],
+  ["idx_product_location_history_product_date", "product_location_history", "product_id, changed_at"],
   ["idx_product_suppliers_product", "product_suppliers", "product_id, active"],
   ["idx_product_lots_expiry", "product_lots", "product_id, expiry_date"],
   ["idx_purchase_suggestions_status", "purchase_suggestions", "status, created_at"],
@@ -930,6 +931,12 @@ export async function crmApiHandler(req, res) {
           const previous = db.prepare("SELECT * FROM products WHERE id=?").get(Number(p[2]));
           d.stock_min = d.stock_min === undefined ? Number(d.min_stock ?? previous?.min_stock ?? 0) : Number(d.stock_min || 0);
           d.real_cost = Number(d.cost_price ?? previous?.cost_price ?? 0) + Number(d.freight_cost ?? previous?.freight_cost ?? 0) + Number(d.handling_cost ?? previous?.handling_cost ?? 0);
+          if (d.warehouse_location !== undefined && String(d.warehouse_location || "").trim() !== String(previous?.warehouse_location || "").trim()) {
+            const changedAt = new Date().toISOString();
+            db.prepare("INSERT INTO product_location_history(product_id,previous_location,current_location,changed_by,changed_at,source) VALUES(?,?,?,?,?,?)").run(Number(p[2]), String(previous?.warehouse_location || ""), String(d.warehouse_location || "").trim().toUpperCase(), actor, changedAt, "Nota de carga");
+            d.warehouse_location = String(d.warehouse_location || "").trim().toUpperCase();
+            d.picking_order = d.picking_order === undefined ? Number(previous?.picking_order || 0) : d.picking_order;
+          }
         }
         const keys = Object.keys(d).filter((k) => k !== "id");
         db.prepare(
