@@ -1199,7 +1199,7 @@ body {
 .sidebar-group-title:hover { color: #374151; background: #e5e9eb; }
 .sidebar-group .nav-item { width: 100%; box-sizing: border-box; height: 32px; padding-left: 22px; font-size: 11px; }
 .sidebar-group .nav-item.active { padding-left: 19px; }
-.sidebar-footer { position: fixed; left: 0; bottom: 0; z-index: 45; box-sizing: border-box; width: 214px; padding: 10px 12px; border-top: 1px solid #d6dde1; background: #edf0f2; color: #87939a; font-size: 10px; letter-spacing: .02em; }
+.sidebar-footer { position: sticky; left: auto; bottom: 0; z-index: 2; box-sizing: border-box; width: auto; margin: 12px -12px -18px; padding: 10px 12px; border-top: 1px solid #d6dde1; background: #edf0f2; color: #87939a; font-size: 10px; letter-spacing: .02em; }
 .sidebar.sidebar-collapsed .sidebar-footer { display: none; }
 .side-separator {
   border-top: 1px solid #dce1e4;
