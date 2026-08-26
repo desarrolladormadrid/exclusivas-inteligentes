@@ -65,3 +65,22 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 - Después de cada cambio relevante ejecutar `npm test` y comprobar carga, consola e interacciones principales cuando sea posible.
 - Antes de desplegar comprobar que la información mostrada coincide entre secciones y que no hay estados de carga engañosos.
 - Publicar los cambios agrupados cuando Vercel permita el despliegue; si el límite diario bloquea Vercel, dejar el código probado localmente y comunicarlo claramente.
+
+## Revisión proactiva antes de entregar cambios
+
+Antes de dar por terminada una sección o una mejora, revisar también estos puntos aunque el usuario no los mencione expresamente:
+
+- Detectar y eliminar títulos, subtítulos, paneles, filtros o acciones duplicadas que expresen lo mismo. La cabecera debe ser compacta y el contenido operativo debe tener prioridad.
+- Comprobar que al plegar un sidebar, acordeón o panel el espacio liberado lo ocupa realmente el contenido; nunca debe quedar una franja vacía ni mantenerse un margen antiguo.
+- Revisar todas las vistas en escritorio, tablet horizontal, tablet vertical y móvil. No basta con que el contenido quepa: debe poder usarse, leerse y desplazarse sin solapamientos ni recortes.
+- Verificar que las tarjetas, tablas, modales, notas y mensajes largos hacen salto de línea y que las acciones importantes siguen visibles.
+- Comprobar que cada botón, enlace, notificación y tarjeta abre el detalle correcto sin cambiar innecesariamente de sección ni perder el contexto.
+- Revisar que los nombres de títulos, botones, estados, columnas y campos describen exactamente la acción o el dato real; evitar textos genéricos, ambiguos o redundantes.
+- Validar la semántica de los datos: unidades, cantidades, importes, fechas, estados, stock, reservas e incidencias deben ser comprensibles y coherentes entre listados, detalles y panel de inicio.
+- Buscar valores imposibles o engañosos antes de mostrar la interfaz, como `NaN`, `[object Object]`, ceros por defecto que no significan nada, fechas en formato incorrecto o registros vacíos presentados como resultado definitivo.
+- En cualquier carga asíncrona mostrar un estado de carga claro y no mostrar “sin registros” hasta recibir una respuesta válida. Las acciones rápidas no deben bloquear toda la pantalla si no es necesario.
+- Comprobar que los controles tienen un comportamiento evidente: búsquedas incrementales, borrado de selección, ordenación desde cabeceras, filtros persistentes cuando proceda y botones activos claramente diferenciados.
+- Revisar que los estados visuales usan una convención única: rojo para atención o error, naranja para aviso, verde para correcto y gris para neutral; no usar colores que parezcan error para acciones normales.
+- Probar recorridos completos y no solo pantallas aisladas: crear, abrir, editar, guardar, cancelar, eliminar/restaurar, filtrar, descargar y resolver incidencias cuando existan.
+- Si una acción puede fallar por datos o configuración, mostrar un mensaje útil dentro de la interfaz y conservar el contexto; no depender de `alert()` del navegador ni dejar botones que parezcan no hacer nada.
+- Comparar siempre secciones relacionadas después de un cambio. En especial, los contadores y estados del inicio deben coincidir con Preparación de pedidos, Pedidos, Stock, Notas y Notificaciones.
