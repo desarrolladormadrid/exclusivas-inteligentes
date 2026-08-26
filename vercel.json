@@ -5,8 +5,5 @@
     "api/index.mjs": {
       "includeFiles": "dist/**"
     }
-  },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api" }
-  ]
+  }
 }
