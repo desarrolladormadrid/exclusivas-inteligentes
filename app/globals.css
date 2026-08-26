@@ -2613,6 +2613,9 @@ body { zoom: 1.1; }
 .sidebar.sidebar-collapsed { width: 48px; padding-left: 6px; padding-right: 6px; }
 .sidebar.sidebar-collapsed > *:not(.sidebar-collapse-toggle) { display: none; }
 .sidebar.sidebar-collapsed .sidebar-collapse-toggle { right: -12px; }
+@media (min-width: 901px) {
+  .workspace .sidebar.sidebar-collapsed + .content { margin-left: 48px; }
+}
 @media (max-width: 900px) {
   .workspace .sidebar { position: sticky; }
   .sidebar-collapse-toggle { display: none; }
