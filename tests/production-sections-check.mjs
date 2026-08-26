@@ -62,6 +62,18 @@ try {
     console.log(`PASS section ${label}`);
   }
 
+  const documentRows = page.getByRole("row");
+  if (await documentRows.count() > 1) {
+    await documentRows.nth(1).getByRole("button", { name: "Abrir documento", exact: true }).click();
+    await page.waitForTimeout(350);
+    const preview = page.locator(".document-sheet pre").first();
+    const previewText = await preview.innerText();
+    if (!previewText.length || !previewText.includes("\n") || previewText.includes("\\n")) throw new Error("La previsualización de documentos no conserva los saltos de línea");
+    await page.screenshot({ path: path.join(screenshotDir, "production-document-template-preview.png"), fullPage: false });
+    await page.getByRole("button", { name: "Cerrar", exact: true }).first().click();
+    console.log("PASS document template preview: content and line breaks");
+  }
+
   const products = page.getByRole("button", { name: "Productos", exact: true }).last();
   await products.click();
   await waitForData();
@@ -72,6 +84,19 @@ try {
     const filtered = await page.locator("body").innerText();
     if (!filtered.includes("Agua Tónica Mediterránea")) throw new Error("La búsqueda de productos no devuelve el producto esperado");
   }
+  const labelButton = page.getByRole("button", { name: "Etiqueta y códigos", exact: true }).first();
+  if (!(await labelButton.count())) throw new Error("No se puede abrir la etiqueta del producto filtrado");
+  await labelButton.click();
+  await page.waitForTimeout(700);
+  const svgDownload = page.locator('a[download$="-barras.svg"]').first();
+  const qrDownload = page.locator('a[download$="-qr.png"]').first();
+  const svgHref = await svgDownload.getAttribute("href");
+  const qrHref = await qrDownload.getAttribute("href");
+  if (!svgHref?.startsWith("data:image/svg+xml")) throw new Error("El código de barras no ofrece un SVG descargable");
+  if (!qrHref?.startsWith("data:image/png")) throw new Error("El QR no ofrece un PNG descargable");
+  await page.screenshot({ path: path.join(screenshotDir, "production-product-label.png"), fullPage: false });
+  await page.getByRole("button", { name: "Cerrar", exact: true }).last().click();
+  console.log("PASS product label downloads: SVG barcode + PNG QR");
   if (errors.length) throw new Error(`Errores de consola: ${errors.join(" | ")}`);
   console.log(`PASS production sections: ${sections.length} · search · console clean`);
 } catch (error) {
