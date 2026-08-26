@@ -1135,6 +1135,8 @@ body {
 }
 .sidebar {
   width: 214px;
+  min-height: calc(100vh - 96px);
+  box-sizing: border-box;
   background: #edf0f2;
   border-right: 1px solid #d6dde1;
   padding: 18px 12px;

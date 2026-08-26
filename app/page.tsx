@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "0.2.3";
+const APP_VERSION = "0.2.4";
 
 const initialModules = [
   "Inicio",
