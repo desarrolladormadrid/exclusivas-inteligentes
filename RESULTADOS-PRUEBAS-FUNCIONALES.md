@@ -17,6 +17,8 @@
 
 - `npm test`: 2/2 correctas.
 - `node --test tests/local-crm.test.mjs`: 26/26 correctas.
+- `tests/local-ui-check.mjs`: rutas de escritorio, tablet y móvil, APIs básicas y salud de consola correctas.
+- `tests/authenticated-ui-check.mjs`: inicio, preparación, stock en escritorio/tablet/móvil y modal de nuevo pedido correctos.
 - `tests/production-sections-check.mjs`: 28/28 secciones, búsqueda, previsualización de plantilla con saltos de línea, descarga de SVG/PNG de producto y consola limpia.
 - `tests/production-functional-flow-check.mjs`: pedido de varias líneas, preparación, compra recibida, stock, presupuesto, factura, cobros, nota, auditoría y recuperación.
 - `tests/production-delete-reservation-check.mjs`: reserva incrementada al crear y liberada al borrar.
