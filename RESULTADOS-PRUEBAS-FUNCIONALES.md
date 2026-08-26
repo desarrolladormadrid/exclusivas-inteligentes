@@ -10,7 +10,7 @@
 | B · Maestros y catálogo | PARCIAL | Alta y edición persistente de proveedor, producto, cliente y ubicación; búsqueda de productos y recorrido visual de Productos. Ficha de producto, código de barras SVG y QR PNG verificados en producción, incluidos sus enlaces descargables. Pendiente completar foto y validaciones exhaustivas del formulario. |
 | C · Ventas y documentos | PARCIAL | Pedido con dos líneas, envío generado, preparación de línea, presupuesto con línea, factura, cobro parcial/final y reservas. Pendiente cerrar incidencias de preparación con resolución y facturación/albarán visual de extremo a extremo. |
 | D · Almacén y compras | PARCIAL | Reserva/liberación de stock, recepción de compra y pruebas locales de movimientos, devoluciones y stock enviado. Pendiente recorrido visual completo de entrada, salida, ajustes y prioridades. |
-| E · Notas, administración y configuración | PARCIAL | Nota importante, completar, papelera/recuperación, auditoría y previsualización de plantillas. Pendiente editar/guardar/descargar/imprimir plantilla y matriz completa de permisos. |
+| E · Notas, administración y configuración | PARCIAL | Nota importante, completar, papelera/recuperación, auditoría y previsualización de plantillas. La edición/guardado/restauración de una plantilla ya está verificada; también se corrigió la presentación de saltos en el listado. Pendiente descarga/impresión automatizada y matriz completa de permisos. |
 | F · Transversales | PARCIAL | Escritorio, tablet y móvil comprobados; consola limpia; URL y endpoints de producción correctos. Pendiente tablet vertical/tacto, respuestas lentas, nombres largos y recorrido transversal completo con incidencia. |
 
 ## Baterías ejecutadas
@@ -33,6 +33,7 @@
 - La caché de listados se desactiva en modo remoto para no mostrar reservas obsoletas entre instancias serverless.
 - Las altas de compras ya no devuelven campos exclusivos de pedidos que rompían su edición.
 - Las plantillas normalizan saltos de línea almacenados como texto literal para que la previsualización, edición y descarga sean legibles.
+- El listado de plantillas convierte los saltos de línea a texto compacto para evitar mostrar `\\n` literal en la tabla.
 - Los códigos de barras se ofrecen como enlace SVG descargable en la ficha y en la vista de etiqueta; el QR mantiene su descarga PNG.
 
 ## Higiene y restauración
@@ -44,4 +45,4 @@
 
 ## Evidencias visuales
 
-Las capturas de producción y los estados de fallo conservados están en `tests/screenshots/`, incluyendo `production-sections-documentos.png`, `production-document-template-preview.png`, `production-sections-preparación-de-pedidos.png`, `production-product-detail.png`, `production-product-label.png`, `production-expense-validation.png`, `notification-flow-deleted-filter.png`, `stock-alert-modal-production.png` y `production-sections-failed.png`.
+Las capturas de producción y los estados de fallo conservados están en `tests/screenshots/`, incluyendo `production-sections-documentos.png`, `production-document-template-preview.png`, `production-document-template-edit-restored.png`, `production-sections-preparación-de-pedidos.png`, `production-product-detail.png`, `production-product-label.png`, `production-expense-validation.png`, `notification-flow-deleted-filter.png`, `stock-alert-modal-production.png` y `production-sections-failed.png`.

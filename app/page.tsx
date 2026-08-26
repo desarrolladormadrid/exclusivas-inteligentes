@@ -3220,6 +3220,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   }
   function formatTableValue(field: string, value: any) {
     if (value === null || value === undefined || value === "") return "—";
+    if (active === "Documentos" && field === "content") return String(value).replaceAll("\\n", " ").replace(/\s+/g, " ").trim();
     const lookupSource = field === "client_id" ? lookups.clients
       : field === "product_id" ? lookups.products
         : field === "warehouse_id" ? lookups.warehouses
