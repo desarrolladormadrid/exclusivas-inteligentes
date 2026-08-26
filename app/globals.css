@@ -2277,6 +2277,7 @@ body { zoom: 1.1; }
 .load-preparation-manager > .manager-head > div:last-child > .button.primary:first-child { display: none; }
 .prep-command-board { margin: 10px 0 18px; border: 1px solid #d1d9dd; background: #f7f9fa; }
 .prep-command-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 16px; border-bottom: 1px solid #d1d9dd; background: #fff; }
+.prep-command-toolbar-context { display: flex; align-items: center; min-height: 31px; }
 .prep-command-toolbar h3 { margin: 2px 0 3px; color: #26343d; font-size: 18px; }
 .prep-command-toolbar span { color: #71818a; font-size: 11px; }
 .prep-command-filters { display: flex; align-items: end; gap: 7px; }
