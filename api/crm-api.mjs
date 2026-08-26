@@ -869,6 +869,21 @@ export async function crmApiHandler(req, res) {
       if (req.method === "DELETE") {
         invalidateReadCache(t);
         const now = new Date().toISOString();
+        if (t === "orders") {
+          const order = db.prepare("SELECT * FROM orders WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(Number(p[2]));
+          if (!order) return send(res, 404, { error: "Registro no encontrado" });
+          const terminal = ["Enviado", "En reparto", "Entregado", "Cancelado"].includes(String(order.status || ""));
+          if (!terminal) {
+            const lines = db.prepare("SELECT product_id,quantity FROM order_lines WHERE order_id=?").all(Number(p[2]));
+            if (lines.length) {
+              for (const line of lines) db.prepare("UPDATE products SET stock_reserved=MAX(0,COALESCE(stock_reserved,0)-?) WHERE id=?").run(Number(line.quantity || 0), Number(line.product_id));
+            } else if (order.product_id && order.quantity) {
+              db.prepare("UPDATE products SET stock_reserved=MAX(0,COALESCE(stock_reserved,0)-?) WHERE id=?").run(Number(order.quantity), Number(order.product_id));
+            }
+          }
+          db.prepare("UPDATE shipments SET status='Cancelado',updated_at=? WHERE order_id=? AND status NOT IN ('Enviado','En reparto','Entregado','Cancelado')").run(now, Number(p[2]));
+          db.prepare("UPDATE notes SET deleted=1,deleted_at=?,deleted_by=?,updated_at=? WHERE module='Stock' AND record_id=? AND title LIKE 'Revisar stock ·%' AND CAST(COALESCE(deleted,0) AS INTEGER)=0").run(now, actor, now, Number(p[2]));
+        }
         const result = db.prepare(`UPDATE ${t} SET deleted=1,deleted_at=?,deleted_by=?,updated_at=? WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0`).run(now, actor, now, p[2]);
         if (!result.changes) return send(res, 404, { error: "Registro no encontrado" });
         return send(res, 200, { ok: true, deleted: 1 });

@@ -94,6 +94,18 @@ test("un pedido reserva y descuenta stock al enviarse", async () => {
   await call("/products/" + product.id, { method: "DELETE" });
 });
 
+test("borrar un pedido pendiente libera la reserva de stock", async () => {
+  const product = (await call("/products", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "__TEST_BORRADO_RESERVA__", unit_price: 1, stock: 4 }) })).data;
+  const order = (await call("/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "__TEST_BORRADO_RESERVA_" + Date.now(), product_id: product.id, quantity: 2, amount: 2, status: "Pendiente" }) })).data;
+  let stock = (await call("/stock")).data.find((row) => row.product_id === product.id);
+  assert.equal(stock.stock_reserved, 2);
+  const deleted = await call(`/orders/${order.id}`, { method: "DELETE" });
+  assert.equal(deleted.status, 200);
+  stock = (await call("/stock")).data.find((row) => row.product_id === product.id);
+  assert.equal(stock.stock_reserved, 0);
+  await call(`/products/${product.id}`, { method: "DELETE" });
+});
+
 test("un pedido conserva sus líneas al convertirlo en albarán y factura", async () => {
   const client = (await call("/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "__TEST_CLIENTE_DOCUMENTO__" }) })).data;
   const product = (await call("/products", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "__TEST_PRODUCTO_DOCUMENTO__", unit_price: 3, stock: 20 }) })).data;
