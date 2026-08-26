@@ -1647,10 +1647,11 @@ function PreparationDayCards({ rows, lookups, onOpen, dateFilter, onDateFilterCh
   const getClient = (id: any) => (lookups.clients || []).find((item: any) => Number(item.id) === Number(id));
   const items = rows.filter((row) => !dateFilter || String(row.preparation_date || "").slice(0, 10) === dateFilter).sort((a, b) => Number(b.urgent || 0) - Number(a.urgent || 0) || String(a.address || "").localeCompare(String(b.address || ""), "es", { numeric: true }));
   const groups = [
-    { key: "pending", title: "Pendientes", hint: "Aún no empezados", match: (row: any) => !["Preparando", "Preparado", "Preparado con incidencia"].includes(row.status || "") },
+    { key: "pending", title: "Pendientes", hint: "Aún no empezados", match: (row: any) => !["Preparando", "Preparado", "Preparado con incidencia", "Bloqueado", "Pospuesto", "Cancelado", "Enviado", "En reparto", "Entregado"].includes(row.status || "") },
     { key: "preparing", title: "En preparación", hint: "En proceso", match: (row: any) => row.status === "Preparando" },
     { key: "done", title: "Completados", hint: "Listos para enviar", match: (row: any) => row.status === "Preparado" },
     { key: "incident", title: "Con incidencia", hint: "Requieren revisión", match: (row: any) => row.status === "Preparado con incidencia" },
+    { key: "paused", title: "Bloqueados / pospuestos", hint: "Fuera del circuito", match: (row: any) => ["Bloqueado", "Pospuesto"].includes(row.status || "") },
   ];
   const renderCard = (row: any) => { const client = getClient(row.client_id); const address = typeof row.address === "string" ? row.address : row.address?.address || row.address?.name || "Dirección no indicada"; return <button type="button" key={row.id} className={`prep-order-card${Number(row.urgent) === 1 ? " is-urgent" : ""}${row.status === "Preparado" ? " is-completed" : ""}${row.status === "Preparado con incidencia" ? " has-incident" : ""}`} onClick={() => onOpen(row)}><span className="prep-card-top"><b>{row.code}</b><em>{Number(row.urgent) === 1 ? "URGENTE" : row.status || "Pendiente"}</em></span><strong>{client?.name || `Cliente #${row.client_id || "—"}`}</strong><span>{address}</span><span className="prep-card-meta">Entrega: {formatSpanishDateValue(row.delivery_date, false)}{row.packages ? ` · ${row.packages} bultos` : ""}</span><small>{row.notes || "Sin observaciones"}</small><i>▶ Abrir comanda</i></button>; };
   return <section className="prep-command-board" aria-label="Comandas de preparación"><div className="prep-command-toolbar"><div><p className="eyebrow">OPERATIVA DE ALMACÉN</p><h3>Pedidos para preparar</h3><span>{dateFilter ? `${dateFilter === today ? "Hoy" : "Fecha seleccionada"} · ${formatSpanishDateValue(dateFilter, false)}` : "Todas las fechas"}</span></div><div className="prep-command-filters"><label>Preparar el día<input type="date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value)} /></label><button type="button" className="button primary" onClick={() => onDateFilterChange(today)}>Hoy</button><button type="button" className="button secondary" onClick={() => onDateFilterChange("")}>Todos</button></div></div><div className="prep-command-summary"><span><b>{items.length}</b> pedidos</span><span><b>{items.filter((row) => Number(row.urgent) === 1).length}</b> urgentes</span><span><b>{items.filter((row) => row.status === "Preparado con incidencia").length}</b> con incidencia</span><span className="prep-command-summary-hint">Pulsa una comanda para revisar sus líneas</span></div>{!items.length ? <div className="prep-command-empty"><b>{dateFilter ? "No hay pedidos para esta fecha" : "No hay pedidos pendientes"}</b><span>{dateFilter ? "Prueba otra fecha o pulsa “Todos”." : "Cuando se creen preparaciones aparecerán aquí."}</span></div> : <div className="prep-command-columns">{groups.map((group) => { const groupItems = items.filter(group.match); return <section className={`prep-command-column prep-command-${group.key}`} key={group.key}><header><div><b>{group.title}</b><small>{group.hint}</small></div><strong>{groupItems.length}</strong></header><div>{groupItems.map(renderCard)}{!groupItems.length && <p className="prep-command-none">Sin pedidos</p>}</div></section>; })}</div>}</section>;
@@ -2077,8 +2078,10 @@ function Manager({ active, user, onNewOrder, onNavigate }: { active: string; use
     let r: Response;
     const isProforma = c.api === "invoices" && form.status === "Proforma";
     const quoteAmount = quoteLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+    const reopenPreparation = c.api === "orders" && editing && !isOrderSent(editing);
     const payload = {
       ...form,
+      ...(reopenPreparation ? { status: "Pendiente", reopen_preparation: true } : {}),
       ...((c.api === "quotes" || isProforma || c.api === "orders") ? { amount: quoteAmount } : {}),
       ...(c.api === "orders" && !editing ? { lines: quoteLines } : {}),
       ...(c.api === "expenses" && !form.code
@@ -2234,6 +2237,18 @@ function Manager({ active, user, onNewOrder, onNavigate }: { active: string; use
   function isOrderSent(row: any) {
     return ["Enviado", "En reparto", "Entregado", "Facturado", "Cancelado"].includes(String(row.status || ""));
   }
+  async function manageOrder(row: any, status: string) {
+    if (!row?.id || isOrderSent(row)) return;
+    const labels: Record<string, string> = { Bloqueado: "bloquear", Pospuesto: "posponer", Pendiente: "reactivar" };
+    if (status === "Cancelado" && !window.confirm(`¿Anular el pedido ${row.code}? Esta acción lo sacará del flujo de preparación.`)) return;
+    const response = await fetch(`/api/orders/${row.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...row, status }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return setError(data.error || "No se pudo actualizar el estado del pedido.");
+    setRows((current) => current.map((item) => item.id === data.id ? data : item));
+    setForm((current: any) => ({ ...current, ...data }));
+    setEditing((current: any) => current ? { ...current, ...data } : current);
+    setError("");
+  }
   function getOrderShipment(row: any) {
     return (lookups.shipments || []).find((item: any) => Number(item.order_id) === Number(row.id));
   }
@@ -2285,7 +2300,7 @@ function Manager({ active, user, onNewOrder, onNavigate }: { active: string; use
     const statusOptions = active === "Facturas"
       ? ["Proforma", "Pendiente", "Parcial", "Cobrada", "Vencida", "Anulada"]
       : active === "Pedidos"
-      ? ["Pendiente", "Confirmado", "Preparando", "Preparado", "Enviado", "En reparto", "Entregado", "Cancelado", "Facturado"]
+      ? ["Nuevo", "Pendiente", "Confirmado", "Bloqueado", "Pospuesto", "Preparando", "Preparado", "Enviado", "En reparto", "Entregado", "Cancelado", "Facturado"]
       : active === "Preparación de pedidos"
         ? ["Preparando", "Preparado"]
         : active === "Documentos"
@@ -3352,7 +3367,7 @@ function Manager({ active, user, onNewOrder, onNavigate }: { active: string; use
             <>
             {editing && <div className="order-record-toolbar" role="toolbar" aria-label="Acciones del pedido">
               <div><b>{isOrderSent(editing) ? "Pedido cerrado" : "Pedido editable"}</b><small>{isOrderSent(editing) ? "El pedido ya ha salido del almacén; consulta su documento desde aquí." : "Puedes modificar los datos y las líneas antes de enviarlo."}</small></div>
-              <div><button type="button" className="button secondary" onClick={() => void openPreview(editing)}>Ver detalle</button>{getOrderShipment(editing) && <button type="button" className="button workflow" onClick={() => void openOrderLoadNote(editing)}>Abrir nota de carga</button>}</div>
+              <div>{!isOrderSent(editing) && <>{editing.status === "Bloqueado" || editing.status === "Pospuesto" ? <button type="button" className="button primary" onClick={() => void manageOrder(editing, "Pendiente")}>Reactivar pedido</button> : <><button type="button" className="button secondary" onClick={() => void manageOrder(editing, "Bloqueado")}>Bloquear pedido</button><button type="button" className="button secondary" onClick={() => void manageOrder(editing, "Pospuesto")}>Posponer pedido</button></>}<button type="button" className="button danger" onClick={() => void manageOrder(editing, "Cancelado")}>Anular pedido</button></>}{<button type="button" className="button secondary" onClick={() => void openPreview(editing)}>Ver detalle</button>}{getOrderShipment(editing) && <button type="button" className="button workflow" onClick={() => void openOrderLoadNote(editing)}>Abrir nota de carga</button>}</div>
             </div>}
             <details className="order-general-accordion" open>
               <summary><b>Datos generales del pedido</b><span><em className="order-created-date">Fecha del pedido: {formatSpanishDateValue(String(form.created_at || tabletTodayInput()).slice(0, 10), false)}</em> · {orderGeneralComplete ? <em className="accordion-complete" title="Campos obligatorios completos">✓ Completo</em> : <em className="accordion-pending">Pendiente de completar</em>} · Mostrar más/menos</span></summary>

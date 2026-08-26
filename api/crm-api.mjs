@@ -622,6 +622,8 @@ export async function crmApiHandler(req, res) {
         );
       }
       const d = await read(req);
+      const reopenPreparation = Boolean(d.reopen_preparation);
+      delete d.reopen_preparation;
       if (req.method === "POST") {
         invalidateReadCache(t);
         const now = new Date().toISOString();
@@ -902,6 +904,15 @@ export async function crmApiHandler(req, res) {
               client?.address || null,
               linkedShipment.id,
             );
+          }
+        }
+        if (t === "orders" && (reopenPreparation || ["Bloqueado", "Pospuesto", "Cancelado"].includes(String(d.status || "")))) {
+          const linked = db.prepare("SELECT id,status FROM shipments WHERE order_id=? ORDER BY id DESC LIMIT 1").get(p[2]);
+          if (linked && reopenPreparation) {
+            db.prepare("UPDATE shipments SET status='Pendiente',prepared_at=NULL,prepared_by=NULL,incidents='',updated_at=? WHERE id=?").run(new Date().toISOString(), linked.id);
+            db.prepare("UPDATE order_lines SET prepared=0,prepared_quantity=0,preparation_status='Pendiente',updated_at=? WHERE order_id=?").run(new Date().toISOString(), p[2]);
+          } else if (linked && ["Bloqueado", "Pospuesto", "Cancelado"].includes(String(d.status || ""))) {
+            db.prepare("UPDATE shipments SET status=?,updated_at=? WHERE id=?").run(d.status, new Date().toISOString(), linked.id);
           }
         }
         if (
