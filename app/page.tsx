@@ -7877,8 +7877,9 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
             const available = physical - reserved;
             return { ...shortage, product_name: product?.name || `Producto #${shortage.product_id}`, warehouse_location: product?.warehouse_location || "Ubicación no indicada", physical, reserved, pending: reserved, available, deficit: Math.max(0, reserved - physical) };
           }) : [];
-          return { ...item, order_id: orderId, order_code: order?.code || "", client_name: client?.name || "Cliente no indicado", stock_items: stockItems };
-        }));
+          return { ...item, order_id: orderId, order_code: order?.code || "", client_name: client?.name || "Cliente no indicado", stock_items: stockItems, related_order_deleted: Boolean(orderId && !order) };
+        })
+        .filter((item: any) => !item.related_order_deleted));
     } catch {}
   }
   const unreadNotifications = notifications.filter(

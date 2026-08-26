@@ -50,6 +50,14 @@ try {
   await page.getByText(new RegExp(`Nuevo pedido.*${code}.*ID ${orderId}`)).first().waitFor({ state: 'visible', timeout: 5000 });
   if (!(await page.getByText('Leída', { exact: true }).count())) throw new Error('El aviso leído no aparece como Leída en historial');
   await page.screenshot({ path: path.join(screenshotDir, 'notification-flow-history.png'), fullPage: false });
+  const deleted = await page.request.delete(`${baseUrl}/api/orders/${orderId}`, { headers: { 'x-actor': 'Playwright' } });
+  if (!deleted.ok()) throw new Error(`No se pudo eliminar el pedido de prueba: ${deleted.status()}`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForFunction(() => !document.body.innerText.includes('Actualizando datos'), { timeout: 30000 }).catch(() => undefined);
+  await page.waitForTimeout(500);
+  await page.getByRole('button', { name: 'Abrir notificaciones' }).click();
+  if (await page.getByText(new RegExp(code)).count()) throw new Error('El aviso de un pedido eliminado sigue visible');
+  await page.screenshot({ path: path.join(screenshotDir, 'notification-flow-deleted-filter.png'), fullPage: false });
   console.log(`PASS notification flow: ${code} · ID ${orderId}`);
 } catch (error) {
   await page.screenshot({ path: path.join(screenshotDir, 'notification-flow-failed.png'), fullPage: false }).catch(() => undefined);
