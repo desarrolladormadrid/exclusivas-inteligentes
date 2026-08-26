@@ -2539,3 +2539,51 @@ body { zoom: 1.1; }
   .workspace .sidebar .sidebar-footer { display: none; }
   .workspace .sidebar.mobile-open .sidebar-footer { display: block; margin-top: 8px; }
 }
+
+/* Tablet vertical: sustituye el sidebar fijo por un menú compacto y evita
+   que las comandas estrechas corten la dirección o las observaciones. */
+@media (max-width: 900px) {
+  .workspace { display: block; min-height: calc(100vh - 64px); }
+  .workspace .sidebar {
+    position: sticky;
+    top: 0;
+    left: auto;
+    bottom: auto;
+    z-index: 80;
+    display: block;
+    width: 100%;
+    height: auto;
+    min-height: 42px;
+    padding: 0;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid #d1dadd;
+    background: #eef2f4;
+  }
+  .mobile-sidebar-toggle { display: flex; }
+  .workspace .sidebar:not(.mobile-open) .side-label,
+  .workspace .sidebar:not(.mobile-open) > .sidebar-group,
+  .workspace .sidebar:not(.mobile-open) > .nav-item { display: none; }
+  .workspace .sidebar.mobile-open { max-height: calc(100vh - 64px); overflow-y: auto; box-shadow: 0 8px 20px rgba(38,52,61,.16); }
+  .workspace .sidebar.mobile-open .side-label { display: block; height: auto; padding: 10px 12px 4px; }
+  .workspace .sidebar.mobile-open > .nav-item,
+  .workspace .sidebar.mobile-open .sidebar-group { display: block; }
+  .workspace .sidebar.mobile-open .sidebar-group-title { display: flex; width: 100%; height: 32px; padding: 0 12px; }
+  .workspace .sidebar.mobile-open .sidebar-group .nav-item,
+  .workspace .sidebar.mobile-open > .nav-item { display: flex; width: 100%; min-height: 38px; padding: 7px 18px; border-left: 3px solid transparent; border-bottom: 1px solid #e1e7e9; }
+  .workspace .sidebar.mobile-open .sidebar-group .nav-item.active,
+  .workspace .sidebar.mobile-open > .nav-item.active { border-left-color: #b91c1c; border-bottom: 1px solid #e1e7e9; background: #e5e9eb; }
+  .workspace .sidebar.mobile-open .sidebar-group .nav-item span,
+  .workspace .sidebar.mobile-open > .nav-item span { display: inline-block; width: 22px; }
+  .workspace .content { width: 100%; margin-left: 0; }
+  .content { padding: 12px 10px 24px; overflow-x: hidden; }
+  .prep-command-toolbar { align-items: stretch; flex-direction: column; }
+  .prep-command-filters { flex-wrap: wrap; }
+  .prep-command-summary { flex-wrap: wrap; gap: 8px 14px; }
+  .prep-command-summary-hint { flex-basis: 100%; margin-left: 0; }
+  .prep-command-columns { grid-template-columns: 1fr; }
+  .prep-command-column { min-width: 0; }
+  .prep-command-board .prep-order-card { min-width: 0; }
+  .prep-command-board .prep-order-card small,
+  .prep-command-board .prep-order-card > span { overflow-wrap: anywhere; }
+}
