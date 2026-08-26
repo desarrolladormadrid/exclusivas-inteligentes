@@ -39,7 +39,7 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 - El estado de stock debe poder ordenarse y priorizar “Sin stock”, seguido de “Bajo mínimo” y después “Disponible”.
 - Las ubicaciones de producto siguen la nomenclatura letra-número, por ejemplo `B-126`, y las notas de carga se ordenan por ubicación.
 - En una nota de carga la ubicación de picking es editable para corregir errores del almacén; el cambio se valida con formato letra-número, se guarda en la ficha del producto y deja historial con usuario, fecha y origen “Nota de carga”. Debe mostrarse como columna independiente y sin badges decorativos que oculten el dato.
-- Los cambios operativos editables en una nota de carga deben tener un botón explícito de guardado y un estado visible de “Guardando…”; no depender únicamente de guardar al perder el foco.
+- Los cambios operativos editables en una nota de carga deben agruparse en un único botón rojo “Guardar cambios” abajo a la derecha, con estado visible de “Guardando…”; no depender de guardar por fila ni únicamente al perder el foco.
 
 ## Coherencia de datos
 
