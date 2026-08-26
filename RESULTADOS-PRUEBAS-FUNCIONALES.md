@@ -38,7 +38,7 @@
 
 ## Higiene y restauración
 
-- No quedan marcadores activos de pruebas en pedidos, notas, productos, movimientos, envíos, compras, presupuestos, facturas o cobros; también se retiraron restos antiguos QA/demo de preparación.
+- No quedan marcadores activos de las campañas ejecutadas en pedidos, notas, productos, movimientos, envíos, compras, presupuestos o cobros; también se retiraron restos antiguos QA/demo de preparación. Se conservaron las facturas `DEMO-*` del conjunto de demostración existente.
 - La comprobación final dejó `0` diferencias de reservas de stock.
 - Copia independiente previa a la campaña: `data/backups/turso-remote-before-functional-loop-2026-08-26T21-34-40-691Z.json`.
 - Punto de restauración de código: `restore-before-functional-tests-2026-08-26`.
