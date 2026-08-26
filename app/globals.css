@@ -505,16 +505,21 @@
 .manager {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 .manager-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
 }
+.manager-head > div:first-child { min-width: 0; }
+.manager-head .eyebrow { margin-bottom: 3px; }
 .manager-head h2 {
   font-size: 20px;
   margin: 0;
+  white-space: nowrap;
 }
 .db-badge {
   color: var(--green);
@@ -2620,6 +2625,14 @@ body { zoom: 1.1; }
   transform: translateY(-50%);
 }
 .sidebar-collapse-toggle:hover { border-color: var(--red); color: var(--red); }
+
+/* Densidad común: las tarjetas auxiliares no deben desplazar el listado. */
+.business-related-panels { margin: 4px 0 8px; padding: 9px; }
+.business-related-head { padding-bottom: 6px; }
+.business-related-grid { gap: 6px; }
+.business-related-card summary { min-height: 46px; padding: 7px 9px; }
+.business-related-card summary small { margin-top: 3px; line-height: 1.25; }
+.business-related-actions { padding: 6px 9px; font-size: 10px; }
 .sidebar.sidebar-collapsed { width: 48px; padding-left: 6px; padding-right: 6px; }
 .sidebar.sidebar-collapsed > *:not(.sidebar-collapse-toggle) { display: none; }
 .sidebar.sidebar-collapsed .sidebar-collapse-toggle { right: -12px; }

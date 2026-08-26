@@ -5,6 +5,7 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 ## Principios visuales
 
 - Priorizar los listados y la información operativa; las cabeceras deben ser simples, compactas y no ocupar espacio innecesario.
+- Aprovechar el ancho disponible: título, contexto, filtros y acciones deben compartir una sola fila cuando quepan; evitar filas vacías y saltos innecesarios en todas las secciones.
 - Mantener una interfaz profesional, sobria, cuadrada y homogénea: sin bordes redondeados, sin efectos llamativos y con controles alineados.
 - Usar el rojo corporativo para acciones principales y estados de atención; usar verde para correcto/completado y naranja para avisos o estados próximos al mínimo.
 - No mezclar alineaciones sin motivo: etiquetas, datos y acciones deben seguir una retícula clara, preferentemente alineada a la izquierda.
