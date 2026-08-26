@@ -5,6 +5,8 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
+const APP_VERSION = "0.2.3";
+
 const initialModules = [
   "Inicio",
   "Productos",
@@ -870,6 +872,9 @@ function Sidebar({
           </div>
         );
       })}
+      <div className="sidebar-footer" title={`Versión ${APP_VERSION} · Entorno de producción`}>
+        v{APP_VERSION} · Producción
+      </div>
     </aside>
   );
 }
