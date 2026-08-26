@@ -65,6 +65,7 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 - Después de cada cambio relevante ejecutar `npm test` y comprobar carga, consola e interacciones principales cuando sea posible.
 - Antes de desplegar comprobar que la información mostrada coincide entre secciones y que no hay estados de carga engañosos.
 - Publicar los cambios agrupados cuando Vercel permita el despliegue; si el límite diario bloquea Vercel, dejar el código probado localmente y comunicarlo claramente.
+- Después de cada cambio comunicar claramente su estado: “solo en local”, “desplegado en producción” o “pendiente de despliegue”. Si está en producción, incluir la URL estable y las comprobaciones realizadas.
 
 ## Revisión proactiva antes de entregar cambios
 
