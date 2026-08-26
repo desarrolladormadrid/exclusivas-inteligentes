@@ -2,6 +2,13 @@
 
 Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el usuario. Deben aplicarse a toda la aplicación, no solo a una sección.
 
+## Directriz prioritaria: evidencias visuales visibles en el chat
+
+- Cada vez que se realice una prueba visual, se descubra un error, aparezca un estado incorrecto o se compruebe un resultado, hay que guardar una captura y mostrarla inmediatamente como imagen renderizada dentro del chat.
+- La imagen debe verse directamente en el mensaje mediante el mecanismo de imagen disponible en el entorno (imagen adjunta/renderizada o Markdown de imagen con ruta absoluta). No basta con escribir la ruta, enlazar el archivo, mencionar su nombre, decir que se ha guardado o esperar que el usuario vaya a buscarla.
+- Esta obligación aplica por separado a: pruebas correctas, errores o problemas descubiertos, comprobaciones locales, comprobaciones de producción y resultado final.
+- Si la imagen no puede renderizarse directamente en el chat, la prueba visual no se considera comunicada ni cerrada. Hay que indicarlo como bloqueo y no presentar esa evidencia como realizada.
+
 ## Principios visuales
 
 - Priorizar los listados y la información operativa; las cabeceras deben ser simples, compactas y no ocupar espacio innecesario.
@@ -66,11 +73,16 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 ## Verificación y despliegue
 
 - Después de cada cambio relevante ejecutar `npm test` y comprobar carga, consola e interacciones principales cuando sea posible.
+- Política de despliegues: no desplegar después de cada cambio aislado. Trabajar, probar y revisar primero en local, agrupar normalmente tres o cuatro cambios relacionados en un bloque coherente y hacer un único despliegue de ese bloque. Solo desplegar antes si el usuario lo indica expresamente o si existe una incidencia urgente que requiera corrección inmediata en producción.
+- Antes de publicar un bloque, revisar el diff completo, ejecutar las pruebas automatizadas y realizar las comprobaciones visuales y funcionales locales que correspondan. No gastar despliegues para probar ajustes intermedios que todavía estén en revisión.
+- Protocolo obligatorio de cierre para cualquier cambio entregable: (1) implementar el arreglo, (2) ejecutar las pruebas automatizadas, (3) recorrer con Playwright la interacción real de principio a fin, (4) guardar capturas de las pruebas relevantes y mostrarlas explícitamente en el chat, incluyendo una captura de cualquier estado incorrecto, fallo visual o problema descubierto, (5) guardar una captura que demuestre el resultado funcional y mostrarla explícitamente en el chat, (6) desplegar en producción, (7) comprobar de nuevo la URL estable, endpoints y flujo afectado en producción, y (8) guardar una segunda captura de la comprobación en producción y mostrarla explícitamente en el chat. DIRECTRIZ OBLIGATORIA DE IMÁGENES: cada captura generada durante una prueba, cada fallo o problema descubierto y cada resultado final debe insertarse como imagen renderizada dentro del mensaje del chat mediante el mecanismo de imagen del entorno (por ejemplo, una imagen adjunta/renderizada o Markdown de imagen con ruta absoluta). Es obligatorio hacerlo en el mismo mensaje en que se informa de esa evidencia. Una ruta escrita, un enlace descargable, un nombre de archivo o la frase “captura guardada” sin la imagen visible no cuenta y debe considerarse incumplimiento del protocolo. No declarar una tarea terminada si falta cualquiera de estos pasos; indicar expresamente qué paso queda pendiente.
 - Antes de desplegar comprobar que la información mostrada coincide entre secciones y que no hay estados de carga engañosos.
 - Publicar los cambios agrupados cuando Vercel permita el despliegue; si el límite diario bloquea Vercel, dejar el código probado localmente y comunicarlo claramente.
 - Después de cada cambio comunicar claramente su estado: “solo en local”, “desplegado en producción” o “pendiente de despliegue”. Si está en producción, incluir la URL estable y las comprobaciones realizadas.
 
 ## Revisión proactiva antes de entregar cambios
+
+La revisión debe evaluar dos cosas por separado: que la funcionalidad sea técnicamente correcta y que una persona real pueda usarla cómodamente. No se considera terminado un cambio que funciona en código pero obliga a adivinar, leer textos cortados, desplazarse innecesariamente, repetir datos o entender estados ambiguos.
 
 Antes de dar por terminada una sección o una mejora, revisar también estos puntos aunque el usuario no los mencione expresamente:
 
@@ -88,5 +100,13 @@ Antes de dar por terminada una sección o una mejora, revisar también estos pun
 - Comprobar que los controles tienen un comportamiento evidente: búsquedas incrementales, borrado de selección, ordenación desde cabeceras, filtros persistentes cuando proceda y botones activos claramente diferenciados.
 - Revisar que los estados visuales usan una convención única: rojo para atención o error, naranja para aviso, verde para correcto y gris para neutral; no usar colores que parezcan error para acciones normales.
 - Probar recorridos completos y no solo pantallas aisladas: crear, abrir, editar, guardar, cancelar, eliminar/restaurar, filtrar, descargar y resolver incidencias cuando existan.
+- En cada recorrido, comprobar la experiencia de la persona usuaria: identificar claramente qué pantalla está viendo, qué acción puede realizar, qué campos son necesarios, qué resultado se ha producido y cuál es el siguiente paso. Los controles deben ser cómodos para ratón, teclado y tacto, con objetivos táctiles suficientes y sin exigir precisión innecesaria.
+- Hacer una revisión visual deliberada después de cada cambio: comprobar jerarquía, legibilidad, contraste, espaciado, alineación, densidad, textos completos, estados vacíos/cargando/error, foco y feedback tras pulsar. Si algo parece confuso, cortado, redundante o incómodo, corregirlo antes de entregar aunque la prueba automática pase.
+- Validar la tarea desde la perspectiva del usuario final y del rol que la ejecuta: una persona de almacén debe poder preparar un pedido rápidamente; administración debe poder revisar y resolver incidencias; un comercial debe poder crear pedidos sin entender IDs técnicos. Priorizar siempre claridad y velocidad operativa.
+- Probar también el peor caso razonable: muchos registros, nombres largos, varias líneas de producto, incidencias, datos faltantes, pantalla estrecha, teclado virtual y respuestas lentas. La interfaz debe conservar el contexto y seguir siendo utilizable.
 - Si una acción puede fallar por datos o configuración, mostrar un mensaje útil dentro de la interfaz y conservar el contexto; no depender de `alert()` del navegador ni dejar botones que parezcan no hacer nada.
+- Revisar el ciclo de vida completo de avisos y notificaciones: deben distinguir pendientes de leídas, desaparecer de la bandeja al leerse sin borrarse del historial, permitir marcar una individual o todas, y abrir siempre el registro contextual correcto.
+- Evitar acumulaciones infinitas de elementos temporales: definir siempre qué ocurre al leer, completar, resolver, archivar o eliminar un aviso y reflejar ese estado en contadores y filtros.
 - Comparar siempre secciones relacionadas después de un cambio. En especial, los contadores y estados del inicio deben coincidir con Preparación de pedidos, Pedidos, Stock, Notas y Notificaciones.
+- Probar siempre el destino final de cada interacción, no solo el cambio de sección: una notificación de pedido debe abrir directamente el pedido concreto en su modal; una de incidencia debe abrir su detalle y acciones, sin llevar innecesariamente al listado.
+- Cuando el usuario autorice pruebas funcionales completas, se pueden crear registros de prueba en el entorno indicado como parte normal de la verificación, sin solicitar permiso adicional para cada paso. La prueba debe recorrer la interacción real de principio a fin y guardar una captura de evidencia del resultado, no solo comprobar que la página carga.

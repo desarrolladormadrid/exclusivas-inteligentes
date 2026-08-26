@@ -30,6 +30,10 @@ try { db.exec("ALTER TABLE document_templates ADD COLUMN format TEXT DEFAULT 'HT
 db.exec(`CREATE TABLE IF NOT EXISTS returns(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,client_id INTEGER,invoice_id INTEGER,product_id INTEGER,quantity REAL DEFAULT 0,reason TEXT,status TEXT DEFAULT 'Pendiente',amount REAL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
 db.exec(`CREATE TABLE IF NOT EXISTS collection_points(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE,name TEXT NOT NULL,client_id INTEGER,address TEXT,city TEXT,contact TEXT,phone TEXT,email TEXT,opening_hours TEXT,notes TEXT);`);
 try { db.exec("ALTER TABLE collection_points ADD COLUMN client_id INTEGER"); } catch {}
+try { db.exec("ALTER TABLE collection_points ADD COLUMN latitude REAL"); } catch {}
+try { db.exec("ALTER TABLE collection_points ADD COLUMN longitude REAL"); } catch {}
+try { db.exec("ALTER TABLE collection_points ADD COLUMN geocoded_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE collection_points ADD COLUMN geocoding_status TEXT DEFAULT 'Pendiente'"); } catch {}
 db.exec(`CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,actor TEXT DEFAULT 'Usuario local',method TEXT NOT NULL,resource TEXT NOT NULL,action TEXT NOT NULL,details TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS product_location_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,previous_location TEXT,current_location TEXT,changed_by TEXT DEFAULT 'Usuario local',changed_at TEXT DEFAULT CURRENT_TIMESTAMP,source TEXT DEFAULT 'CRM');`);
 db.exec(`CREATE TABLE IF NOT EXISTS scheduled_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,action_text TEXT NOT NULL,schedule_type TEXT DEFAULT 'Unica',recurrence TEXT,next_run TEXT,status TEXT DEFAULT 'Activa',last_run TEXT,last_result TEXT,created_by TEXT DEFAULT 'Usuario local',created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,client_id INTEGER,expense_date TEXT NOT NULL,category TEXT DEFAULT 'Otros',vendor TEXT,amount REAL DEFAULT 0,vat REAL DEFAULT 21,payment_method TEXT DEFAULT 'Tarjeta',notes TEXT,attachment_name TEXT,attachment_mime TEXT,attachment_data TEXT,created_at TEXT,updated_at TEXT);`);
@@ -61,7 +65,7 @@ db.exec(
   `CREATE TABLE IF NOT EXISTS inventory_movements(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,warehouse_id INTEGER, movement_type TEXT NOT NULL, quantity REAL DEFAULT 0, reference TEXT, movement_date TEXT DEFAULT CURRENT_DATE, notes TEXT);`,
 );
 for (const [table, columns] of [
-  ["products", ["photo_name TEXT", "photo_mime TEXT", "photo_data TEXT", "family TEXT", "subfamily TEXT", "purchase_format TEXT", "sale_format TEXT", "cases_per_pallet REAL DEFAULT 0", "units_per_pallet REAL DEFAULT 0", "weight_kg REAL DEFAULT 0", "volume_m3 REAL DEFAULT 0", "warehouse_location TEXT", "picking_order INTEGER DEFAULT 0", "product_status TEXT DEFAULT 'Activo'", "primary_supplier_id INTEGER", "fixed_supplier INTEGER DEFAULT 0", "target_margin_percent REAL DEFAULT 0", "min_margin_percent REAL DEFAULT 0", "stock_min REAL DEFAULT 0", "stock_target REAL DEFAULT 0", "stock_safety REAL DEFAULT 0", "lot_tracking INTEGER DEFAULT 0", "expiry_tracking INTEGER DEFAULT 0", "returnable_packaging INTEGER DEFAULT 0", "tax_surcharge_percent REAL DEFAULT 0", "extra_tax_name TEXT", "extra_tax_percent REAL DEFAULT 0", "freight_cost REAL DEFAULT 0", "handling_cost REAL DEFAULT 0", "real_cost REAL DEFAULT 0"]],
+  ["products", ["photo_name TEXT", "photo_mime TEXT", "photo_data TEXT", "description TEXT", "category_code TEXT", "warehouse_id INTEGER", "preorder INTEGER DEFAULT 1", "product_tracking_code TEXT DEFAULT 'Sin seguimiento'", "inventory_valuation_method TEXT DEFAULT 'FIFO'", "last_direct_cost REAL DEFAULT 0", "accounting_product_group TEXT DEFAULT 'Mercaderías'", "accounting_vat_group TEXT DEFAULT '21%'", "inventory_register_group TEXT DEFAULT 'Mercaderías'", "created_at TEXT", "created_by TEXT", "family TEXT", "subfamily TEXT", "purchase_format TEXT", "sale_format TEXT", "cases_per_pallet REAL DEFAULT 0", "units_per_pallet REAL DEFAULT 0", "weight_kg REAL DEFAULT 0", "volume_m3 REAL DEFAULT 0", "warehouse_location TEXT", "picking_order INTEGER DEFAULT 0", "product_status TEXT DEFAULT 'Activo'", "primary_supplier_id INTEGER", "fixed_supplier INTEGER DEFAULT 0", "target_margin_percent REAL DEFAULT 0", "min_margin_percent REAL DEFAULT 0", "stock_min REAL DEFAULT 0", "stock_target REAL DEFAULT 0", "stock_safety REAL DEFAULT 0", "lot_tracking INTEGER DEFAULT 0", "expiry_tracking INTEGER DEFAULT 0", "returnable_packaging INTEGER DEFAULT 0", "tax_surcharge_percent REAL DEFAULT 0", "extra_tax_name TEXT", "extra_tax_percent REAL DEFAULT 0", "freight_cost REAL DEFAULT 0", "handling_cost REAL DEFAULT 0", "real_cost REAL DEFAULT 0"]],
   ["suppliers", ["tax_id TEXT", "contact TEXT", "payment_terms TEXT", "minimum_order REAL DEFAULT 0", "transport_cost REAL DEFAULT 0", "lead_time_days INTEGER DEFAULT 0", "reliability_percent REAL DEFAULT 0", "promotions TEXT", "rappel_percent REAL DEFAULT 0", "active INTEGER DEFAULT 1"]],
   ["purchase_orders", ["validation_status TEXT DEFAULT 'Pendiente de validar'", "request_id INTEGER", "supplier_ids TEXT", "comparison TEXT"]],
 ]) for (const column of columns) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`); } catch {} }
@@ -69,6 +73,11 @@ for (const [table, columns] of [
 // para que las instalaciones antiguas entren directamente en el motor de compras.
 try {
   db.exec("UPDATE products SET stock_min=COALESCE(NULLIF(stock_min,0),min_stock,0), stock_target=COALESCE(NULLIF(stock_target,0),COALESCE(min_stock,0)*2,0), stock_safety=COALESCE(stock_safety,0), real_cost=COALESCE(NULLIF(real_cost,0),cost_price,0)");
+} catch {}
+try {
+  const defaultWarehouse = db.prepare("SELECT id FROM warehouses ORDER BY id LIMIT 1").get();
+  const pendingSupplier = db.prepare("SELECT id FROM suppliers WHERE name=? LIMIT 1").get("Proveedor pendiente de completar");
+  if (defaultWarehouse && pendingSupplier) db.exec(`UPDATE products SET sku=COALESCE(NULLIF(TRIM(sku),''),'AY-PENDIENTE-'||printf('%04d',id)), category=COALESCE(NULLIF(TRIM(category),''),'Sin clasificar'), description=COALESCE(NULLIF(TRIM(description),''),NULLIF(TRIM(name),''),'Sin descripción'), warehouse_id=COALESCE(warehouse_id,${Number(defaultWarehouse.id)}), supplier_id=COALESCE(supplier_id,${Number(pendingSupplier.id)}), primary_supplier_id=COALESCE(primary_supplier_id,${Number(pendingSupplier.id)}), preorder=COALESCE(preorder,1), product_tracking_code=CASE WHEN COALESCE(expiry_tracking,0)=1 THEN 'Lote y fecha de caducidad' WHEN COALESCE(lot_tracking,0)=1 THEN 'Seguimiento de lote' ELSE COALESCE(NULLIF(TRIM(product_tracking_code),''),'Sin seguimiento') END, inventory_valuation_method=COALESCE(NULLIF(TRIM(inventory_valuation_method),''),'FIFO'), last_direct_cost=CASE WHEN COALESCE(last_direct_cost,0)=0 THEN COALESCE(cost_price,0) ELSE last_direct_cost END, accounting_product_group=COALESCE(NULLIF(TRIM(accounting_product_group),''),'Mercaderías'), accounting_vat_group=COALESCE(NULLIF(TRIM(accounting_vat_group),''),CASE WHEN vat IS NOT NULL THEN printf('%g%%',vat) ELSE '21%' END), inventory_register_group=COALESCE(NULLIF(TRIM(inventory_register_group),''),'Mercaderías'), created_at=COALESCE(NULLIF(TRIM(created_at),''),CURRENT_TIMESTAMP)`);
 } catch {}
 try {
   // Completa registros antiguos con valores operativos razonables sin sustituir
@@ -97,6 +106,7 @@ try { db.exec("ALTER TABLE shipments ADD COLUMN urgent INTEGER DEFAULT 0"); } ca
 db.exec(
   `CREATE TABLE IF NOT EXISTS order_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,order_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS quote_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,quote_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS delivery_note_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,delivery_note_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS invoice_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);`,
 );
+db.exec(`CREATE TABLE IF NOT EXISTS invoice_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL,order_id INTEGER NOT NULL,UNIQUE(invoice_id,order_id),UNIQUE(order_id));`);
 for (const column of ["quantity_requested", "quantity_unit", "units_factor"]) { try { db.exec(`ALTER TABLE order_lines ADD COLUMN ${column} TEXT`); } catch {} }
 try { db.exec("ALTER TABLE order_lines ADD COLUMN prepared INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE order_lines ADD COLUMN prepared_quantity REAL DEFAULT 0"); } catch {}
@@ -338,7 +348,7 @@ export async function crmApiHandler(req, res) {
       // Las consultas automáticas de carga no deben modificar SQLite: en desarrollo
       // provocarían un ciclo de HMR (consulta -> cambio de DB -> recarga -> consulta).
       // Las consultas explícitas pueden marcarse con X-Audit-Query.
-      if (p[1] !== "audit_logs" && (req.method !== "GET" || req.headers["x-audit-query"] === "true")) recordAudit(actor, req.method, p.slice(1).join("/") || "inicio", req.method === "GET" ? "Consulta" : req.method === "POST" ? "Alta" : req.method === "PUT" ? "Edición" : req.method === "DELETE" ? "Borrado" : req.method, req.url);
+      if (p[1] !== "audit_logs" && !(req.method === "POST" && p[1] === "orders") && (req.method !== "GET" || req.headers["x-audit-query"] === "true")) recordAudit(actor, req.method, p.slice(1).join("/") || "inicio", req.method === "GET" ? "Consulta" : req.method === "POST" ? "Alta" : req.method === "PUT" ? "Edición" : req.method === "DELETE" ? "Borrado" : req.method, req.url);
       if (p[1] === "backup" && req.method === "GET") {
         const file = readFileSync(join(dir, "excluvas.sqlite"));
         res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename=excluvas-${new Date().toISOString().slice(0, 10)}.sqlite`, "Access-Control-Allow-Origin": "*" });
@@ -538,6 +548,41 @@ export async function crmApiHandler(req, res) {
         db.prepare("UPDATE purchase_suggestions SET status=?,validated_by=?,validated_at=?,updated_at=? WHERE id=?").run(status, status === "Aprobada" ? actor : null, status === "Aprobada" ? now : null, now, Number(p[2]));
         return send(res, 200, { ok: true, id: Number(p[2]), status });
       }
+      if (t === "billing" && req.method === "GET") {
+        try { db.exec(`CREATE TABLE IF NOT EXISTS invoice_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL,order_id INTEGER NOT NULL,UNIQUE(invoice_id,order_id),UNIQUE(order_id));`); } catch {}
+        const params = new URL(req.url, "http://local").searchParams;
+        const clauses = ["COALESCE(o.deleted,0)=0"];
+        const args = [];
+        if (params.get("from")) { clauses.push("date(o.created_at) >= date(?)"); args.push(params.get("from")); }
+        if (params.get("to")) { clauses.push("date(o.created_at) <= date(?)"); args.push(params.get("to")); }
+        if (params.get("client_id")) { clauses.push("o.client_id=?"); args.push(Number(params.get("client_id"))); }
+        const rows = db.prepare(`SELECT o.id,o.code,o.client_id,o.status,o.amount,o.created_at,c.name client_name,CASE WHEN o.status='Facturado' OR EXISTS(SELECT 1 FROM invoices i WHERE i.order_id=o.id) THEN 1 ELSE 0 END billed FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE ${clauses.join(" AND ")} ORDER BY date(o.created_at) DESC,o.id DESC`).all(...args);
+        return send(res, 200, rows);
+      }
+      if (t === "billing" && req.method === "POST") {
+        try { db.exec(`CREATE TABLE IF NOT EXISTS invoice_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL,order_id INTEGER NOT NULL,UNIQUE(invoice_id,order_id),UNIQUE(order_id));`); } catch {}
+        const d = await read(req);
+        const ids = Array.from(new Set((Array.isArray(d.order_ids) ? d.order_ids : []).map(Number).filter(Number.isInteger)));
+        if (!ids.length) return send(res, 400, { error: "Selecciona al menos un pedido" });
+        const marks = ids.map(() => "?").join(",");
+        const orders = db.prepare(`SELECT o.*,c.name client_name FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE o.id IN (${marks}) AND COALESCE(o.deleted,0)=0`).all(...ids);
+        if (orders.length !== ids.length) return send(res, 400, { error: "Uno de los pedidos ya no está disponible" });
+        const clients = new Set(orders.map((row) => Number(row.client_id || 0)));
+        if (clients.size !== 1) return send(res, 400, { error: "Solo se pueden agrupar pedidos del mismo cliente" });
+        const billed = db.prepare(`SELECT o.id order_id,i.code FROM orders o JOIN invoices i ON i.order_id=o.id WHERE o.id IN (${marks}) UNION SELECT id order_id,'Factura existente' code FROM orders WHERE status='Facturado' AND id IN (${marks})`).all(...ids, ...ids);
+        if (billed.length) return send(res, 409, { error: `Ya facturado: ${billed.map((row) => row.code).join(", ")}` });
+        const total = orders.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+        const code = `FAC-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+        if (!remoteMode) db.exec("BEGIN");
+        try {
+          const created = db.prepare("INSERT INTO invoices(code,order_id,client_id,amount,status) VALUES(?,?,?,?,?)").run(code, ids[0], orders[0].client_id, total, "Pendiente");
+          const invoiceId = Number(created.lastInsertRowid);
+          const line = db.prepare("INSERT INTO invoice_lines(invoice_id,product_id,quantity,unit_price,discount,vat,amount) SELECT ?,product_id,quantity,unit_price,discount,vat,amount FROM order_lines WHERE order_id=?");
+          for (const id of ids) { line.run(invoiceId, id); db.prepare("UPDATE orders SET status='Facturado',updated_at=? WHERE id=?").run(new Date().toISOString(), id); }
+          if (!remoteMode) db.exec("COMMIT");
+          return send(res, 201, { id: invoiceId, code, amount: total, client_id: orders[0].client_id, order_ids: ids, status: "Pendiente" });
+        } catch (error) { if (!remoteMode) { try { db.exec("ROLLBACK"); } catch {} } return send(res, 500, { error: error?.message || "No se pudo crear la factura" }); }
+      }
       if (
         t === "orders" &&
         req.method === "POST" &&
@@ -613,9 +658,28 @@ export async function crmApiHandler(req, res) {
         return send(res, 400, { error: "Falta un identificador válido" });
       if (req.method === "GET") {
         const includeDeleted = new URL(req.url, "http://local").searchParams.get("include_deleted") === "1";
+        if (p[2] && Number.isInteger(Number(p[2]))) {
+          const source = t === "orders"
+            ? `orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id`
+            : t;
+          const selection = t === "orders"
+            ? "orders.*,order_client.name AS client_name,order_client.city AS client_city"
+            : listSelectFor(t);
+          const tableReference = t === "orders" ? "orders" : t;
+          const deletedClause = includeDeleted ? "" : ` AND CAST(COALESCE(${tableReference}.deleted,0) AS INTEGER)=0`;
+          const row = db.prepare(`SELECT ${selection} FROM ${source} WHERE ${tableReference}.id=?${deletedClause}`).get(Number(p[2]));
+          return row ? send(res, 200, row) : send(res, 404, { error: "Registro no encontrado" });
+        }
         const cached = cachedRows(t, includeDeleted);
         if (cached) return send(res, 200, cached);
-        const rows = db.prepare(`SELECT ${listSelectFor(t)} FROM ${t} ${includeDeleted ? "" : "WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0"} ORDER BY id DESC`).all();
+        const source = t === "orders"
+          ? `orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id`
+          : t;
+        const selection = t === "orders"
+          ? "orders.*,order_client.name AS client_name,order_client.city AS client_city"
+          : listSelectFor(t);
+        const where = includeDeleted ? "" : `WHERE CAST(COALESCE(${t === "orders" ? "orders" : t}.deleted,0) AS INTEGER)=0`;
+        const rows = db.prepare(`SELECT ${selection} FROM ${source} ${where} ORDER BY ${t === "orders" ? "orders.id" : "id"} DESC`).all();
         return send(
           res,
           200,
@@ -761,8 +825,13 @@ export async function crmApiHandler(req, res) {
               `INSERT INTO ${t} (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`,
             )
             .run(...keys.map((k) => d[k]));
+        if (t === "orders") {
+          // La notificación de alta debe apuntar al pedido concreto para
+          // que el clic abra directamente su modal, no el listado general.
+          recordAudit(actor, "POST", `orders/${Number(r.lastInsertRowid)}`, "Alta", `${d.code || "Pedido nuevo"} · pedido registrado`);
+        }
         if (t === "notes" && String(d.module || "") === "Preparación de pedidos" && Number(d.important || 0) === 1) {
-          recordAudit(actor, "POST", `preparation-incidents/${Number(r.lastInsertRowid)}`, "Incidencia preparación", String(d.content || d.title || "Incidencia de preparación"));
+          recordAudit(actor, "POST", `preparation-incidents/${Number(r.lastInsertRowid)}`, "Incidencia preparación", JSON.stringify({ note_id: Number(r.lastInsertRowid), order_id: Number(d.record_id || 0) || null, content: String(d.content || d.title || "Incidencia de preparación") }));
         }
         if (t === "payments" && d.invoice_id) {
           const invoice = db.prepare("SELECT amount FROM invoices WHERE id=?").get(d.invoice_id);

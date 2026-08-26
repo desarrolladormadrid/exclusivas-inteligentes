@@ -5,7 +5,8 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "0.2.4";
+const APP_VERSION = "2.0.2";
+const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
   "Inicio",
@@ -133,9 +134,11 @@ const cfg: any = {
     fields: [
       "name",
       "sku",
+      "description",
       "barcode",
       "supplier_ref",
       "category",
+      "category_code",
       "brand",
       "format",
       "unit",
@@ -149,6 +152,9 @@ const cfg: any = {
       "markup_percent",
       "margin_percent",
       "vat",
+      "accounting_product_group",
+      "accounting_vat_group",
+      "inventory_register_group",
       "stock",
       "stock_reserved",
       "min_stock",
@@ -164,8 +170,13 @@ const cfg: any = {
       "weight_kg",
       "volume_m3",
       "warehouse_location",
+      "warehouse_id",
       "picking_order",
       "product_status",
+      "created_at",
+      "preorder",
+      "product_tracking_code",
+      "inventory_valuation_method",
       "primary_supplier_id",
       "fixed_supplier",
       "target_margin_percent",
@@ -173,6 +184,7 @@ const cfg: any = {
       "freight_cost",
       "handling_cost",
       "real_cost",
+      "last_direct_cost",
       "tax_surcharge_percent",
       "extra_tax_name",
       "extra_tax_percent",
@@ -183,10 +195,12 @@ const cfg: any = {
     ],
     labels: [
       "Producto",
-      "SKU",
+      "Número proveedor (Ay…)",
+      "Descripción y unidades por caja",
       "Código de barras",
       "Referencia proveedor",
       "Categoría",
+      "Código categoría",
       "Marca",
       "Formato",
       "Unidad de venta",
@@ -200,6 +214,9 @@ const cfg: any = {
       "Incremento %",
       "Margen %",
       "IVA %",
+      "Grupo contable prod. gen.",
+      "Grupo contable IVA",
+      "Grupo registro inventario",
       "Stock",
       "Stock reservado",
       "Stock mínimo",
@@ -215,8 +232,13 @@ const cfg: any = {
       "Peso (kg)",
       "Volumen (m³)",
       "Ubicación en almacén",
+      "Código de almacén",
       "Orden de recogida",
       "Estado del producto",
+      "Fecha de alta",
+      "Preventa",
+      "Código seguimiento producto",
+      "Valoración de existencias",
       "Proveedor principal",
       "Proveedor fijo",
       "Margen objetivo %",
@@ -224,6 +246,7 @@ const cfg: any = {
       "Coste transporte",
       "Coste manipulación",
       "Coste real",
+      "Coste último directo",
       "Recargo equivalencia %",
       "Impuesto adicional",
       "Impuesto adicional %",
@@ -773,14 +796,23 @@ const sidebarGroups = [
   { name: "Administración", items: ["Usuarios y permisos", "Documentos", "Historial", "Papelera"] },
 ];
 
+const routeModuleScopes: Record<string, string[]> = {
+  crm: initialModules,
+  comercial: ["Pedidos", "Clientes", "Contactos", "Presupuestos", "Albaranes", "Facturas", "Cobros", "Envíos"],
+  almacen: ["Preparación de pedidos", "Stock", "Productos", "Almacenes", "Entradas", "Salidas", "Devoluciones", "Envíos", "Pedidos", "Notas"],
+  web: ["Inicio", "Pedidos", "Clientes", "Productos"],
+};
+
 function Sidebar({
   active,
   setActive,
   user,
+  moduleScope,
 }: {
   active: string;
   setActive: (x: string) => void;
   user: any;
+  moduleScope?: string[];
 }) {
   const [items, setItems] = useState(initialModules);
   const [drag, setDrag] = useState("");
@@ -843,7 +875,7 @@ function Sidebar({
         <b>{mobileOpen ? "Cerrar menú" : "Menú"}</b><em>{active}</em>
       </button>
       <div className="side-label">GESTIÓN</div>
-      {allowedModulesFor(user).includes("Inicio") && (
+      {allowedModulesFor(user).includes("Inicio") && (!moduleScope || moduleScope.includes("Inicio")) && (
         <button
           className={active === "Inicio" ? "nav-item active" : "nav-item"}
           onClick={() => { setActive("Inicio"); setMobileOpen(false); }}
@@ -853,7 +885,7 @@ function Sidebar({
       )}
       {sidebarGroups.map((group) => {
         const allowed = allowedModulesFor(user);
-        const visible = items.filter((m) => group.items.includes(m) && allowed.includes(m) && (m !== "Papelera" || user?.role === "admin"));
+        const visible = items.filter((m) => group.items.includes(m) && allowed.includes(m) && (!moduleScope || moduleScope.includes(m)) && (m !== "Papelera" || user?.role === "admin"));
         if (!visible.length) return null;
         return (
           <div className="sidebar-group" key={group.name}>
@@ -887,8 +919,8 @@ function Sidebar({
           </div>
         );
       })}
-      <div className="sidebar-footer" title={`Versión ${APP_VERSION} · Entorno de producción`}>
-        v{APP_VERSION} · Producción
+      <div className="sidebar-footer" title={`Versión ${APP_VERSION} · Entorno ${APP_ENVIRONMENT}`}>
+        v{APP_VERSION} · {APP_ENVIRONMENT}
       </div>
     </aside>
   );
@@ -1461,6 +1493,21 @@ function ExpenseScanner({
   );
 }
 
+function ProductCodePreview({ code, name, price }: { code: string; name?: string; price?: number }) {
+  const [qrImage, setQrImage] = useState("");
+  const barcodeRef = useRef<SVGSVGElement>(null);
+  useEffect(() => {
+    QRCode.toDataURL(code || "EXC-PRODUCTO", { width: 180, margin: 1 }).then((value: string) => setQrImage(value)).catch(() => setQrImage(""));
+    if (barcodeRef.current) { try { JsBarcode(barcodeRef.current, code || "EXC-PRODUCTO", { format: "CODE128", displayValue: true, fontSize: 12, height: 48, margin: 2 }); } catch {} }
+  }, [code]);
+  function downloadBarcode() {
+    if (!barcodeRef.current) return;
+    const url = URL.createObjectURL(new Blob([barcodeRef.current.outerHTML], { type: "image/svg+xml;charset=utf-8" }));
+    const link = document.createElement("a"); link.href = url; link.download = `${code || "codigo-producto"}-barras.svg`; link.click(); URL.revokeObjectURL(url);
+  }
+  return <div className="product-code-preview"><div className="print-label"><b>EXCLUSIVAS</b><strong>{name || "Producto"}</strong><small>{code || "EXC-PRODUCTO"}</small><svg ref={barcodeRef} aria-label={`Código de barras ${code}`} />{price != null && <span>{Number(price || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</span>}<button type="button" className="button secondary product-code-download" onClick={downloadBarcode}>Descargar barras SVG</button></div><div className="product-qr-card"><b>Código QR</b>{qrImage ? <img src={qrImage} alt={`Código QR de ${name || "producto"}`} /> : <span>Generando…</span>}<small>{code || "EXC-PRODUCTO"}</small>{qrImage && <a className="button secondary product-code-download" href={qrImage} download={`${code || "codigo-producto"}-qr.png`}>Descargar QR PNG</a>}</div></div>;
+}
+
 function ProductLabelModal({ product, actor, onClose, onSaved }: { product: any; actor: string; onClose: () => void; onSaved: (row: any) => void }) {
   const [code, setCode] = useState(String(product.barcode || product.sku || `EXC-${String(product.id).padStart(5, "0")}`));
   const [qrImage, setQrImage] = useState("");
@@ -1476,6 +1523,11 @@ function ProductLabelModal({ product, actor, onClose, onSaved }: { product: any;
       try { JsBarcode(barcodeRef.current, code || "EXC-PRODUCTO", { format: "CODE128", displayValue: true, fontSize: 12, height: 48, margin: 2 }); } catch {}
     }
   }, [code]);
+  function downloadBarcode() {
+    if (!barcodeRef.current) return;
+    const url = URL.createObjectURL(new Blob([barcodeRef.current.outerHTML], { type: "image/svg+xml;charset=utf-8" }));
+    const link = document.createElement("a"); link.href = url; link.download = `${code || "codigo-producto"}-barras.svg`; link.click(); URL.revokeObjectURL(url);
+  }
   async function saveCode() {
     if (!code.trim()) return setError("Indica un código para el producto.");
     setSaving(true);
@@ -1492,8 +1544,8 @@ function ProductLabelModal({ product, actor, onClose, onSaved }: { product: any;
         <div className="product-label-code"><label>Código de barras / referencia<input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} /></label><button className="button primary" type="button" onClick={saveCode} disabled={saving}>{saving ? "Guardando…" : "Guardar código"}</button></div>
         {error && <p className="users-manager-error">{error}</p>}
         <div className="product-label-preview">
-          <div className="print-label"><b>EXCLUSIVAS</b><strong>{product.name}</strong><small>{product.sku || code}</small><svg ref={barcodeRef} aria-label={`Código de barras ${code}`} /><span>{Number(product.unit_price || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</span></div>
-          <div className="product-qr-card"><b>Código QR</b>{qrImage ? <img src={qrImage} alt={`Código QR de ${product.name}`} /> : <span>Generando…</span>}<small>{code}</small></div>
+          <div className="print-label"><b>EXCLUSIVAS</b><strong>{product.name}</strong><small>{product.sku || code}</small><svg ref={barcodeRef} aria-label={`Código de barras ${code}`} /><span>{Number(product.unit_price || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</span><button type="button" className="button secondary product-code-download" onClick={downloadBarcode}>Descargar barras SVG</button></div>
+          <div className="product-qr-card"><b>Código QR</b>{qrImage ? <img src={qrImage} alt={`Código QR de ${product.name}`} /> : <span>Generando…</span>}<small>{code}</small>{qrImage && <a className="button secondary product-code-download" href={qrImage} download={`${code || "codigo-producto"}-qr.png`}>Descargar QR PNG</a>}</div>
         </div>
         <div className="product-label-actions"><button className="button secondary" type="button" onClick={onClose}>Cerrar</button><button className="button primary" type="button" onClick={() => window.print()}>Imprimir etiqueta</button></div>
       </div>
@@ -1777,6 +1829,12 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   const [form, setForm] = useState<any>({});
   const [editing, setEditing] = useState<any>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [newSupplierOpen, setNewSupplierOpen] = useState(false);
+  const [newSupplierSaving, setNewSupplierSaving] = useState(false);
+  const [newSupplier, setNewSupplier] = useState<any>({ name: "", tax_id: "", contact: "", phone: "", email: "", address: "", payment_terms: "" });
+  const [productConfirmOpen, setProductConfirmOpen] = useState(false);
+  const [productSaveMessage, setProductSaveMessage] = useState("");
   const formAccordionRef = useRef<HTMLDetailsElement>(null);
   const [inlineEditing, setInlineEditing] = useState<number | null>(null);
   const [inlineDraft, setInlineDraft] = useState<any>({});
@@ -1801,6 +1859,15 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   const [noteAction, setNoteAction] = useState("partial");
   const [noteActionSaving, setNoteActionSaving] = useState(false);
   const [noteActionError, setNoteActionError] = useState("");
+  const [billingOpen, setBillingOpen] = useState(false);
+  const [billingRows, setBillingRows] = useState<any[]>([]);
+  const [billingFrom, setBillingFrom] = useState("");
+  const [billingTo, setBillingTo] = useState("");
+  const [billingClient, setBillingClient] = useState("");
+  const [billingSelected, setBillingSelected] = useState<number[]>([]);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingSaving, setBillingSaving] = useState(false);
+  const [billingError, setBillingError] = useState("");
   const [previewLines, setPreviewLines] = useState<any[]>([]);
   const [incidentLineId, setIncidentLineId] = useState<number | null>(null);
   const [incidentText, setIncidentText] = useState("");
@@ -1981,6 +2048,34 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     reader.readAsDataURL(file);
   }
   function handleFormChange(field: string, value: any) {
+    if (active === "Productos") {
+      setForm((current: any) => {
+        const next = { ...current, [field]: value };
+        if (field === "category") {
+          const category = String(value || "").trim().toLowerCase();
+          const existing = rows.find((row: any) => String(row.category || "").trim().toLowerCase() === category && String(row.category_code || "").trim());
+          const usedCodes = rows.map((row: any) => Number(row.category_code)).filter((code: number) => Number.isFinite(code) && code > 0);
+          const generatedCode = String(Math.max(0, ...usedCodes) + 1).padStart(3, "0");
+          next.category_code = existing?.category_code || (category ? generatedCode : "");
+        }
+        if (field === "cost_price") {
+          if (!String(current.last_direct_cost || "").trim()) next.last_direct_cost = value;
+          const cost = Number(value || 0), markup = Number(current.markup_percent || 0);
+          next.unit_price = (cost * (1 + markup / 100)).toFixed(2);
+        }
+        if (field === "markup_percent") {
+          const cost = Number(current.cost_price || 0), markup = Number(value || 0);
+          next.unit_price = (cost * (1 + markup / 100)).toFixed(2);
+        }
+        if (field === "product_tracking_code") {
+          next.lot_tracking = value === "Seguimiento de lote" || value === "Lote y fecha de caducidad" ? "1" : "0";
+          next.expiry_tracking = value === "Lote y fecha de caducidad" ? "1" : "0";
+        }
+        if (field === "vat") next.accounting_vat_group = `${Number(value || 21)}%`;
+        return next;
+      });
+      return;
+    }
     if (active === "Pedidos" && field === "client_id") {
       setForm((current: any) => ({ ...current, client_id: value, collection_point_id: "" }));
       const client = (lookups.clients || []).find((item: any) => Number(item.id) === Number(value));
@@ -2022,15 +2117,26 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     }
     setForm({ ...form, [field]: value, ...(field === "created_by" ? { created_by: user?.username || "Usuario local" } : {}) });
   }
+  async function geocodeAddress(address: string, city: string) {
+    try {
+      const query = encodeURIComponent([address, city, "España"].filter(Boolean).join(", "));
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${query}`, { headers: { Accept: "application/json" } });
+      const result = await response.json();
+      if (Array.isArray(result) && result[0]) return { latitude: Number(result[0].lat), longitude: Number(result[0].lon), geocoded_at: new Date().toISOString(), geocoding_status: "Geolocalizada" };
+    } catch {}
+    return { latitude: null, longitude: null, geocoded_at: null, geocoding_status: "Pendiente" };
+  }
   async function createShippingLocation() {
     if (!form.client_id) return alert("Selecciona primero un cliente.");
     if (!newShippingLocation.name.trim() || !newShippingLocation.address.trim()) return alert("Indica un nombre y una dirección para la ubicación.");
+    const geo = await geocodeAddress(newShippingLocation.address.trim(), newShippingLocation.city.trim());
     const payload = {
       ...newShippingLocation,
       name: newShippingLocation.name.trim(),
       address: newShippingLocation.address.trim(),
       client_id: Number(form.client_id),
       code: `UBI-${Date.now().toString().slice(-8)}`,
+      ...geo,
     };
     const response = await fetch("/api/collection_points", { method: "POST", headers: actorHeaders, body: JSON.stringify(payload) });
     const created = await response.json().catch(() => ({}));
@@ -2077,7 +2183,23 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   const selectedQuoteProduct = (lookups.products || []).find((item: any) => Number(item.id) === Number(quoteLineDraft.product_id));
   const quoteTotalUnits = quoteLineDraft.total_units;
   const orderGeneralComplete = Boolean(String(form.code || "").trim() && form.client_id && form.collection_point_id);
-  async function save(e: any) {
+  async function saveNewSupplier(event: any) {
+    event.preventDefault();
+    if (!String(newSupplier.name || "").trim()) return;
+    setNewSupplierSaving(true);
+    try {
+      const response = await fetch("/api/suppliers", { method: "POST", headers: actorHeaders, body: JSON.stringify(newSupplier) });
+      const created = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(created.error || "No se pudo guardar el proveedor");
+      setLookups((current: any) => ({ ...current, suppliers: [created, ...(current.suppliers || [])] }));
+      setForm((current: any) => ({ ...current, supplier_id: String(created.id), primary_supplier_id: String(created.id) }));
+      setSupplierSearch(created.name || "");
+      setNewSupplierOpen(false);
+      setNewSupplier({ name: "", tax_id: "", contact: "", phone: "", email: "", address: "", payment_terms: "" });
+    } catch (error: any) { setError(error.message || "No se pudo guardar el proveedor"); }
+    finally { setNewSupplierSaving(false); }
+  }
+  async function saveRecord(e: any) {
     e.preventDefault();
     if (isOrderForm && editing && isOrderSent(editing)) {
       setError("Este pedido ya ha sido enviado y no se puede editar.");
@@ -2086,6 +2208,15 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     if (isOrderForm && (!String(form.code || "").trim() || !form.client_id || !form.collection_point_id)) {
       setError("Completa el código, el cliente y el lugar de envío antes de guardar el pedido.");
       return;
+    }
+    if (active === "Productos") {
+      const requiredProductFields = ["name", "sku", "description", "category", "unit", "created_at", "warehouse_id", "warehouse_location", "inventory_valuation_method", "cost_price", "last_direct_cost", "markup_percent", "unit_price", "accounting_product_group", "accounting_vat_group", "inventory_register_group", "product_tracking_code", "supplier_id"];
+      const productFieldLabels: Record<string, string> = { name: "Producto", sku: "Número proveedor", description: "Descripción", category: "Categoría", unit: "Unidad de medida base", created_at: "Fecha de alta", warehouse_id: "Código de almacén", warehouse_location: "Número de estante", inventory_valuation_method: "Valoración de existencias", cost_price: "Coste unitario", last_direct_cost: "Coste último directo", markup_percent: "Porcentaje de incremento de venta", unit_price: "Precio de venta", accounting_product_group: "Grupo contable prod. gen.", accounting_vat_group: "Grupo contable IVA", inventory_register_group: "Grupo registro inventario", product_tracking_code: "Código seguimiento producto", supplier_id: "Nombre proveedor" };
+      const missing = requiredProductFields.filter((field) => !String(form[field] ?? "").trim());
+      if (missing.length) {
+        setError(`Completa los campos obligatorios del producto: ${missing.map((field) => productFieldLabels[field] || field).join(", ")}.`);
+        return;
+      }
     }
     const method = editing ? "PUT" : "POST",
       url =
@@ -2181,6 +2312,15 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     setQuoteLines([]);
     setEditing(null);
     setFormOpen(false);
+    if (active === "Productos") setProductSaveMessage(editing ? "Producto actualizado correctamente." : "Producto creado y guardado correctamente.");
+  }
+  async function save(e: any) {
+    e.preventDefault();
+    if (active === "Productos" && !editing) {
+      setProductConfirmOpen(true);
+      return;
+    }
+    await saveRecord(e);
   }
   async function remove(id: number) {
     await fetch("/api/" + c.api + "/" + id, {
@@ -2356,7 +2496,12 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
       } else if (id) {
         fetch(`/api/orders/${id}`)
           .then((response) => (response.ok ? response.json() : null))
-          .then((item) => item && beginInline(item))
+          .then((body) => {
+            const item = Array.isArray(body)
+              ? body.find((entry: any) => Number(entry.id) === id)
+              : body?.data || body;
+            if (item) beginInline(item);
+          })
           .catch(() => undefined);
       }
     }
@@ -2385,7 +2530,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
       }
       fetch(`/api/notes/${id}`)
         .then((response) => (response.ok ? response.json() : null))
-        .then((item) => item && setNotePreview(item))
+        .then((body) => { const item = Array.isArray(body) ? body.find((entry: any) => Number(entry.id) === id) : body?.data || body; if (item) setNotePreview(item); })
         .catch(() => undefined);
     }
     window.addEventListener("crm:previsualizar-nota", notePreviewRequested);
@@ -2434,18 +2579,44 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     }
     fetch(`/api/notes/${pendingId}`)
       .then((response) => (response.ok ? response.json() : null))
-      .then((item) => item && setNotePreview(item))
+      .then((body) => { const item = Array.isArray(body) ? body.find((entry: any) => Number(entry.id) === pendingId) : body?.data || body; if (item) setNotePreview(item); })
       .catch(() => undefined);
   }, [rows]);
   useEffect(() => {
     if (active !== "Pedidos") return;
     function previewRequested(event: Event) {
-      const id = Number((event as CustomEvent<number>).detail);
+      const detail = (event as CustomEvent<any>).detail;
+      const id = Number(typeof detail === "object" ? detail?.id : detail);
+      const hint = typeof detail === "object" ? detail : {};
       const row = rows.find((item) => Number(item.id) === id);
       if (row) void openPreview(row);
-      else if (id) fetch(`/api/orders/${id}`).then((response) => response.ok ? response.json() : null).then((item) => item && void openPreview(item)).catch(() => undefined);
+      else if (id) {
+        setPreview({ id, code: hint.code || `Pedido #${id}`, client_name: hint.clientName || "", status: "Cargando…" });
+        setPreviewLoading(true);
+        fetch(`/api/orders/${id}`)
+          .then((response) => (response.ok ? response.json() : null))
+          .then((body) => {
+            const item = Array.isArray(body)
+              ? body.find((entry: any) => Number(entry.id) === id)
+              : body?.data || body;
+            if (item) void openPreview(item);
+            else setPreviewLoading(false);
+          })
+          .catch(() => setPreviewLoading(false));
+      }
     }
     window.addEventListener("crm:previsualizar-pedido", previewRequested);
+    let pendingDetail: any = null;
+    try {
+      const rawPending = sessionStorage.getItem("excluvas.pending-order-preview") || "";
+      if (rawPending) {
+        try { pendingDetail = JSON.parse(rawPending); } catch { pendingDetail = { id: Number(rawPending) }; }
+        sessionStorage.removeItem("excluvas.pending-order-preview");
+      }
+    } catch {}
+    if (pendingDetail?.id) {
+      window.setTimeout(() => previewRequested(new CustomEvent("crm:previsualizar-pedido", { detail: pendingDetail })), 0);
+    }
     return () => window.removeEventListener("crm:previsualizar-pedido", previewRequested);
   }, [active, rows]);
   useEffect(() => {
@@ -2743,6 +2914,32 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     setProductOptions(productRows);
     setLocationDrafts(Object.fromEntries(productRows.map((product: any) => [String(product.id), String(product.warehouse_location || "")] )));
     setPreviewLoading(false);
+  }
+  async function loadBillingOrders() {
+    setBillingLoading(true); setBillingError("");
+    try {
+      const query = new URLSearchParams();
+      if (billingFrom) query.set("from", billingFrom);
+      if (billingTo) query.set("to", billingTo);
+      if (billingClient) query.set("client_id", billingClient);
+      const response = await fetch(`/api/billing?${query.toString()}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudieron cargar los pedidos");
+      setBillingRows(Array.isArray(data) ? data : []);
+      setBillingSelected([]);
+    } catch (error: any) { setBillingError(error.message || "No se pudieron cargar los pedidos"); }
+    finally { setBillingLoading(false); }
+  }
+  async function createGroupedInvoice() {
+    if (!billingSelected.length) return;
+    setBillingSaving(true); setBillingError("");
+    try {
+      const response = await fetch("/api/billing", { method: "POST", headers: actorHeaders, body: JSON.stringify({ order_ids: billingSelected }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudo crear la factura");
+      setBillingOpen(false); setBillingSelected([]); fetch("/api/orders").then((response) => response.json()).then((items) => setRows(Array.isArray(items) ? items : [])).catch(() => undefined);
+    } catch (error: any) { setBillingError(error.message || "No se pudo crear la factura"); }
+    finally { setBillingSaving(false); }
   }
   async function updatePreparationLine(line: any, changes: any) {
     const next = { ...line, ...changes };
@@ -3073,6 +3270,9 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   ]);
   const isDateField = (field: string) => dateFields.has(field) || field.endsWith("_date") || field.endsWith("_at");
   const isLoadPreparation = active === "Preparación de pedidos";
+  const previewLocation = preview ? (lookups.collection_points || []).find((item: any) => Number(item.id) === Number(preview.collection_point_id)) : null;
+  const previewLat = Number(previewLocation?.latitude);
+  const previewLon = Number(previewLocation?.longitude);
   const incompletePreparationLines = previewLines.filter((line: any) => Number(line.prepared_quantity || 0) < Number(line.quantity || 0));
   const actionableIncompletePreparationLines = incompletePreparationLines.filter((line: any) => line.preparation_status !== "Incidencia");
   const isProducts = active === "Productos";
@@ -3184,7 +3384,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   };
   const renderFormField = (f: string, i: number) => (
     <label key={f}>
-      <span className={active === "Pedidos" && ["client_id", "collection_point_id"].includes(f) ? "field-label-required" : undefined}>{active === "Pedidos" && f === "collection_point_id" ? "Lugar de envío" : c.labels[i]}</span>
+      <span className={(active === "Pedidos" && ["client_id", "collection_point_id"].includes(f)) || (active === "Productos" && ["name", "sku", "description", "category", "unit", "created_at", "warehouse_id", "warehouse_location", "inventory_valuation_method", "cost_price", "last_direct_cost", "markup_percent", "unit_price", "accounting_product_group", "accounting_vat_group", "inventory_register_group", "product_tracking_code", "supplier_id"].includes(f)) ? "field-label-required" : undefined}>{active === "Pedidos" && f === "collection_point_id" ? "Lugar de envío" : active === "Productos" && f === "unit" ? "Unidad de medida base" : c.labels[i]}</span>
       {active === "Pedidos" && f === "client_id" ? (
         <>
           <div className="smart-client-picker"><input aria-label="Cliente" autoComplete="off" placeholder={lookups.clients?.length ? "Buscar cliente por nombre, ciudad, teléfono o email…" : "Cargando clientes…"} value={clientSearch} onChange={(event) => { const value = event.target.value; setClientSearch(value); if (!value) handleFormChange("client_id", ""); }} />{lookups.clients?.length > 0 && <button type="button" className="smart-client-clear" onClick={() => { setClientSearch(""); handleFormChange("client_id", ""); }} aria-label="Limpiar cliente" title="Limpiar cliente">×</button>}{!form.client_id && clientSearch.trim().length > 0 && <div className="smart-client-suggestions">{(lookups.clients || []).filter((item: any) => `${item.name || ""} ${item.city || ""} ${item.phone || ""} ${item.email || ""}`.toLowerCase().includes(clientSearch.trim().toLowerCase())).slice(0, 8).map((item: any) => <button type="button" key={item.id} onClick={() => { setClientSearch(`${item.name}${item.city ? ` · ${item.city}` : ""}`); handleFormChange("client_id", String(item.id)); }}><b>{item.name}{item.city ? ` · ${item.city}` : ""}</b><small>{[item.phone, item.email].filter(Boolean).join(" · ") || "Sin datos de contacto"}</small></button>)}{!(lookups.clients || []).some((item: any) => `${item.name || ""} ${item.city || ""} ${item.phone || ""} ${item.email || ""}`.toLowerCase().includes(clientSearch.trim().toLowerCase())) && <span className="smart-client-no-results">No hay clientes que coincidan.</span>}</div>}</div>
@@ -3204,10 +3404,16 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
             <div><button type="button" className="button primary" onClick={createShippingLocation}>Guardar ubicación</button><button type="button" className="button secondary" onClick={() => setNewShippingLocationOpen(false)}>Cancelar</button></div>
           </div>}
         </>
+      ) : active === "Productos" && f === "supplier_id" ? (
+        <div className="supplier-picker">
+          <input aria-label="Buscar proveedor" autoComplete="off" placeholder="Buscar por nombre, NIF, teléfono o email…" value={supplierSearch || (lookups.suppliers || []).find((item: any) => Number(item.id) === Number(form.supplier_id))?.name || ""} onChange={(event) => { const value = event.target.value; setSupplierSearch(value); if (!value) handleFormChange(f, ""); }} />
+          {supplierSearch && !form.supplier_id && <div className="supplier-suggestions">{(lookups.suppliers || []).filter((item: any) => `${item.name || ""} ${item.tax_id || ""} ${item.phone || ""} ${item.email || ""}`.toLowerCase().includes(supplierSearch.toLowerCase())).slice(0, 8).map((item: any) => <button type="button" key={item.id} onClick={() => { setSupplierSearch(item.name || ""); handleFormChange(f, String(item.id)); }}><b>{item.name}</b><small>{[item.tax_id, item.phone, item.email].filter(Boolean).join(" · ") || "Sin datos adicionales"}</small></button>)}{!(lookups.suppliers || []).some((item: any) => `${item.name || ""} ${item.tax_id || ""} ${item.phone || ""} ${item.email || ""}`.toLowerCase().includes(supplierSearch.toLowerCase())) && <span>No hay proveedores que coincidan.</span>}</div>}
+          <button type="button" className="button secondary supplier-new-button" onClick={() => setNewSupplierOpen(true)}>＋ Crear proveedor</button>
+        </div>
       ) : f === "client_id" || f === "product_id" || f === "warehouse_id" || f === "supplier_id" || f === "primary_supplier_id" || f === "collection_point_id" || f === "order_id" || f === "shipment_id" ? (
         <select
           aria-label={c.labels[i]}
-          required={c.api === "orders" ? f === "client_id" : !['warehouse_id', 'order_id', 'shipment_id', 'supplier_id', 'primary_supplier_id'].includes(f)}
+          required={active === "Productos" ? ["warehouse_id", "supplier_id"].includes(f) : c.api === "orders" ? f === "client_id" : !['warehouse_id', 'order_id', 'shipment_id', 'supplier_id', 'primary_supplier_id'].includes(f)}
           value={form[f] ?? ""}
           onChange={(e) => handleFormChange(f, e.target.value)}
         >
@@ -3218,10 +3424,22 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
         </select>
       ) : active === "Productos" && f === "product_status" ? (
         <select aria-label={c.labels[i]} value={form[f] ?? "Activo"} onChange={(e) => handleFormChange(f, e.target.value)}>{["Activo", "Inactivo", "Descatalogado", "Estacional"].map((value) => <option key={value}>{value}</option>)}</select>
-      ) : active === "Productos" && ["category", "family", "subfamily"].includes(f) ? (
-        <select aria-label={c.labels[i]} value={form[f] ?? ""} onChange={(e) => handleFormChange(f, e.target.value)}><option value="">Seleccionar...</option>{(f === "category" ? ["Bebidas", "Aguas", "Refrescos", "Zumos", "Vinos", "Cervezas", "Destilados", "Alimentación"] : f === "family" ? ["Agua", "Refresco", "Zumo", "Vino", "Cerveza", "Tónica", "Isotónica"] : ["Con gas", "Sin gas", "Naranja", "Limón", "Tinto", "Blanco", "Premium"]).map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Productos" && ["family", "subfamily"].includes(f) ? (
+        <select aria-label={c.labels[i]} value={form[f] ?? ""} onChange={(e) => handleFormChange(f, e.target.value)}><option value="">Seleccionar...</option>{(f === "family" ? ["Agua", "Refresco", "Zumo", "Vino", "Cerveza", "Tónica", "Isotónica"] : ["Con gas", "Sin gas", "Naranja", "Limón", "Tinto", "Blanco", "Premium"]).map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Productos" && f === "preorder" ? (
+        <select aria-label={c.labels[i]} value={String(form[f] ?? "1")} onChange={(e) => handleFormChange(f, e.target.value)}><option value="1">Sí</option><option value="0">No</option></select>
+      ) : active === "Productos" && f === "inventory_valuation_method" ? (
+        <select aria-label={c.labels[i]} required value={form[f] ?? "FIFO"} onChange={(e) => handleFormChange(f, e.target.value)}>{["FIFO", "LIFO", "PMP", "Identificación específica"].map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Productos" && f === "accounting_product_group" ? (
+        <select aria-label={c.labels[i]} required value={form[f] ?? "Mercaderías"} onChange={(e) => handleFormChange(f, e.target.value)}>{["Mercaderías", "Productos terminados", "Materias primas", "Otro"].map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Productos" && f === "accounting_vat_group" ? (
+        <select aria-label={c.labels[i]} required value={form[f] ?? "21%"} onChange={(e) => handleFormChange(f, e.target.value)}>{["21%", "10%", "4%", "2%", "0%", "Otro"].map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Productos" && f === "inventory_register_group" ? (
+        <select aria-label={c.labels[i]} required value={form[f] ?? "Mercaderías"} onChange={(e) => handleFormChange(f, e.target.value)}>{["Mercaderías", "Inventario general", "Otro"].map((value) => <option key={value}>{value}</option>)}</select>
       ) : active === "Productos" && ["unit", "purchase_format", "sale_format"].includes(f) ? (
-        <select aria-label={c.labels[i]} value={form[f] ?? ""} onChange={(e) => handleFormChange(f, e.target.value)}><option value="">Seleccionar...</option>{["Unidad", "Caja", "Pack de 4", "Pack de 6", "Palé"].map((value) => <option key={value}>{value}</option>)}</select>
+        <select aria-label={c.labels[i]} required={f === "unit"} value={form[f] ?? ""} onChange={(e) => handleFormChange(f, e.target.value)}><option value="">Seleccionar...</option>{["unidad", "caja de 4", "caja de 6", "caja de 8", "caja de 10", "caja de 12", "caja de 15", "caja de 16", "palet"].map((value) => <option key={value}>{value}</option>)}</select>
+      ) : active === "Productos" && f === "product_tracking_code" ? (
+        <select aria-label={c.labels[i]} required value={form[f] ?? "Sin seguimiento"} onChange={(e) => handleFormChange(f, e.target.value)}><option>Sin seguimiento</option><option>Seguimiento de lote</option><option>Lote y fecha de caducidad</option></select>
       ) : active === "Productos" && ["fixed_supplier", "lot_tracking", "expiry_tracking", "returnable_packaging"].includes(f) ? (
         <select aria-label={c.labels[i]} value={String(form[f] ?? "0")} onChange={(e) => handleFormChange(f, e.target.value)}><option value="0">No</option><option value="1">Sí</option></select>
       ) : active === "Documentos" && f === "type" ? (
@@ -3241,30 +3459,33 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
           {(active === "Facturas" ? ["Proforma", "Pendiente", "Parcial", "Cobrada", "Vencida", "Anulada"] : [...(active === "Documentos" ? ["Activa", "Borrador", "Archivada"] : []), ...(active === "Pedidos" ? ["Nuevo"] : []), "Pendiente", "Confirmado", "Preparando", "Preparado", "Enviado", "Entregado", "Cancelado", "Cobrada"]).map((s) => <option key={s}>{s}</option>)}
         </select>
       ) : ["content", "description"].includes(f) || (active === "Pedidos" && f === "notes") ? (
-        <textarea aria-label={c.labels[i]} required={!['description', 'notes'].includes(f)} value={form[f] ?? ""} onChange={(e) => handleFormChange(f, e.target.value)} />
+        <textarea aria-label={c.labels[i]} required={active === "Productos" && f === "description" ? true : !['description', 'notes'].includes(f)} value={form[f] ?? ""} onChange={(e) => handleFormChange(f, e.target.value)} />
       ) : (
         <input
-          required={c.api === "orders"
+          required={active === "Productos"
+            ? ["name", "sku", "category", "created_at", "warehouse_location", "cost_price", "last_direct_cost", "markup_percent", "unit_price"].includes(f)
+            : c.api === "orders"
             ? ["code", "client_id"].includes(f)
             : active === "Notas"
             ? ["title", "content"].includes(f)
             : active === "Productos"
             ? f === "name"
             : !["phone", "email", "address", "notes", "attachment_name", "sent_by", "delivered_by"].includes(f) && !(c.api === "expenses" && f === "code")}
-          type={["amount", "stock", "stock_reserved", "quantity", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "client_id", "product_id", "order_id", "invoice_id", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "picking_order", "target_margin_percent", "min_margin_percent", "freight_cost", "handling_cost", "real_cost", "tax_surcharge_percent", "extra_tax_percent"].includes(f) ? "number" : ["movement_date", "return_date", "reviewed_at", "authorized_at"].includes(f) ? "datetime-local" : ["expense_date", "delivery_date", "preparation_date", "shipping_date"].includes(f) ? "date" : "text"}
+          type={["amount", "stock", "stock_reserved", "quantity", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "client_id", "product_id", "order_id", "invoice_id", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "picking_order", "target_margin_percent", "min_margin_percent", "freight_cost", "handling_cost", "real_cost", "tax_surcharge_percent", "extra_tax_percent", "cost_price", "last_direct_cost", "markup_percent"].includes(f) ? "number" : ["movement_date", "return_date", "reviewed_at", "authorized_at"].includes(f) ? "datetime-local" : ["expense_date", "delivery_date", "preparation_date", "shipping_date", "created_at"].includes(f) ? "date" : "text"}
+          step={["unit_price", "cost_price", "last_direct_cost", "markup_percent"].includes(f) ? "0.01" : undefined}
           value={form[f] ?? ""}
-          readOnly={f === "created_by" || (f === "code" && isOrderForm && !editing)}
+          readOnly={f === "created_by" || f === "category_code" || (f === "code" && isOrderForm && !editing)}
           onChange={(e) => handleFormChange(f, e.target.value)}
         />
       )}
     </label>
   );
   const productSections = [
-    { title: "Producto", fields: ["name", "sku", "barcode", "supplier_ref", "family", "subfamily", "category", "brand", "format", "unit", "purchase_format", "sale_format", "product_status"] },
-    { title: "Inventario y logística", fields: ["stock", "stock_reserved", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "warehouse_location", "picking_order"] },
-    { title: "Costes y márgenes", fields: ["cost_price", "unit_price", "markup_percent", "margin_percent", "target_margin_percent", "min_margin_percent", "freight_cost", "handling_cost", "real_cost"] },
-    { title: "Precios e impuestos", fields: ["vat", "tax_surcharge_percent", "extra_tax_name", "extra_tax_percent", "fixed_supplier", "primary_supplier_id", "supplier_id"] },
-    { title: "Reposición y trazabilidad", fields: ["lot_tracking", "expiry_tracking", "returnable_packaging"] },
+    { title: "Producto", fields: ["name", "sku", "description", "barcode", "supplier_ref", "category", "category_code", "brand", "format", "unit", "purchase_format", "sale_format", "product_status", "created_at", "supplier_id"] },
+    { title: "Inventario y logística", fields: ["warehouse_id", "warehouse_location", "preorder", "inventory_valuation_method", "stock", "stock_reserved", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "picking_order"] },
+    { title: "Costes y márgenes", fields: ["cost_price", "last_direct_cost", "unit_price", "markup_percent", "margin_percent", "target_margin_percent", "min_margin_percent", "freight_cost"] },
+    { title: "Precios e impuestos", fields: ["vat", "accounting_product_group", "accounting_vat_group", "inventory_register_group", "tax_surcharge_percent", "extra_tax_name", "extra_tax_percent", "fixed_supplier", "primary_supplier_id"] },
+    { title: "Reposición y trazabilidad", fields: ["product_tracking_code", "lot_tracking", "expiry_tracking", "returnable_packaging"] },
   ];
   const createActionLabels: Record<string, string> = {
     Productos: "Crear producto",
@@ -3326,6 +3547,8 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                     ? { return_date: tabletTodayInput(), status: "Pendiente", reviewed_by: "", authorized_by: "" }
                   : c.statusFilter
                     ? { status: "Preparando", packages: 1 }
+                  : active === "Productos"
+                    ? { created_at: tabletTodayInput(), preorder: "1", product_tracking_code: "Sin seguimiento", unit: "unidad", vat: "21", inventory_valuation_method: "FIFO", accounting_product_group: "Mercaderías", accounting_vat_group: "21%", inventory_register_group: "Mercaderías", product_status: "Activo" }
                   : isOrderForm || active === "Pedidos"
                     ? { code: nextOrderCode(), status: "Nuevo", created_by: user?.username || "Usuario local" }
                     : {},
@@ -3333,7 +3556,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
               setFormOpen(true);
             }}
           >
-            ＋ {active === "Pedidos" ? "Crear pedido" : createActionLabels[active] || "Crear registro"}
+            {active === "Pedidos" ? "Crear pedido" : createActionLabels[active] || "Crear registro"}
           </button>{" "}
           {active === "Facturas" && (
             <button
@@ -3346,9 +3569,10 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                 setFormOpen(true);
               }}
             >
-              ＋ Crear proforma
+              Crear proforma
             </button>
           )}{" "}
+          {active === "Pedidos" && <button type="button" className="button secondary" onClick={() => { setBillingOpen(true); void loadBillingOrders(); }}>Facturar pedidos</button>}{" "}
           {!isLoadPreparation && <>
             <button type="button" className="button secondary" onClick={download}>
               ↓ Descargar Excel/CSV
@@ -3374,6 +3598,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
         </div>
       </div>
       {dbError && <div className="db-error">{dbError}</div>}
+      {productSaveMessage && active === "Productos" && <div className="success-message" role="status">{productSaveMessage}</div>}
       {!isLoadPreparation && active !== "Pedidos" && <BusinessRelatedPanels active={active} rows={rows} lookups={lookups} onNavigate={onNavigate} />}
       {isLoadPreparation && <PreparationDayCards rows={preparationRows} lookups={lookups} dateFilter={preparationDateFilter} onDateFilterChange={setPreparationDateFilter} onOpen={(row) => void openPreparationRow(row)} />}
       {active === "Gastos y tickets" && (
@@ -3385,7 +3610,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
       )}
       <details
         ref={formAccordionRef}
-        className="form-accordion"
+        className={`form-accordion${active === "Productos" ? " product-form-accordion" : ""}`}
         open={formOpen || !!editing}
         onToggle={(e: any) => setFormOpen(e.currentTarget.open)}
       >
@@ -3445,7 +3670,20 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
               <div className="quote-lines-total"><span>Total del {isOrderForm ? "pedido" : "presupuesto"}</span><strong>{quoteLines.reduce((sum, line) => sum + Number(line.amount || 0), 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong></div>
             </section>
           )}
-          {active === "Productos" && <label className="product-photo-field">Foto del producto<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) attachProductPhoto(file); }} /><small>{form.photo_name ? `Foto seleccionada: ${form.photo_name}` : "Opcional. Se conserva en la base de datos local."}</small></label>}
+          {active === "Productos" && <>
+            <label className="product-photo-field">
+              <span>Foto del producto</span>
+              <input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) attachProductPhoto(file); }} />
+              <small>{form.photo_name ? `Foto seleccionada: ${form.photo_name}` : "Opcional. Se conserva en la base de datos local."}</small>
+            </label>
+            <section className="product-form-codes" aria-labelledby="product-form-codes-title">
+              <div className="product-form-codes-head">
+                <div><b id="product-form-codes-title">Códigos del producto</b><small>Se generan con el código de barras, el número proveedor o la referencia disponible.</small></div>
+                <span>Vista previa y descarga</span>
+              </div>
+              <ProductCodePreview code={String(form.barcode || form.sku || form.category_code || "EXC-PRODUCTO")} name={form.name} price={Number(form.unit_price || 0)} />
+            </section>
+          </>}
           {active === "Gastos y tickets" && (
             <label className="expense-attachment-field">
               Ticket o justificante
@@ -3485,6 +3723,18 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
           )}
         </form>
       </details>
+      {productConfirmOpen && active === "Productos" && (
+        <div className="preview-overlay" role="dialog" aria-modal="true" aria-label="Confirmar producto">
+          <section className="preview-card product-confirm-card">
+            <header className="preview-header"><div><b>Confirmar producto</b><small>Revisa la ficha antes de guardar.</small></div><button type="button" className="preview-close" aria-label="Cerrar" onClick={() => setProductConfirmOpen(false)}>×</button></header>
+            <div className="product-confirm-grid">
+              {[['Producto', form.name], ['Número proveedor', form.sku], ['Descripción', form.description], ['Unidad base', form.unit], ['Categoría', form.category], ['Código categoría', form.category_code], ['Fecha de alta', form.created_at], ['Almacén', (lookups.warehouses || []).find((item: any) => Number(item.id) === Number(form.warehouse_id))?.name || form.warehouse_id], ['Estante', form.warehouse_location], ['Seguimiento', form.product_tracking_code], ['Coste unitario', form.cost_price], ['Coste último directo', form.last_direct_cost || form.cost_price], ['Incremento de venta', form.markup_percent], ['Precio de venta', form.unit_price], ['Grupo contable', form.accounting_product_group], ['IVA', form.accounting_vat_group], ['Proveedor', (lookups.suppliers || []).find((item: any) => Number(item.id) === Number(form.supplier_id))?.name || form.supplier_id]].map(([label, value]) => <div key={label}><small>{label}</small><b>{String(value || '—')}</b></div>)}
+            </div>
+            <ProductCodePreview code={String(form.barcode || form.sku || form.category_code || "EXC-PRODUCTO")} name={form.name} price={Number(form.unit_price || 0)} />
+            <footer className="preview-actions"><button type="button" className="button secondary" onClick={() => setProductConfirmOpen(false)}>Volver a editar</button><button type="button" className="button primary" onClick={() => { setProductConfirmOpen(false); void saveRecord({ preventDefault() {} }); }}>Confirmar y guardar producto</button></footer>
+          </section>
+        </div>
+      )}
       {active === "Documentos" && (
         <section className="document-template-library">
           <div className="document-template-library-head">
@@ -3621,7 +3871,9 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                         {inlineEditing === (r.id ?? r.product_id) ? (
                           renderInlineEditor(f, r)
                         ) : (
-                          formatTableValue(f, r[f])
+                          f === "client_id" && r.client_name
+                            ? `${r.client_name}${r.client_city ? ` · ${r.client_city}` : ""}`
+                            : formatTableValue(f, r[f])
                         )}
                       </td>
                     ))}
@@ -3735,6 +3987,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
         <p className="muted empty-row">{rows.length ? "No hay productos que coincidan con los filtros." : "No hay registros todavía."}</p>
       )}
       </div>
+      {active === "Productos" && newSupplierOpen && <div className="preview-overlay" onMouseDown={(event) => event.target === event.currentTarget && !newSupplierSaving && setNewSupplierOpen(false)}><form className="supplier-create-modal" onSubmit={saveNewSupplier}><header className="preview-header"><div><b>Crear proveedor</b><small>Completa los datos del proveedor y quedará seleccionado en el producto.</small></div><button type="button" className="preview-close" aria-label="Cerrar" onClick={() => !newSupplierSaving && setNewSupplierOpen(false)}>×</button></header><div className="supplier-create-grid"><label>Nombre *<input required autoFocus value={newSupplier.name} onChange={(event) => setNewSupplier({ ...newSupplier, name: event.target.value })} /></label><label>NIF/CIF<input value={newSupplier.tax_id} onChange={(event) => setNewSupplier({ ...newSupplier, tax_id: event.target.value })} /></label><label>Persona de contacto<input value={newSupplier.contact} onChange={(event) => setNewSupplier({ ...newSupplier, contact: event.target.value })} /></label><label>Teléfono<input value={newSupplier.phone} onChange={(event) => setNewSupplier({ ...newSupplier, phone: event.target.value })} /></label><label>Email<input type="email" value={newSupplier.email} onChange={(event) => setNewSupplier({ ...newSupplier, email: event.target.value })} /></label><label>Condiciones de pago<input value={newSupplier.payment_terms} onChange={(event) => setNewSupplier({ ...newSupplier, payment_terms: event.target.value })} /></label><label className="supplier-create-wide">Dirección<textarea value={newSupplier.address} onChange={(event) => setNewSupplier({ ...newSupplier, address: event.target.value })} /></label></div><footer className="preview-actions"><button type="button" className="button secondary" onClick={() => setNewSupplierOpen(false)}>Cancelar</button><button className="button primary" disabled={newSupplierSaving}>{newSupplierSaving ? "Guardando…" : "Guardar proveedor"}</button></footer></form></div>}
       {active === "Productos" && labelProduct && (
         <ProductLabelModal
           product={labelProduct}
@@ -3815,6 +4068,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                 <b>Estado:</b> {preview.status}
               </p>
             </div>
+            {(previewLocation || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewLocation?.address || previewClient?.address || "Dirección no indicada"}</span>{previewLocation?.geocoding_status === "Geolocalizada" ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.openstreetmap.org/?mlat=${previewLat}&mlon=${previewLon}#map=16/${previewLat}/${previewLon}`} target="_blank" rel="noreferrer">Abrir mapa</a><a className="button secondary" href={`https://www.openstreetmap.org/directions?from=&to=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Ver ruta</a></> : <a className="button secondary" href={`https://www.openstreetmap.org/search?query=${encodeURIComponent([previewLocation?.address, previewLocation?.city, "España"].filter(Boolean).join(", "))}`} target="_blank" rel="noreferrer">Buscar en mapa</a>}</section>}
             {isLoadPreparation && !["Preparando", "Preparado", "Preparado con incidencia"].includes(String(preview.status || "")) && (
               <div className="preparation-start-banner">
                 <div><b>Pedido pendiente de preparar</b><small>Al iniciar quedará asignado a {user?.username || "tu usuario"} con fecha y hora.</small></div>
@@ -4039,6 +4293,15 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
           </article>
         </div>
       )}
+      {billingOpen && <div className="preview-overlay" onClick={() => !billingSaving && setBillingOpen(false)}><article className="billing-modal" onClick={(event) => event.stopPropagation()}>
+        <button className="preview-close" onClick={() => !billingSaving && setBillingOpen(false)}>×</button>
+        <p className="eyebrow">FACTURACIÓN · EXCLUSIVAS INTELIGENTES</p><h2>Facturar pedidos</h2>
+        <p className="muted">Selecciona pedidos del mismo cliente para crear una única factura. Los ya facturados quedan bloqueados.</p>
+        <div className="billing-toolbar"><label>Desde<input type="date" value={billingFrom} onChange={(e) => setBillingFrom(e.target.value)} /></label><label>Hasta<input type="date" value={billingTo} onChange={(e) => setBillingTo(e.target.value)} /></label><label>Cliente<select value={billingClient} onChange={(e) => setBillingClient(e.target.value)}><option value="">Todos los clientes</option>{(lookups.clients || []).map((client: any) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label><button className="button secondary" onClick={() => void loadBillingOrders()}>Buscar</button></div>
+        {billingError && <div className="error-message" role="alert">{billingError}</div>}
+        {billingLoading ? <div className="data-loading"><span className="loading-spinner" />Cargando pedidos…</div> : <div className="billing-list">{billingRows.length ? billingRows.map((row: any) => <label className={`billing-row${row.billed ? " billed" : ""}`} key={row.id}><input type="checkbox" disabled={Boolean(row.billed)} checked={billingSelected.includes(Number(row.id))} onChange={() => setBillingSelected((current) => current.includes(Number(row.id)) ? current.filter((id) => id !== Number(row.id)) : [...current, Number(row.id)])} /><span><b>{row.code}</b><small>{row.client_name || "Cliente no indicado"} · {row.created_at ? formatSpanishDateValue(row.created_at, false) : "Fecha no indicada"}</small></span><strong>{Number(row.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong><em>{row.billed ? "Ya facturado" : row.status || "Pendiente"}</em><button type="button" className="button link-button" onClick={() => { setBillingOpen(false); void openPreview(row); }}>Ver pedido</button></label>) : <p className="empty-state">No hay pedidos para los filtros seleccionados.</p>}</div>}
+        <div className="billing-footer"><span>{billingSelected.length} seleccionados · {billingRows.filter((row) => billingSelected.includes(Number(row.id))).reduce((sum, row) => sum + Number(row.amount || 0), 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</span><button className="button primary" disabled={!billingSelected.length || billingSaving} onClick={() => void createGroupedInvoice()}>{billingSaving ? "Creando…" : "Crear factura agrupada"}</button></div>
+      </article></div>}
     </div>
     </>
   );
@@ -7490,11 +7753,65 @@ function QuickExpenseModal({
   );
 }
 
-export default function Home() {
+function HomeNotePreviewModal({ note, user, onClose, onOpenPreparation }: { note: any; user: any; onClose: () => void; onOpenPreparation: () => void }) {
+  const [action, setAction] = useState("review");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const isIncident = String(note?.module || "") === "Preparación de pedidos";
+  const actionLabels: Record<string, { label: string; status: string; resolution: string; completed: number }> = {
+    partial: { label: "Autorizar envío parcial", status: "Resuelta", resolution: "Envío parcial autorizado", completed: 1 },
+    backorder: { label: "Solicitar reposición", status: "Pendiente de reposición", resolution: "Reposición solicitada", completed: 0 },
+    cancel: { label: "Cancelar unidades faltantes", status: "Resuelta", resolution: "Unidades faltantes canceladas", completed: 1 },
+    review: { label: "Dejar en revisión", status: "Pendiente", resolution: "Pendiente de revisión", completed: 0 },
+  };
+  async function applyAction() {
+    const selected = actionLabels[action] || actionLabels.review;
+    setSaving(true); setError("");
+    try {
+      const response = await fetch(`/api/notes/${note.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-Actor": user?.username || "Usuario local" },
+        body: JSON.stringify({ ...note, status: selected.status, resolution: selected.resolution, completed: selected.completed, resolved_at: new Date().toISOString(), resolved_by: user?.username || "Usuario local" }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "No se pudo guardar la resolución.");
+      onClose();
+    } catch (e: any) { setError(e.message || "No se pudo guardar la resolución."); }
+    finally { setSaving(false); }
+  }
+  return <div className="preview-overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <article className="note-preview-card home-note-preview-card" onClick={(event) => event.stopPropagation()}>
+      <button className="preview-close" onClick={onClose} aria-label="Cerrar">×</button>
+      <p className="eyebrow">NOTAS · EXCLUSIVAS INTELIGENTES</p>
+      <h2>{note.title || "Nota"}</h2>
+      <div className="note-preview-meta"><span><b>Prioridad</b>{note.priority || "Normal"}</span><span><b>Sección</b>{note.module || "General"}</span><span><b>Estado</b>{note.status || (Number(note.completed) === 1 ? "Resuelta" : "Pendiente")}</span></div>
+      {isIncident && <div className="note-preview-incident-context"><div><b>Pedido relacionado</b><span>{note.title?.split("·").slice(1).join("·").trim() || (note.record_id ? `Pedido #${note.record_id}` : "Sin pedido relacionado")}</span></div><div><b>Registrada por</b><span>{note.created_by || "Usuario local"}</span></div><div><b>Fecha de registro</b><span>{note.created_at ? formatSpanishDateValue(note.created_at, true) : "—"}</span></div></div>}
+      <div className="note-preview-content">{note.content || "Sin contenido adicional."}</div>
+      {isIncident && <div className="note-preview-resolution"><div className="note-preview-resolution-head"><b>Resolver incidencia</b><small>Guarda la decisión y deja trazabilidad de quién la autoriza.</small></div><div className="note-preview-resolution-controls"><select aria-label="Acción de resolución" value={action} onChange={(event) => setAction(event.target.value)} disabled={saving}><option value="partial">Autorizar envío parcial</option><option value="backorder">Solicitar reposición</option><option value="cancel">Cancelar unidades faltantes</option><option value="review">Dejar en revisión</option></select><button className="button primary" disabled={saving} onClick={() => void applyAction()}>{saving ? "Guardando…" : "Aplicar resolución"}</button></div>{error && <p className="note-preview-error" role="alert">{error}</p>}</div>}
+      <div className="note-preview-actions">{isIncident && <button className="button secondary" onClick={onOpenPreparation}>Abrir preparación</button>}<button className="button secondary" onClick={onClose}>Editar nota</button><button className="button primary" onClick={onClose}>Cerrar</button></div>
+    </article>
+  </div>;
+}
+
+export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleScopes }) {
+  const routeModules = routeModuleScopes[routeMode] || routeModuleScopes.crm;
   const [active, setActive] = useState(() => {
     if (typeof window === "undefined") return "Inicio";
-    try { return localStorage.getItem("excluvas.active-section") || "Inicio"; } catch { return "Inicio"; }
+    try {
+      const stored = localStorage.getItem("excluvas.active-section") || "Inicio";
+      return routeModules.includes(stored) ? stored : routeModules[0];
+    } catch { return routeModules[0]; }
   });
+  useEffect(() => {
+    const sectionByPath: Record<string, string> = {
+      "/comercial": "Pedidos",
+      "/almacen": "Preparación de pedidos",
+      "/web": "Inicio",
+      "/crm": "Inicio",
+    };
+    const section = sectionByPath[window.location.pathname.replace(/\/$/, "")] || "";
+    if (section && routeModules.includes(section)) setActive(section);
+  }, []);
   const [webOrderOpen, setWebOrderOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
     id: 0,
@@ -7502,45 +7819,83 @@ export default function Home() {
     role: "admin",
     permissions: "*",
   });
-  const allowedModules = allowedModulesFor(currentUser);
+  const allowedModules = allowedModulesFor(currentUser).filter((module) => routeModules.includes(module));
   const [homeAmountsVisible, setHomeAmountsVisible] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [homeNotePreview, setHomeNotePreview] = useState<any>(null);
+  const [homeNotePreviewLoading, setHomeNotePreviewLoading] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notificationsSeenAt, setNotificationsSeenAt] = useState(0);
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
+  const [notificationHistoryOpen, setNotificationHistoryOpen] = useState(false);
+  const [stockAlertPreview, setStockAlertPreview] = useState<any>(null);
   async function loadNotifications() {
     try {
-      const response = await fetch(
-        "/api/audit_logs",
-        { headers: { "X-Audit-Query": "true" } },
-      );
-      const data = await response.json();
-      setNotifications(
-        (Array.isArray(data) ? data : [])
-          .filter(
-            (item: any) =>
-              item.method === "POST" &&
-              ["Alta", "Alerta stock", "Incidencia preparación"].includes(item.action),
-          )
-          .slice(0, 8),
-      );
+      const [response, ordersResponse, clientsResponse] = await Promise.all([
+        fetch("/api/audit_logs", { headers: { "X-Audit-Query": "true" } }),
+        fetch("/api/orders"),
+        fetch("/api/clients"),
+      ]);
+      const productsResponse = await fetch("/api/products");
+      const [data, ordersData, clientsData] = await Promise.all([
+        response.json(), ordersResponse.json(), clientsResponse.json(),
+      ]);
+      const productsData = await productsResponse.json().catch(() => []);
+      const orders = Array.isArray(ordersData) ? ordersData : [];
+      const clients = Array.isArray(clientsData) ? clientsData : [];
+      const products = Array.isArray(productsData) ? productsData : [];
+      const getOrderId = (item: any) => {
+        const resourceMatch = String(item?.resource || "").match(/(?:orders|order)\/(\d+)/i);
+        const detailsMatch = String(item?.details || "").match(/(?:orders|order)[\/]?(\d+)/i);
+        let structuredOrderId = 0;
+        try { structuredOrderId = Number(JSON.parse(String(item?.details || "{}")).order_id || 0); } catch {}
+        return Number(item?.order_id || structuredOrderId || (resourceMatch || detailsMatch)?.[1] || 0);
+      };
+      setNotifications((Array.isArray(data) ? data : [])
+        .filter((item: any) => item.method === "POST" && (
+          ["Alerta stock", "Incidencia preparación"].includes(item.action) ||
+          (item.action === "Alta" && /^orders\/\d+$/i.test(String(item.resource || "")))
+        ))
+        .slice(0, 8)
+        .map((item: any) => {
+          const orderId = getOrderId(item);
+          const order = orderId ? orders.find((row: any) => Number(row.id) === orderId) : null;
+          const client = order ? clients.find((row: any) => Number(row.id) === Number(order.client_id)) : null;
+          let shortageDetails: any[] = [];
+          try { shortageDetails = Array.isArray(JSON.parse(String(item.details || "[]"))) ? JSON.parse(String(item.details || "[]")) : []; } catch {}
+          const stockItems = item.action === "Alerta stock" ? shortageDetails.map((shortage: any) => {
+            const product = products.find((row: any) => Number(row.id) === Number(shortage.product_id));
+            const physical = Number(product?.stock || 0);
+            const reserved = Number(product?.stock_reserved || 0);
+            const available = physical - reserved;
+            return { ...shortage, product_name: product?.name || `Producto #${shortage.product_id}`, warehouse_location: product?.warehouse_location || "Ubicación no indicada", physical, reserved, pending: reserved, available, deficit: Math.max(0, reserved - physical) };
+          }) : [];
+          return { ...item, order_id: orderId, order_code: order?.code || "", client_name: client?.name || "Cliente no indicado", stock_items: stockItems };
+        }));
     } catch {}
   }
   const unreadNotifications = notifications.filter(
-    (item) => new Date(item.created_at).getTime() > notificationsSeenAt,
+    (item) => !readNotificationIds.includes(String(item.id)) && new Date(item.created_at).getTime() > notificationsSeenAt,
   ).length;
+  const visibleNotifications = notificationHistoryOpen
+    ? notifications
+    : notifications.filter(
+      (item) => !readNotificationIds.includes(String(item.id)) && new Date(item.created_at).getTime() > notificationsSeenAt,
+    );
   useEffect(() => {
     try {
       setNotificationsSeenAt(
         Number(localStorage.getItem("excluvas.notifications.seen") || 0),
       );
+      setReadNotificationIds(JSON.parse(localStorage.getItem("excluvas.notifications.read") || "[]"));
     } catch {}
     loadNotifications();
     const timer = window.setInterval(loadNotifications, 15000);
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (!allowedModules.includes(active)) setActive(preferredModuleFor(currentUser));
+    if (!allowedModules.includes(active)) setActive(allowedModules[0] || "Inicio");
   }, [active, currentUser]);
   useEffect(() => {
     if (!allowedModules.includes(active)) return;
@@ -7548,13 +7903,30 @@ export default function Home() {
   }, [active, currentUser]);
   function openNotifications() {
     setNotificationOpen((open) => !open);
-    const now = Date.now();
-    setNotificationsSeenAt(now);
-    try {
-      localStorage.setItem("excluvas.notifications.seen", String(now));
-    } catch {}
+  }
+  function markNotificationRead(item: any) {
+    const id = String(item.id);
+    setReadNotificationIds((current) => {
+      const next = current.includes(id) ? current : [...current, id];
+      try { localStorage.setItem("excluvas.notifications.read", JSON.stringify(next.slice(-200))); } catch {}
+      return next;
+    });
+  }
+  function markAllNotificationsRead() {
+    const ids = notifications.map((item) => String(item.id));
+    setReadNotificationIds((current) => {
+      const next = Array.from(new Set([...current, ...ids]));
+      try { localStorage.setItem("excluvas.notifications.read", JSON.stringify(next.slice(-200))); } catch {}
+      return next;
+    });
   }
   function openNotificationTarget(item: any) {
+    markNotificationRead(item);
+    if (item?.action === "Alerta stock") {
+      setStockAlertPreview(item);
+      setNotificationOpen(false);
+      return;
+    }
     if (item?.action === "Incidencia preparación") {
       setNotificationOpen(false);
       const match = String(item?.resource || "").match(/^preparation-incidents\/(\d+)$/);
@@ -7565,16 +7937,18 @@ export default function Home() {
       }
       return;
     }
-    const match = String(item?.resource || "").match(/^orders\/(\d+)$/);
-    const orderId = match ? Number(match[1]) : 0;
+    const resourceMatch = String(item?.resource || "").match(/(?:orders|order)\/(\d+)/i);
+    const detailsMatch = String(item?.details || "").match(/(?:orders|order)[\/]?(\d+)/i);
+    const orderId = Number(item?.order_id || (resourceMatch || detailsMatch)?.[1] || 0);
     setNotificationOpen(false);
     if (!orderId) {
       setActive("Pedidos");
       return;
     }
     setActive("Pedidos");
-    // El gestor necesita estar montado para recibir la orden de previsualización.
-    window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-pedido", { detail: orderId })), 160);
+    // El gestor de Pedidos consume este identificador cuando la sección termina de montarse.
+    try { sessionStorage.setItem("excluvas.pending-order-preview", JSON.stringify({ id: orderId, code: item?.order_code || "", clientName: item?.client_name || "" })); } catch {}
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-pedido", { detail: { id: orderId, code: item?.order_code || "", clientName: item?.client_name || "" } })), 800);
   }
   function logoutFromMenu() {
     localStorage.removeItem("excluvas.session");
@@ -7833,10 +8207,9 @@ export default function Home() {
   function openNoteTarget(note: any) {
     const noteId = Number(note?.id || 0);
     if (!noteId) return;
-    try { sessionStorage.setItem("excluvas.pending-note-preview", String(noteId)); } catch {}
-    // La tarjeta del inicio debe abrir el mismo detalle completo que una
-    // notificación, incluyendo las acciones de resolución de incidencias.
-    window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-nota", { detail: noteId })), 320);
+    // La tarjeta ya contiene el detalle completo cargado desde Inicio. Evita
+    // pedir /api/notes/:id, una ruta que no existe y provocaba un 404 fugaz.
+    setHomeNotePreview(note);
   }
   async function createHomeNote(event: FormEvent) {
     event.preventDefault();
@@ -8002,27 +8375,31 @@ export default function Home() {
               <div className="notification-menu" role="dialog" aria-label="Notificaciones">
                 <div className="notification-menu-head">
                   <b>Notificaciones</b>
-                  <span>{notifications.length} avisos pendientes</span>
+                  <span>{unreadNotifications} avisos pendientes <button type="button" className="notification-mark-all" onClick={() => setNotificationHistoryOpen((value) => !value)}>{notificationHistoryOpen ? "Ver pendientes" : "Ver historial"}</button>{unreadNotifications > 0 && <button type="button" className="notification-mark-all" onClick={markAllNotificationsRead}>Marcar todas como leídas</button>}</span>
                 </div>
-                {notifications.length ? (
-                  notifications.map((item) => (
-                    <button
+                {visibleNotifications.length ? (
+                  visibleNotifications.map((item) => (
+                    <div
                       className="notification-item"
                       key={item.id}
                       onClick={() => openNotificationTarget(item)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openNotificationTarget(item); }}
                     >
-                      <span className="notification-item-icon">＋</span>
+                      <span className={`notification-item-icon ${!readNotificationIds.includes(String(item.id)) && new Date(item.created_at).getTime() > notificationsSeenAt ? "unread" : ""}`} aria-hidden="true" />
                       <span>
                         <b>
                           {item.action === "Alerta stock"
-                            ? `Alerta de stock · Pedido ${String(item.resource || "").split("/").pop() || ""}`
+                            ? `Alerta de stock · ${item.client_name || "Cliente no indicado"} · ${item.order_code || `Pedido ${item.order_id || ""}`}${item.order_id ? ` · ID ${item.order_id}` : ""}`
                             : item.action === "Incidencia preparación"
-                              ? "Incidencia en preparación · Revisar pedido"
-                              : "Nuevo pedido registrado"}
+                              ? `Incidencia en preparación · ${item.client_name || "Cliente no indicado"} · ${item.order_code || `Pedido ${item.order_id || ""}`}${item.order_id ? ` · ID ${item.order_id}` : ""}`
+                              : `Nuevo pedido · ${item.client_name || "Cliente no indicado"} · ${item.order_code || `Pedido ${item.order_id || ""}`}${item.order_id ? ` · ID ${item.order_id}` : ""}`}
                         </b>
-                        <small>{new Date(item.created_at).toLocaleString("es-ES")}</small>
+                        <small> · {new Date(item.created_at).toLocaleString("es-ES")}</small>
                       </span>
-                    </button>
+                      {readNotificationIds.includes(String(item.id)) ? <small className="notification-read-label">Leída</small> : <button type="button" className="notification-mark-read" onClick={(event) => { event.stopPropagation(); markNotificationRead(item); }}>Marcar leída</button>}
+                    </div>
                   ))
                 ) : (
                   <p className="notification-empty">No hay avisos nuevos.</p>
@@ -8030,6 +8407,16 @@ export default function Home() {
               </div>
             )}
           </div>
+          {stockAlertPreview && (
+            <div className="preview-overlay stock-alert-overlay" role="dialog" aria-modal="true" aria-label="Alerta de stock" onClick={(event) => { if (event.target === event.currentTarget) setStockAlertPreview(null); }}>
+              <section className="stock-alert-card">
+                <header className="stock-alert-head"><div><p className="eyebrow">AVISO DE STOCK</p><h2>Déficit detectado</h2><small>{stockAlertPreview.order_code || `Pedido ${stockAlertPreview.order_id || ""}`} · {stockAlertPreview.client_name || "Cliente no indicado"}</small></div><button type="button" className="preview-close" aria-label="Cerrar" onClick={() => setStockAlertPreview(null)}>×</button></header>
+                <p className="stock-alert-intro">Este pedido puede dejar productos sin cobertura teniendo en cuenta las unidades ya reservadas por pedidos pendientes.</p>
+                <div className="stock-alert-list">{(stockAlertPreview.stock_items || []).map((stock: any) => <article className="stock-alert-item" key={stock.product_id}><div className="stock-alert-item-head"><b>{stock.product_name}</b><span>{stock.warehouse_location}</span></div><div className="stock-alert-metrics"><div><small>Stock físico</small><strong>{stock.physical}</strong></div><div><small>Reservado / pendiente</small><strong>{stock.pending}</strong></div><div><small>Déficit</small><strong className="is-danger">{stock.deficit}</strong></div></div><small className="stock-alert-requested">Este pedido solicita {stock.requested} unidades. El déficit ya tiene en cuenta las reservas de pedidos pendientes.</small></article>)}{!(stockAlertPreview.stock_items || []).length && <p className="empty-state">No se han podido recuperar los productos afectados.</p>}</div>
+                <footer className="stock-alert-actions"><button type="button" className="button secondary" onClick={() => setStockAlertPreview(null)}>Cerrar</button><button type="button" className="button secondary" onClick={() => { setStockAlertPreview(null); setActive("Stock"); }}>Ver stock</button><button type="button" className="button primary" onClick={() => { const target = { ...stockAlertPreview, action: "Alta" }; setStockAlertPreview(null); openNotificationTarget(target); }}>Abrir pedido</button></footer>
+              </section>
+            </div>
+          )}
           <button
             className={`user user-menu-trigger ${userMenuOpen ? "open" : ""}`}
             onClick={() => setUserMenuOpen((value) => !value)}
@@ -8065,7 +8452,7 @@ export default function Home() {
         </div>
       </div>
       <div className="workspace">
-        <Sidebar active={active} setActive={setActive} user={currentUser} />
+        <Sidebar active={active} setActive={setActive} user={currentUser} moduleScope={routeModules} />
         <section
           className={`content ${active === "Inicio" ? "home-content" : ""}`}
         >
@@ -8098,7 +8485,7 @@ export default function Home() {
               )}
             </div>
           </div>
-          {active === "Inicio" && (
+      {active === "Inicio" && (
             <div className="home-global-range">
               <div>
                 <b>Periodo</b>
@@ -8489,6 +8876,8 @@ export default function Home() {
           }}
         />
       )}
+      {homeNotePreviewLoading && <div className="preview-loading-overlay" role="status">Cargando detalle de la nota…</div>}
+      {homeNotePreview && <HomeNotePreviewModal note={homeNotePreview} user={currentUser} onClose={() => setHomeNotePreview(null)} onOpenPreparation={() => { setHomeNotePreview(null); setActive("Preparación de pedidos"); }} />}
     </main>
   );
 }
