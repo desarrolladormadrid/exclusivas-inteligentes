@@ -3485,7 +3485,6 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
           )}
         </form>
       </details>
-      {active === "Productos" && <ProductIntelligencePanel products={rows} suppliers={lookups.suppliers || []} actor={user?.username || "Usuario local"} />}
       {active === "Documentos" && (
         <section className="document-template-library">
           <div className="document-template-library-head">
