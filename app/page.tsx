@@ -3037,7 +3037,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     setIncidentResolution("partial");
   }
   async function createBulkPreparationIncident(lines: any[]) {
-    const actionableLines = lines.filter((line) => line.preparation_status !== "Incidencia");
+    const actionableLines = lines.filter((line) => line.preparation_status !== "Incidencia" && !String(line.incident_resolution || "").trim());
     if (!actionableLines.length) return setBulkIncidentError("No hay líneas nuevas con faltantes que registrar.");
     setBulkIncidentSaving(true);
     setBulkIncidentError("");
@@ -3268,7 +3268,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   const previewLat = Number(previewLocation?.latitude);
   const previewLon = Number(previewLocation?.longitude);
   const incompletePreparationLines = previewLines.filter((line: any) => Number(line.prepared_quantity || 0) < Number(line.quantity || 0));
-  const actionableIncompletePreparationLines = incompletePreparationLines.filter((line: any) => line.preparation_status !== "Incidencia");
+  const actionableIncompletePreparationLines = incompletePreparationLines.filter((line: any) => line.preparation_status !== "Incidencia" && !String(line.incident_resolution || "").trim());
   const isProducts = active === "Productos";
   const preparationRows = isLoadPreparation
     ? [
