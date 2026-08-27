@@ -14,6 +14,11 @@ test("login de usuarios locales", async () => {
   assert.equal(r.status, 200);
   assert.equal(r.data.user.role, "admin");
 });
+test("rechaza maestros sin nombre", async () => {
+  const r = await call("/products", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "", sku: "__TEST_SIN_NOMBRE__" }) });
+  assert.equal(r.status, 400);
+  assert.match(r.data.error, /nombre.*obligatorio/i);
+});
 test("todos los registros nuevos guardan fechas de auditoría", async () => {
   const created = await call("/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "__TEST_AUDITORIA__" }) });
   assert.equal(created.status, 201);

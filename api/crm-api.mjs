@@ -695,6 +695,16 @@ export async function crmApiHandler(req, res) {
       const reopenPreparation = Boolean(d.reopen_preparation);
       delete d.reopen_preparation;
       if (req.method === "POST") {
+        if (["products", "clients", "suppliers", "warehouses"].includes(t) && !String(d.name || "").trim()) {
+          return send(res, 400, { error: "El nombre es obligatorio" });
+        }
+        if (["orders", "quotes", "invoices", "returns"].includes(t) && !String(d.code || "").trim()) {
+          return send(res, 400, { error: "El código es obligatorio" });
+        }
+        if (t === "products" && String(d.sku || "").trim()) {
+          const duplicate = db.prepare("SELECT id FROM products WHERE LOWER(TRIM(COALESCE(sku,'')))=LOWER(TRIM(?)) AND CAST(COALESCE(deleted,0) AS INTEGER)=0 LIMIT 1").get(String(d.sku));
+          if (duplicate) return send(res, 409, { error: "Ya existe un producto con ese SKU" });
+        }
         invalidateReadCache(t);
         const now = new Date().toISOString();
         if (d.created_at === undefined) d.created_at = now;
@@ -896,6 +906,10 @@ export async function crmApiHandler(req, res) {
         return send(res, 200, { ok: true, deleted: 1 });
       }
       if (req.method === "PUT") {
+        if (t === "products" && String(d.sku || "").trim()) {
+          const duplicate = db.prepare("SELECT id FROM products WHERE LOWER(TRIM(COALESCE(sku,'')))=LOWER(TRIM(?)) AND id<>? AND CAST(COALESCE(deleted,0) AS INTEGER)=0 LIMIT 1").get(String(d.sku), Number(p[2]));
+          if (duplicate) return send(res, 409, { error: "Ya existe un producto con ese SKU" });
+        }
         invalidateReadCache(t);
         const currentRecord = db.prepare(`SELECT id FROM ${t} WHERE id=?`).get(Number(p[2]));
         if (!currentRecord) return send(res, 404, { error: "Registro no encontrado" });
