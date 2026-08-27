@@ -38,6 +38,7 @@ const initialModules = [
   "Usuarios y permisos",
   "Papelera",
   "Documentos",
+  "OCR inteligente",
 ];
 const permissionModules = initialModules.filter((module) => module !== "Inicio" && module !== "Usuarios y permisos" && module !== "Papelera");
 function normalizeSearchText(value: unknown) {
@@ -792,7 +793,7 @@ const sidebarGroups = [
     items: ["Proveedores", "Compras", "Compras inteligentes", "Gastos y tickets"],
   },
   { name: "Análisis y control", items: ["Balance", "Informes"] },
-  { name: "Automatización", items: ["Tareas programadas", "Notas"] },
+  { name: "Automatización", items: ["Tareas programadas", "Notas", "OCR inteligente"] },
   { name: "Administración", items: ["Usuarios y permisos", "Documentos", "Historial", "Papelera"] },
 ];
 
@@ -801,9 +802,18 @@ const routeModuleScopes: Record<string, string[]> = {
   comercial: ["Pedidos", "Clientes", "Contactos", "Presupuestos", "Albaranes", "Facturas", "Cobros", "Envíos"],
   almacen: ["Preparación de pedidos", "Stock", "Productos", "Almacenes", "Entradas", "Salidas", "Devoluciones", "Envíos", "Pedidos", "Notas"],
   web: ["Inicio", "Pedidos", "Clientes", "Productos"],
+  ocr: ["OCR inteligente"],
 };
 
-function Sidebar({
+const routeDefaultSections: Record<string, string> = {
+  "/comercial": "Pedidos",
+  "/almacen": "Preparación de pedidos",
+  "/web": "Inicio",
+  "/crm": "Inicio",
+  "/ocr": "OCR inteligente",
+};
+
+export function Sidebar({
   active,
   setActive,
   user,
@@ -1820,6 +1830,8 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   };
   const [rows, setRows] = useState<any[]>([]);
   const [form, setForm] = useState<any>({});
+  const formRef = useRef<any>(form);
+  formRef.current = form;
   const [editing, setEditing] = useState<any>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [supplierSearch, setSupplierSearch] = useState("");
@@ -1945,6 +1957,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     localStorage.setItem("excluvas.product-filters", JSON.stringify(value));
   }
   const [dbError, setDbError] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [lookups, setLookups] = useState<any>({
     clients: [],
@@ -1997,7 +2010,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   }, [active, showDeleted]);
   useEffect(() => {
     const baseLookupResources = active === "Productos"
-      ? ["suppliers"]
+      ? ["suppliers", "warehouses"]
       : ["clients", "products", "warehouses", "suppliers", "collection_points", "orders", "shipments"];
     const relatedLookupResources = ["Pedidos", "Facturas", "Compras", "Gastos y tickets", "Stock", "Entradas", "Preparación de pedidos", "Salidas", "Cobros", "Balance", "Informes"].includes(active)
       ? ["invoices", "purchase_orders", "payments", "inventory_movements"]
@@ -2192,20 +2205,21 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     } catch (error: any) { setError(error.message || "No se pudo guardar el proveedor"); }
     finally { setNewSupplierSaving(false); }
   }
-  async function saveRecord(e: any) {
+  async function saveRecord(e: any, formOverride?: any) {
     e.preventDefault();
+    const currentForm = formOverride && Object.keys(formOverride).length ? formOverride : formRef.current;
     if (isOrderForm && editing && isOrderSent(editing)) {
       setError("Este pedido ya ha sido enviado y no se puede editar.");
       return;
     }
-    if (isOrderForm && (!String(form.code || "").trim() || !form.client_id || !form.collection_point_id)) {
+    if (isOrderForm && (!String(currentForm.code || "").trim() || !currentForm.client_id || !currentForm.collection_point_id)) {
       setError("Completa el código, el cliente y el lugar de envío antes de guardar el pedido.");
       return;
     }
     if (active === "Productos") {
       const requiredProductFields = ["name", "sku", "description", "category", "unit", "created_at", "warehouse_id", "warehouse_location", "inventory_valuation_method", "cost_price", "last_direct_cost", "markup_percent", "unit_price", "accounting_product_group", "accounting_vat_group", "inventory_register_group", "product_tracking_code", "supplier_id"];
       const productFieldLabels: Record<string, string> = { name: "Producto", sku: "Número proveedor", description: "Descripción", category: "Categoría", unit: "Unidad de medida base", created_at: "Fecha de alta", warehouse_id: "Código de almacén", warehouse_location: "Número de estante", inventory_valuation_method: "Valoración de existencias", cost_price: "Coste unitario", last_direct_cost: "Coste último directo", markup_percent: "Porcentaje de incremento de venta", unit_price: "Precio de venta", accounting_product_group: "Grupo contable prod. gen.", accounting_vat_group: "Grupo contable IVA", inventory_register_group: "Grupo registro inventario", product_tracking_code: "Código seguimiento producto", supplier_id: "Nombre proveedor" };
-      const missing = requiredProductFields.filter((field) => !String(form[field] ?? "").trim());
+      const missing = requiredProductFields.filter((field) => !String(currentForm[field] ?? "").trim());
       if (missing.length) {
         setError(`Completa los campos obligatorios del producto: ${missing.map((field) => productFieldLabels[field] || field).join(", ")}.`);
         return;
@@ -2217,24 +2231,24 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
         c.api +
         (editing ? "/" + editing.id : "");
     let r: Response;
-    const isProforma = c.api === "invoices" && form.status === "Proforma";
+    const isProforma = c.api === "invoices" && currentForm.status === "Proforma";
     const quoteAmount = quoteLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
     const reopenPreparation = c.api === "orders" && editing && !isOrderSent(editing);
     const payload = {
-      ...form,
+      ...currentForm,
       ...(reopenPreparation ? { status: "Pendiente", reopen_preparation: true } : {}),
       ...((c.api === "quotes" || isProforma || c.api === "orders") ? { amount: quoteAmount } : {}),
       ...(c.api === "orders" && !editing ? { lines: quoteLines } : {}),
-      ...(c.api === "expenses" && !form.code
+      ...(c.api === "expenses" && !currentForm.code
         ? { code: "GAS-" + String(Date.now()).slice(-8) }
         : {}),
     };
-    if (!editing && active === "Salidas" && form.order_id) {
+    if (!editing && active === "Salidas" && currentForm.order_id) {
       const sourceLines = await fetch("/api/order_lines")
         .then((response) => (response.ok ? response.json() : []))
-        .then((lines) => (Array.isArray(lines) ? lines.filter((line: any) => Number(line.order_id) === Number(form.order_id)) : []))
+        .then((lines) => (Array.isArray(lines) ? lines.filter((line: any) => Number(line.order_id) === Number(currentForm.order_id)) : []))
         .catch(() => []);
-      const lines = sourceLines.length ? sourceLines : [{ product_id: form.product_id, quantity: form.quantity }];
+      const lines = sourceLines.length ? sourceLines : [{ product_id: currentForm.product_id, quantity: currentForm.quantity }];
       const created: any[] = [];
       for (const line of lines) {
         if (!line.product_id || !Number(line.quantity)) continue;
@@ -2638,6 +2652,8 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     if (!formOpen && !editing) return;
     const closeOnOutsideClick = (event: MouseEvent) => {
       const modal = formAccordionRef.current;
+      const target = event.target as Element | null;
+      if (target?.closest('[aria-label="Confirmar producto"]')) return;
       if (modal && !modal.contains(event.target as Node)) {
         setEditing(null);
         setForm({});
@@ -3477,7 +3493,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   const productSections = [
     { title: "Producto", fields: ["name", "sku", "description", "barcode", "supplier_ref", "category", "category_code", "brand", "format", "unit", "purchase_format", "sale_format", "product_status", "created_at", "supplier_id"] },
     { title: "Inventario y logística", fields: ["warehouse_id", "warehouse_location", "preorder", "inventory_valuation_method", "stock", "stock_reserved", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "picking_order"] },
-    { title: "Costes y márgenes", fields: ["cost_price", "last_direct_cost", "unit_price", "markup_percent", "margin_percent", "target_margin_percent", "min_margin_percent", "freight_cost"] },
+    { title: "Costes y márgenes", fields: ["cost_price", "last_direct_cost", "unit_price", "markup_percent", "margin_percent", "target_margin_percent", "min_margin_percent", "freight_cost", "handling_cost", "real_cost"] },
     { title: "Precios e impuestos", fields: ["vat", "accounting_product_group", "accounting_vat_group", "inventory_register_group", "tax_surcharge_percent", "extra_tax_name", "extra_tax_percent", "fixed_supplier", "primary_supplier_id"] },
     { title: "Reposición y trazabilidad", fields: ["product_tracking_code", "lot_tracking", "expiry_tracking", "returnable_packaging"] },
   ];
@@ -3543,6 +3559,8 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                     ? { status: "Preparando", packages: 1 }
                   : active === "Productos"
                     ? { created_at: tabletTodayInput(), preorder: "1", product_tracking_code: "Sin seguimiento", unit: "unidad", vat: "21", inventory_valuation_method: "FIFO", accounting_product_group: "Mercaderías", accounting_vat_group: "21%", inventory_register_group: "Mercaderías", product_status: "Activo" }
+                  : active === "Gastos y tickets"
+                    ? { expense_date: tabletTodayInput(), category: "Otros", vat: "21", payment_method: "Tarjeta" }
                   : isOrderForm || active === "Pedidos"
                     ? { code: nextOrderCode(), status: "Nuevo", created_by: user?.username || "Usuario local" }
                     : {},
@@ -3592,6 +3610,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
         </div>
       </div>
       {dbError && <div className="db-error">{dbError}</div>}
+      {error && <div className="error-message" role="alert">{error}</div>}
       {productSaveMessage && active === "Productos" && <div className="success-message" role="status">{productSaveMessage}</div>}
       {!isLoadPreparation && active !== "Pedidos" && <BusinessRelatedPanels active={active} rows={rows} lookups={lookups} onNavigate={onNavigate} />}
       {isLoadPreparation && <PreparationDayCards rows={preparationRows} lookups={lookups} dateFilter={preparationDateFilter} onDateFilterChange={setPreparationDateFilter} onOpen={(row) => void openPreparationRow(row)} />}
@@ -3725,7 +3744,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
               {[['Producto', form.name], ['Número proveedor', form.sku], ['Descripción', form.description], ['Unidad base', form.unit], ['Categoría', form.category], ['Código categoría', form.category_code], ['Fecha de alta', form.created_at], ['Almacén', (lookups.warehouses || []).find((item: any) => Number(item.id) === Number(form.warehouse_id))?.name || form.warehouse_id], ['Estante', form.warehouse_location], ['Seguimiento', form.product_tracking_code], ['Coste unitario', form.cost_price], ['Coste último directo', form.last_direct_cost || form.cost_price], ['Incremento de venta', form.markup_percent], ['Precio de venta', form.unit_price], ['Grupo contable', form.accounting_product_group], ['IVA', form.accounting_vat_group], ['Proveedor', (lookups.suppliers || []).find((item: any) => Number(item.id) === Number(form.supplier_id))?.name || form.supplier_id]].map(([label, value]) => <div key={label}><small>{label}</small><b>{String(value || '—')}</b></div>)}
             </div>
             <ProductCodePreview code={String(form.barcode || form.sku || form.category_code || "EXC-PRODUCTO")} name={form.name} price={Number(form.unit_price || 0)} />
-            <footer className="preview-actions"><button type="button" className="button secondary" onClick={() => setProductConfirmOpen(false)}>Volver a editar</button><button type="button" className="button primary" onClick={() => { setProductConfirmOpen(false); void saveRecord({ preventDefault() {} }); }}>Confirmar y guardar producto</button></footer>
+            <footer className="preview-actions"><button type="button" className="button secondary" onClick={() => setProductConfirmOpen(false)}>Volver a editar</button><button type="button" className="button primary" onClick={() => { setProductConfirmOpen(false); void saveRecord({ preventDefault() {} }, formRef.current); }}>Confirmar y guardar producto</button></footer>
           </section>
         </div>
       )}
@@ -7793,25 +7812,40 @@ function HomeNotePreviewModal({ note, user, onClose, onOpenPreparation }: { note
   </div>;
 }
 
+export function OcrIntelligent({ user = { username: "Usuario local" } }: { user?: any }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [data, setData] = useState<any>(null);
+  const [history, setHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [message, setMessage] = useState("");
+  const readHistory = async () => { try { const response = await fetch("/api/ocr_documents", { headers: { "X-Audit-Query": "true", "X-Actor": user?.username || "Usuario local" } }); const body = await response.json(); setHistory(Array.isArray(body) ? body : []); } catch { setMessage("No se pudo cargar el historial."); } };
+  useEffect(() => { void readHistory(); }, []);
+  useEffect(() => { const handlePaste = (event: ClipboardEvent) => { const pasted = event.clipboardData?.files?.[0]; if (pasted) { event.preventDefault(); void selectFile(pasted); } }; window.addEventListener("paste", handlePaste); return () => window.removeEventListener("paste", handlePaste); }, []);
+  function classify(name: string, text: string) { const value = `${name} ${text}`.toLowerCase(); if (/factura|invoice|iva|base imponible|total a pagar/.test(value)) return "Factura"; if (/presupuesto|cotizaci|proforma|oferta/.test(value)) return "Presupuesto"; return "Otro"; }
+  function extractText(selected: File) { return new Promise<string>((resolve) => { if (!selected.type.startsWith("text/") && !/csv|xml|json/i.test(selected.type) && !/\.(txt|csv|xml|json)$/i.test(selected.name)) return resolve(""); const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || "").slice(0, 50000)); reader.onerror = () => resolve(""); reader.readAsText(selected); }); }
+  async function selectFile(selected?: File) { if (!selected) return; if (selected.size > 25 * 1024 * 1024) { setMessage("El archivo no puede superar 25 MB."); return; } setFile(selected); setLoading(true); setMessage(""); const text = await extractText(selected); const email = text.match(/[\w.-]+@[\w.-]+\.[a-z]{2,}/i)?.[0] || ""; const total = text.match(/(?:total|importe|precio)[^\d]{0,20}([\d.,]+\s*€?)/i)?.[1] || ""; setData({ document_type: classify(selected.name, text), email, total, extracted_text: text }); setLoading(false); }
+  async function save() { if (!file || !data) return; setSaving(true); setMessage(""); try { const response = await fetch("/api/ocr_documents", { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": user?.username || "Usuario local" }, body: JSON.stringify({ file_name: file.name, mime_type: file.type || "application/octet-stream", file_size: file.size, document_type: data.document_type, detected_email: data.email, detected_total: data.total, extracted_text: data.extracted_text, status: "Revisado", created_by: user?.username || "Usuario local" }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "No se pudo guardar el documento."); setMessage("Documento guardado correctamente en el historial."); setFile(null); setData(null); await readHistory(); } catch (error: any) { setMessage(error.message || "No se pudo guardar el documento."); } finally { setSaving(false); } }
+  return <section className="ocr-page"><div className="ocr-page-head"><div><p className="eyebrow">AUTOMATIZACIÓN DOCUMENTAL</p><h2>OCR inteligente</h2><p className="muted">Sube un documento para identificarlo y preparar sus datos para el CRM.</p></div></div><div className="ocr-tabs"><b>Nuevo documento</b><span>Historial {history.length}</span></div><div className={`ocr-dropzone${dragging ? " is-dragging" : ""}`} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); void selectFile(event.dataTransfer.files?.[0]); }}><span className="ocr-upload-icon">↑</span><h3>Arrastra tu documento aquí</h3><p className="muted">o selecciona un archivo desde tu dispositivo</p><label className="button primary">Subir archivo<input type="file" hidden onChange={(event) => void selectFile(event.target.files?.[0])} /></label><small>PDF, imágenes, Word, Excel, XML, CSV y cualquier otro formato · Máx. 25 MB</small></div>{loading && <div className="ocr-feedback" role="status">Analizando documento…</div>}{data && !loading && <div className="ocr-review"><div className="panel-head"><div><h3>Datos extraídos</h3><p className="muted">Revisa la clasificación antes de guardar.</p></div><span className="scanner-state ready">{data.document_type}</span></div><div className="ocr-fields"><label>Tipo de documento<select value={data.document_type} onChange={(event) => setData({ ...data, document_type: event.target.value })}><option>Factura</option><option>Presupuesto</option><option>Otro</option></select></label><label>Correo detectado<input value={data.email} onChange={(event) => setData({ ...data, email: event.target.value })} placeholder="No detectado" /></label><label>Importe / total<input value={data.total} onChange={(event) => setData({ ...data, total: event.target.value })} placeholder="No detectado" /></label></div><div className="ocr-actions"><button className="button primary" disabled={saving} onClick={() => void save()}>{saving ? "Guardando…" : "Guardar en el historial"}</button><button className="button secondary" onClick={() => { setFile(null); setData(null); }}>Descartar</button></div></div>}{message && <p className="ocr-message" role="status">{message}</p>}<div className="ocr-history"><div className="panel-head"><div><h3>Historial de documentos</h3><p className="muted">Documentos guardados y clasificados.</p></div></div>{history.length ? history.map((item) => <div className="ocr-history-row" key={item.id}><span className="file-icon">▤</span><div><b>{item.file_name}</b><small>{item.created_at ? formatSpanishDateValue(item.created_at, true) : "—"} · {item.created_by || "Usuario local"}</small></div><span className="scanner-state ready">{item.document_type || "Otro"}</span></div>) : <p className="muted empty-row">Aún no hay documentos procesados.</p>}</div></section>;
+}
+
 export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleScopes }) {
-  const routeModules = routeModuleScopes[routeMode] || routeModuleScopes.crm;
+  const resolvedRouteMode = typeof window !== "undefined" && window.location.pathname.replace(/\/$/, "") === "/ocr" ? "ocr" : routeMode;
+  const routeModules = routeModuleScopes[resolvedRouteMode] || routeModuleScopes.crm;
   const [active, setActive] = useState(() => {
     if (typeof window === "undefined") return "Inicio";
+    const routeDefault = routeDefaultSections[window.location.pathname.replace(/\/$/, "")];
+    if (routeDefault && routeModules.includes(routeDefault)) return routeDefault;
     try {
       const stored = localStorage.getItem("excluvas.active-section") || "Inicio";
       return routeModules.includes(stored) ? stored : routeModules[0];
     } catch { return routeModules[0]; }
   });
   useEffect(() => {
-    const sectionByPath: Record<string, string> = {
-      "/comercial": "Pedidos",
-      "/almacen": "Preparación de pedidos",
-      "/web": "Inicio",
-      "/crm": "Inicio",
-    };
-    const section = sectionByPath[window.location.pathname.replace(/\/$/, "")] || "";
+    const section = routeDefaultSections[window.location.pathname.replace(/\/$/, "")] || "";
     if (section && routeModules.includes(section)) setActive(section);
-  }, []);
+  }, [resolvedRouteMode, routeModules]);
   const [webOrderOpen, setWebOrderOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
     id: 0,
@@ -7967,10 +8001,13 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
         const nextUser = { id: 0, permissions: "*", ...session };
         setCurrentUser(nextUser);
         const storedSection = localStorage.getItem("excluvas.active-section");
-        setActive(storedSection && allowedModulesFor(nextUser).includes(storedSection) ? storedSection : preferredModuleFor(nextUser));
+        setActive(resolvedRouteMode === "ocr" ? "OCR inteligente" : (storedSection && allowedModulesFor(nextUser).includes(storedSection) ? storedSection : preferredModuleFor(nextUser)));
       }
     } catch {}
-  }, []);
+  }, [resolvedRouteMode]);
+  useEffect(() => {
+    if (resolvedRouteMode === "ocr") setActive("OCR inteligente");
+  }, [resolvedRouteMode]);
   useEffect(() => {
     if (!currentUser?.username) return;
     let cancelled = false;
@@ -8844,6 +8881,8 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
                 </div>
               )}
             </>
+          ) : active === "OCR inteligente" ? (
+            <OcrIntelligent user={currentUser} />
           ) : active === "Balance" ? (
             <Balance />
           ) : active === "Contactos" ? (

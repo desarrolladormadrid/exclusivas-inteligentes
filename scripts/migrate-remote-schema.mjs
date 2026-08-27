@@ -10,6 +10,12 @@ if (!env.TURSO_DATABASE_URL || !env.TURSO_AUTH_TOKEN) throw new Error("Faltan la
 
 const client = createClient({ url: env.TURSO_DATABASE_URL, authToken: env.TURSO_AUTH_TOKEN });
 const migrationsByTable = {
+  ocr_documents: [
+    ["table", "CREATE TABLE IF NOT EXISTS ocr_documents(id INTEGER PRIMARY KEY AUTOINCREMENT,file_name TEXT NOT NULL,mime_type TEXT,file_size INTEGER DEFAULT 0,document_type TEXT DEFAULT 'Otro',detected_email TEXT,detected_total TEXT,extracted_text TEXT,status TEXT DEFAULT 'Pendiente',created_by TEXT DEFAULT 'Usuario local',created_at TEXT,updated_at TEXT)"],
+    ["deleted", "ALTER TABLE ocr_documents ADD COLUMN deleted TEXT DEFAULT '0'"],
+    ["deleted_at", "ALTER TABLE ocr_documents ADD COLUMN deleted_at TEXT"],
+    ["deleted_by", "ALTER TABLE ocr_documents ADD COLUMN deleted_by TEXT"],
+  ],
   order_lines: [
     ["incident_resolution", "ALTER TABLE order_lines ADD COLUMN incident_resolution TEXT"],
     ["incident_resolved_at", "ALTER TABLE order_lines ADD COLUMN incident_resolved_at TEXT"],
