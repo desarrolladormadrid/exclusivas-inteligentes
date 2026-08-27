@@ -1,5 +1,11 @@
 # Criterios de producto y UX de Excluvas Inteligentes
 
+## Regla obligatoria de despliegue
+
+- En este proyecto, cuando el usuario diga "desplegar", "publicar" o "subir a producción", significa siempre desplegar en Vercel mediante el proyecto habitual `exclusivas-inteligentes`.
+- La URL de producción de referencia es `https://exclusivas-inteligentes.vercel.app`.
+- No utilizar Sites de Codex ni generar una URL alternativa de Sites para un despliegue de este proyecto, salvo que el usuario lo solicite expresamente.
+
 Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el usuario. Deben aplicarse a toda la aplicación, no solo a una sección.
 
 ## Directriz prioritaria: evidencias visuales visibles en el chat

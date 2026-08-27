@@ -8,6 +8,7 @@
     { "source": "/comercial", "destination": "/api/index" },
     { "source": "/almacen", "destination": "/api/index" },
     { "source": "/web", "destination": "/api/index" },
+    { "source": "/ocr", "destination": "/api/index" },
     { "source": "/portal-pedidos", "destination": "/api/index" },
     { "source": "/_next/:path*", "destination": "/api/index" },
     { "source": "/favicon.ico", "destination": "/api/index" }
