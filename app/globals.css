@@ -69,12 +69,15 @@
 .commercial-panel-head button { border: 0; background: transparent; color: #a52323; cursor: pointer; font-size: 13px; text-decoration: underline; }
 .commercial-panel-head button:focus-visible { outline: 2px solid #b91c1c; outline-offset: 3px; }
 .commercial-order-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; min-height: 74px; padding: 10px 0; border-top: 1px solid #e1e8eb; }
-.commercial-order-row.detailed { padding: 15px 18px; }
+.commercial-order-row.clickable { position: relative; cursor: pointer; }
+.commercial-order-row.clickable:hover, .commercial-order-row.clickable:focus-visible { background: #f4f8f9; outline: none; }
+.commercial-order-row.detailed { grid-template-columns: 34px minmax(0, 1fr) auto auto auto; padding: 15px 18px; }
 .commercial-order-icon, .commercial-avatar { display: grid; place-items: center; width: 32px; height: 32px; background: #eef5f7; color: #b91c1c; font-size: 16px; }
 .commercial-order-row b { color: #24404c; font-size: 13px; }
 .commercial-order-row h3 { margin: 3px 0 2px; color: #1d3039; font-size: 15px; font-weight: 500; }
 .commercial-order-row small { color: #788c95; font-size: 12px; }
 .commercial-order-row > strong { color: #1e323a; font-size: 14px; font-weight: 500; }
+.commercial-order-open { color: #a52323; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .commercial-status { padding: 4px 8px; border: 1px solid #d5e0e3; color: #58717d; font-size: 12px; white-space: nowrap; }
 .commercial-status.nuevo, .commercial-status.pendiente { border-color: #ebc28d; background: #fff8ed; color: #986020; }
 .commercial-status.preparado, .commercial-status.entregado { border-color: #a9d7c6; background: #effbf6; color: #147351; }
@@ -127,6 +130,55 @@
 .commercial-list-tools { display: flex; align-items: center; gap: 9px; min-width: min(430px, 100%); }
 .commercial-list-tools input { min-width: 190px; }
 .commercial-list-card { overflow: hidden; }
+.commercial-order-filters { display: grid; grid-template-columns: minmax(220px, 1.8fr) minmax(180px, 1.35fr) 145px 145px minmax(170px, 1fr) minmax(150px, .9fr) auto; align-items: end; gap: 10px; padding: 14px; border: 1px solid #cedae0; background: #f8fafb; }
+.commercial-order-filters label { display: grid; gap: 5px; color: #607781; font-size: 11px; font-weight: 700; }
+.commercial-order-filters input, .commercial-order-filters select { box-sizing: border-box; width: 100%; min-height: 42px; padding: 0 9px; border: 1px solid #becdd3; border-radius: 0; background: #fff; color: #263a43; font: inherit; font-size: 13px; }
+.commercial-order-filters input:focus, .commercial-order-filters select:focus { border-color: #b91c1c; outline: 2px solid rgba(185, 28, 28, .13); }
+.commercial-filter-reset { min-height: 42px; padding: 0 12px; border: 1px solid #c4d1d6; background: #fff; color: #a52323; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.commercial-filter-reset:hover, .commercial-filter-reset:focus-visible { border-color: #b91c1c; background: #fff5f5; outline: none; }
+.commercial-filter-summary { color: #637780; font-size: 12px; }
+.commercial-filter-summary b { color: #1d313a; font-size: 14px; }
+.commercial-filter-summary span { color: #829199; }
+.commercial-order-detail-backdrop { position: fixed; inset: 0; z-index: 140; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(26, 39, 46, .64); }
+.commercial-order-detail { display: flex; flex-direction: column; width: min(1120px, 100%); max-height: min(900px, calc(100vh - 48px)); overflow: hidden; border: 1px solid #c4d1d6; background: #eef2f4; box-shadow: 0 24px 70px rgba(20, 34, 41, .3); }
+.commercial-order-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 20px 24px; border-bottom: 1px solid #cbd7dc; background: #fff; }
+.commercial-order-detail-head h2 { margin: 4px 0 6px; color: #182a32; font-size: 26px; font-weight: 400; }
+.commercial-order-detail-head span { color: #657881; font-size: 14px; }
+.commercial-detail-close { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #cbd7dc; background: #fff; color: #a52323; cursor: pointer; font-size: 25px; line-height: 1; }
+.commercial-detail-close:hover, .commercial-detail-close:focus-visible { border-color: #b91c1c; background: #fff5f5; outline: none; }
+.commercial-detail-loading { display: flex; align-items: center; gap: 9px; padding: 10px 24px; border-bottom: 1px solid #d9e3e6; background: #f8fafb; color: #607781; font-size: 12px; }
+.commercial-order-detail-body { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, .75fr); gap: 16px; min-height: 0; padding: 16px; overflow: auto; }
+.commercial-detail-main, .commercial-detail-side { display: grid; align-content: start; gap: 16px; min-width: 0; }
+.commercial-detail-card { border: 1px solid #cedae0; background: #fff; }
+.commercial-detail-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #e1e8eb; }
+.commercial-detail-card-head h3, .commercial-detail-actions-card h3 { margin: 0; color: #203842; font-size: 16px; font-weight: 700; }
+.commercial-detail-card-head span { color: #819098; font-size: 12px; }
+.commercial-detail-data { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; padding: 16px; }
+.commercial-detail-data > div { display: grid; align-content: start; gap: 4px; min-width: 0; }
+.commercial-detail-data small, .commercial-detail-notes > small { color: #819098; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.commercial-detail-data b { color: #243b45; font-size: 14px; overflow-wrap: anywhere; }
+.commercial-detail-data span { color: #71858d; font-size: 12px; }
+.commercial-detail-data input, .commercial-detail-notes textarea, .commercial-detail-actions-card select { box-sizing: border-box; width: 100%; min-height: 40px; padding: 0 9px; border: 1px solid #becdd3; background: #fff; color: #263a43; font: inherit; font-size: 13px; }
+.commercial-detail-notes { display: grid; gap: 6px; margin: 0 16px 16px; padding-top: 12px; border-top: 1px solid #e1e8eb; }
+.commercial-detail-notes textarea { min-height: 70px; padding: 9px; resize: vertical; }
+.commercial-detail-notes p { margin: 0; color: #5d737d; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+.commercial-detail-actions { display: flex; justify-content: flex-end; padding: 0 16px 16px; }
+.commercial-detail-lines { padding: 0 16px; }
+.commercial-detail-line { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 14px; min-height: 58px; border-bottom: 1px solid #e5ecef; }
+.commercial-detail-line > div { display: grid; gap: 3px; min-width: 0; }
+.commercial-detail-line b { color: #243d48; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commercial-detail-line small, .commercial-detail-line span { color: #7a8c94; font-size: 11px; }
+.commercial-detail-line strong { color: #203842; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.commercial-detail-line em { padding: 3px 7px; border: 1px solid #d8e2e5; color: #5c737d; font-size: 10px; font-style: normal; white-space: nowrap; }
+.commercial-detail-total { display: flex; justify-content: flex-end; align-items: baseline; gap: 16px; padding: 15px 16px; color: #637780; font-size: 13px; }
+.commercial-detail-total strong { color: #1d313a; font-size: 22px; font-weight: 500; }
+.commercial-detail-actions-card { display: grid; gap: 12px; padding: 16px; }
+.commercial-detail-actions-card label { display: grid; gap: 6px; color: #607781; font-size: 12px; font-weight: 700; }
+.commercial-detail-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.commercial-billing-done, .commercial-billing-pending { padding: 4px 8px; font-size: 11px; font-weight: 700; }
+.commercial-billing-done { background: #effbf6; color: #147351; }
+.commercial-billing-pending { background: #fff8ed; color: #986020; }
+.commercial-detail-help { margin: 0; color: #819098; font-size: 11px; line-height: 1.4; }
 .commercial-client-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .commercial-client-card { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 92px; padding: 14px 16px; border: 1px solid #cedae0; background: #fff; }
 .commercial-client-card h2, .commercial-visits-list h2 { margin: 0 0 4px; color: #213943; font-size: 15px; font-weight: 500; }
@@ -145,6 +197,8 @@
   .commercial-tablet-menu { top: 80px; right: 16px; }
   .commercial-dashboard-grid, .commercial-client-grid { grid-template-columns: 1fr; }
   .commercial-product-add { grid-template-columns: minmax(0, 1fr) 100px 135px auto; }
+  .commercial-order-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .commercial-order-detail-body { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
   .commercial-tablet-topbar { min-height: 68px; }
@@ -161,8 +215,10 @@
   .commercial-kpis strong { font-size: 27px; }
   .commercial-panel, .commercial-form-card { padding: 16px; }
   .commercial-order-row { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 9px; }
+  .commercial-order-row.detailed { grid-template-columns: 30px minmax(0, 1fr) auto; padding: 13px 12px; }
   .commercial-order-row > strong { grid-column: 2; }
   .commercial-status { grid-column: 3; grid-row: 1; }
+  .commercial-order-open { grid-column: 2 / -1; grid-row: 3; }
   .commercial-product-add { grid-template-columns: 1fr 92px; gap: 10px; }
   .commercial-product-add label:first-child { grid-column: 1 / -1; }
   .commercial-product-add .commercial-secondary-action { width: 100%; }
@@ -171,6 +227,26 @@
   .commercial-selected-client button { margin-left: 0; }
   .commercial-list-tools { min-width: 0; width: 100%; }
   .commercial-list-tools input { flex: 1; min-width: 0; }
+  .commercial-order-filters { grid-template-columns: 1fr; }
+  .commercial-filter-reset { width: 100%; }
+  .commercial-order-detail-backdrop { align-items: flex-start; padding: 8px; }
+  .commercial-order-detail { max-height: calc(100vh - 16px); }
+  .commercial-order-detail-head { padding: 16px; }
+  .commercial-order-detail-head h2 { font-size: 21px; }
+  .commercial-order-detail-head span { font-size: 12px; }
+  .commercial-order-detail-body { padding: 9px; }
+  .commercial-detail-data { grid-template-columns: 1fr; gap: 12px; padding: 13px; }
+  .commercial-detail-card-head { align-items: flex-start; flex-direction: column; padding: 13px; }
+  .commercial-detail-card-head .commercial-secondary-action { align-self: flex-start; }
+  .commercial-detail-lines { padding: 0 13px; }
+  .commercial-detail-line { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 10px; padding: 9px 0; }
+  .commercial-detail-line > span { grid-column: 2; grid-row: 1; }
+  .commercial-detail-line > strong { grid-column: 2; grid-row: 2; }
+  .commercial-detail-line > em { grid-column: 1; grid-row: 2; justify-self: start; }
+  .commercial-detail-notes { margin: 0 13px 13px; }
+  .commercial-detail-actions { padding: 0 13px 13px; }
+  .commercial-detail-total { padding: 13px; }
+  .commercial-detail-actions-card { padding: 13px; }
   .commercial-client-card { grid-template-columns: 36px minmax(0, 1fr); }
   .commercial-client-card > button { grid-column: 2; justify-self: start; }
   .commercial-visits-list article { grid-template-columns: 30px minmax(0, 1fr); }
@@ -3374,6 +3450,49 @@ select.form-control option:hover {
 
 /* El chevrón del acordeón comparte caja y centro óptico con el título. */
 .sidebar-group-title > span { display: inline-grid; flex: 0 0 20px; place-items: center; height: 20px; margin-right: 6px; line-height: 1; transform: translateY(-1px); }
+
+/* CRM: escala de lectura para que los datos operativos no queden diminutos. */
+.home-content .content-head h1 { font-size: 30px !important; }
+.home-content .home-global-range,
+.home-content .home-global-range label,
+.home-content .home-global-range button { font-size: 14px; }
+.home-content .kpis article > span { font-size: 13px; }
+.home-content .kpis article strong { font-size: 26px; }
+.home-content .kpis article b,
+.home-content .kpis article small { font-size: 13px; }
+.home-content .pending-orders-head b { font-size: 14px; }
+.home-content .pending-orders-head small { font-size: 12px; }
+.home-content .pending-orders-head > strong { width: 22px; height: 22px; font-size: 14px; }
+.home-content .pending-orders-columns { font-size: 12px; }
+.home-content .pending-order-row { font-size: 14px; }
+.home-content .home-step-orders-head b { font-size: 15px; }
+.home-content .home-step-orders-head span,
+.home-content .home-step-order-row { font-size: 13px; }
+.home-content .home-order-timeline-panel .panel-head h2 { font-size: 15px; }
+.home-content .home-range-summary { font-size: 13px; }
+
+/* Listados CRM: misma escala legible en filas, cabeceras y filtros. */
+.table-panel table,
+.table-scroll table,
+.contacts-table,
+.users-table,
+.trash-table,
+.history-table table,
+.scheduled-list table { font-size: 15px; }
+.table-panel th,
+.table-scroll th,
+.contacts-table th,
+.users-table th,
+.trash-table th,
+.history-table th,
+.scheduled-list th { font-size: 12px !important; }
+.table-panel td,
+.table-scroll td,
+.contacts-table td,
+.users-table td,
+.trash-table td,
+.history-table td,
+.scheduled-list td { font-size: 14px; }
 
 /* Listados: más legibilidad con menos aire vertical por fila. */
 .table-panel table,
