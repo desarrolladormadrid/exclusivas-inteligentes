@@ -15,8 +15,8 @@
 - Proyecto enlazado: `exclusivas-inteligentes`.
 - URL estable: `https://exclusivas-inteligentes.vercel.app`
 - Estado: desplegado en producción el 28/08/2026.
-- Último despliegue: `dpl_8YSL2TDQDBzcraftuW6RKWLJBdkR`, listo y aliasado en la URL estable.
-- Versión publicada: `2.0.24`.
+- Último despliegue: `dpl_99JcpvbXmRHWGAXmeWnWrur4Dnz4`, listo y aliasado en la URL estable.
+- Versión publicada: `2.0.25`.
 
 ## Próximos pasos
 
@@ -32,5 +32,6 @@
 - Entrega `2.0.22` publicada y verificada en producción: tablero de almacén reorganizado con prioridades visibles, filtros de preparación, exportación mediante icono y rejilla adaptable sin huecos vacíos, además de la vista `/comercial` para tablet.
 - Entrega `2.0.23` publicada y verificada en producción: accesos directos con iconos a `/comercial` y `/almacen` desde el CRM, también disponibles en el menú tablet/móvil y limitados por permisos.
 - Entrega `2.0.24` publicada y verificada en producción: tipografía operativa ampliada aproximadamente un 30% en el panel y listados, ficha completa de pedidos comerciales con sus líneas y acciones, y filtros por texto, cliente, rango de fechas, estado y facturación.
+- Entrega `2.0.25` publicada y verificada en producción: nueva web pública `/web` con catálogo responsive, enlaces al portal de pedidos y formularios de alta de clientes/proveedores; las solicitudes quedan pendientes de validación en el CRM como nota y notificación, con migración de la tabla remota aplicada.
 - Verificación funcional responsive de `2.0.24`: menú tablet con accesos operativos y versión al final, listado comercial sin desbordamiento horizontal y ficha de pedido comprobada con 5 líneas reales cargadas.
 - Sidebar de producción comprobado: 280 px en escritorio, sin scroll horizontal, menú tablet sin solapamientos y consola limpia.
