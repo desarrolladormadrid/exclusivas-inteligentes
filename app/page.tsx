@@ -2006,6 +2006,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     payments: [],
     inventory_movements: [],
   });
+  const getClient = (id: any) => (lookups.clients || []).find((item: any) => Number(item.id) === Number(id));
   useEffect(() => {
     if (!assistantFormIntent || assistantFormIntent.section !== active) return;
     const source = assistantFormIntent.data && typeof assistantFormIntent.data === "object" ? assistantFormIntent.data : {};
@@ -8164,6 +8165,11 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
       }
       return;
     }
+    if (item?.action === "Respuesta solicitud precios") {
+      setNotificationOpen(false);
+      setActive("Compras inteligentes");
+      return;
+    }
     const resourceMatch = String(item?.resource || "").match(/(?:orders|order)\/(\d+)/i);
     const detailsMatch = String(item?.details || "").match(/(?:orders|order)[\/]?(\d+)/i);
     const orderId = Number(item?.order_id || (resourceMatch || detailsMatch)?.[1] || 0);
@@ -8410,13 +8416,8 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
       }, 420);
     } catch {
       setCompletingNoteId(null);
-      }
     }
-    if (item?.action === "Respuesta solicitud precios") {
-      setNotificationOpen(false);
-      setActive("Compras inteligentes");
-      return;
-    }
+  }
   function openNoteTarget(note: any) {
     const noteId = Number(note?.id || 0);
     if (!noteId) return;
@@ -8467,7 +8468,7 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
     void loadEssential();
     return () => { cancelled = true; };
   }, [active, homeOrderRangeStart, homeOrderRangeEnd]);
-  function setHomeRangePreset(preset: "hoy" | "mes" | "trimestre" | "semestre" | "anio") {
+  function setHomeRangePreset(preset: "hoy" | "semana" | "mes" | "trimestre" | "semestre" | "anio") {
     setHomeRangePresetState(preset);
     const today = tabletTodayInput();
     const current = new Date();

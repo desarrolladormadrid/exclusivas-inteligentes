@@ -1,3 +1,4 @@
+// @ts-ignore Cloudflare provides this virtual module only in the Worker runtime.
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";

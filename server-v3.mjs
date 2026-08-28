@@ -268,6 +268,20 @@ const send = (r, s, d) => {
 const readCache = new Map();
 const READ_CACHE_MS = 60000;
 const listColumnsCache = new Map();
+const lookupFields = {
+  clients: ["id", "name", "city", "address", "phone", "email", "active", "external_code"],
+  suppliers: ["id", "name", "tax_id", "contact", "phone", "email", "active", "minimum_order", "transport_cost", "lead_time_days", "reliability_percent", "rappel_percent", "external_code"],
+  warehouses: ["id", "name", "address"],
+  collection_points: ["id", "code", "name", "client_id", "address", "city", "contact", "phone", "email", "geocoding_status", "latitude", "longitude"],
+  products: ["id", "name", "sku", "unit", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "vat", "stock", "stock_reserved", "min_stock", "stock_min", "category", "brand", "format", "active", "product_status", "warehouse_id", "supplier_id", "primary_supplier_id", "warehouse_location", "cost_price"],
+  orders: ["id", "code", "client_id", "status", "amount", "created_at", "updated_at", "delivery_date", "preparation_date", "shipping_date", "address", "collection_point_id", "urgent", "stock_alert"],
+  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "carrier", "packages", "incidents", "notes"],
+  invoices: ["id", "code", "order_id", "client_id", "amount", "status", "created_at", "issue_date", "due_date"],
+  purchase_orders: ["id", "code", "supplier_id", "status", "order_date", "expected_date", "amount", "validation_status"],
+  payments: ["id", "invoice_id", "amount", "payment_date", "method"],
+  inventory_movements: ["id", "product_id", "warehouse_id", "movement_type", "quantity", "reference", "movement_date", "notes"],
+  expenses: ["id", "code", "client_id", "expense_date", "category", "vendor", "amount", "vat", "payment_method", "notes", "created_at"],
+};
 function listSelectFor(resource) {
   if (!["products", "expenses"].includes(resource)) return "*";
   if (!listColumnsCache.has(resource)) {
@@ -279,6 +293,17 @@ function listSelectFor(resource) {
     listColumnsCache.set(resource, columns.length ? columns.join(",") : "*");
   }
   return listColumnsCache.get(resource);
+}
+function lookupSelectFor(resource) {
+  const requested = lookupFields[resource];
+  if (!requested) return listSelectFor(resource);
+  if (!listColumnsCache.has(`lookup:${resource}`)) {
+    const available = new Set(db.prepare(`PRAGMA table_info(${resource})`).all().map((column) => String(column.name || "")));
+    const columns = requested.filter((column) => available.has(column)).map((column) => `${resource === "orders" ? "orders." : ""}\"${column.replaceAll('"', '""')}\"`);
+    if (resource === "orders") columns.push("order_client.name AS client_name", "order_client.city AS client_city");
+    listColumnsCache.set(`lookup:${resource}`, columns.length ? columns.join(",") : "*");
+  }
+  return listColumnsCache.get(`lookup:${resource}`);
 }
 function invalidateReadCache(resource) {
   for (const key of readCache.keys()) {
@@ -302,6 +327,9 @@ function storeRows(resource, includeDeleted, rows) {
   if (remoteMode) return rows;
   readCache.set(`${resource}:${includeDeleted ? 1 : 0}`, { createdAt: Date.now(), rows });
   return rows;
+}
+function queryBatch(statements) {
+  return statements.map(({ sql, args = [] }) => db.prepare(sql).all(...args));
 }
 function recordAudit(actor, method, resource, action, details = "") {
   try { db.prepare("INSERT INTO audit_logs(actor,method,resource,action,details,created_at) VALUES(?,?,?,?,?,?)").run(actor || "Usuario local", method, resource, action, details, new Date().toISOString()); } catch {}
@@ -458,6 +486,38 @@ http
           recordAudit(actor, "PUT", `web_registrations/${id}`, "Revisión alta web", JSON.stringify({ id, status }));
           return send(res, 200, { id, status });
         }
+      }
+      if (t === "summary" && req.method === "GET") {
+        const query = new URL(req.url, "http://local").searchParams;
+        const today = new Date().toISOString().slice(0, 10);
+        const from = String(query.get("from") || today).slice(0, 10);
+        const to = String(query.get("to") || from).slice(0, 10);
+        const invoiceRange = "CAST(COALESCE(deleted,0) AS INTEGER)=0 AND DATE(COALESCE(issue_date,created_at)) BETWEEN ? AND ?";
+        const orderRange = "CAST(COALESCE(deleted,0) AS INTEGER)=0 AND DATE(COALESCE(delivery_date,created_at)) BETWEEN ? AND ?";
+        const activeProduct = "CAST(COALESCE(deleted,0) AS INTEGER)=0 AND CAST(COALESCE(active,1) AS INTEGER)=1 AND LOWER(COALESCE(product_status,'Activo')) NOT IN ('inactivo','baja','descatalogado')";
+        const results = queryBatch([
+          { sql: "SELECT orders.id,orders.code,orders.client_id,orders.status,orders.amount,orders.created_at,orders.updated_at,orders.delivery_date,orders.preparation_date,orders.shipping_date,orders.address,orders.collection_point_id,orders.urgent,orders.stock_alert,order_client.name AS client_name,order_client.city AS client_city FROM orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id WHERE CAST(COALESCE(orders.deleted,0) AS INTEGER)=0 ORDER BY orders.id DESC LIMIT 500" },
+          { sql: "SELECT id,code,order_id,client_id,collection_point_id,status,expected_delivery_at,preparation_date,address,carrier,packages,incidents,notes FROM shipments WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 ORDER BY id DESC LIMIT 500" },
+          { sql: "SELECT id,name,city,address,phone,email,active,external_code FROM clients WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 AND CAST(COALESCE(active,1) AS INTEGER)=1 ORDER BY id DESC" },
+          { sql: "SELECT id,title,content,priority,module,record_id,important,completed,created_at,updated_at,created_by,resolution,resolved_at,resolved_by FROM notes WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 AND CAST(COALESCE(important,0) AS INTEGER)=1 AND CAST(COALESCE(completed,0) AS INTEGER)=0 ORDER BY id DESC LIMIT 6" },
+          { sql: `SELECT COALESCE(SUM(amount),0) total FROM invoices WHERE ${invoiceRange} AND status NOT IN ('Anulada')`, args: [from, to] },
+          { sql: `SELECT COUNT(*) total FROM orders WHERE ${orderRange} AND status NOT IN ('Entregado','Cancelado')`, args: [from, to] },
+          { sql: `SELECT COALESCE(SUM(amount),0) total FROM invoices WHERE ${invoiceRange} AND status NOT IN ('Cobrada','Pagada','Anulada')`, args: [from, to] },
+          { sql: `SELECT COUNT(*) total FROM products WHERE ${activeProduct} AND COALESCE(stock,0)<=COALESCE(NULLIF(stock_min,0),min_stock,0)` },
+          { sql: `SELECT COUNT(*) total FROM products WHERE ${activeProduct}` },
+          { sql: "SELECT COUNT(*) total FROM orders WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0" },
+          { sql: "SELECT COUNT(*) total FROM invoices WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0" },
+          { sql: "SELECT COUNT(*) total FROM delivery_notes WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0" },
+          { sql: "SELECT COUNT(*) total FROM payments WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0" },
+          { sql: "SELECT COUNT(*) total FROM suppliers WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 AND CAST(COALESCE(active,1) AS INTEGER)=1" },
+        ]);
+        const rowsAt = (index) => results[index] || [];
+        const totalAt = (index) => Number(rowsAt(index)[0]?.total || 0);
+        const orders = rowsAt(0), shipments = rowsAt(1), clients = rowsAt(2), importantNotes = rowsAt(3);
+        return send(res, 200, {
+          summary: { sales: totalAt(4), openOrders: totalAt(5), receivables: totalAt(6), criticalStock: totalAt(7), products: totalAt(8), clients: clients.length, orders: totalAt(9), invoices: totalAt(10), deliveryNotes: totalAt(11), payments: totalAt(12), suppliers: totalAt(13), reports: totalAt(9) + totalAt(10) },
+          orders, shipments, clients, importantNotes,
+        });
       }
       if (t === "assistant" && req.method === "POST" && p[2] === "adjust-order-line") {
         const d = await read(req);
@@ -699,33 +759,42 @@ http
       if (!tables.has(t))
         return send(res, 404, { error: "Recurso no encontrado" });
       if (req.method === "GET") {
-        const includeDeleted = new URL(req.url, "http://local").searchParams.get("include_deleted") === "1";
+        const query = new URL(req.url, "http://local").searchParams;
+        const includeDeleted = query.get("include_deleted") === "1";
+        const includeInactive = query.get("include_inactive") === "1";
+        const isLookup = query.get("view") === "lookup";
+        const parsePageValue = (value, fallback) => {
+          const parsed = Number.parseInt(String(value || ""), 10);
+          return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+        };
+        const limitValue = query.has("limit") ? Math.min(parsePageValue(query.get("limit"), 0), 5000) : null;
+        const offsetValue = query.has("offset") ? parsePageValue(query.get("offset"), 0) : 0;
         if (p[2] && Number.isInteger(Number(p[2]))) {
           const source = t === "orders"
             ? `orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id`
             : t;
-          const selection = t === "orders"
-            ? "orders.*,order_client.name AS client_name,order_client.city AS client_city"
-            : "*";
+          const selection = t === "orders" ? "orders.*,order_client.name AS client_name,order_client.city AS client_city" : p[2] ? "*" : listSelectFor(t);
           const tableReference = t === "orders" ? "orders" : t;
           const deletedClause = includeDeleted ? "" : ` AND CAST(COALESCE(${tableReference}.deleted,0) AS INTEGER)=0`;
           const row = db.prepare(`SELECT ${selection} FROM ${source} WHERE ${tableReference}.id=?${deletedClause}`).get(Number(p[2]));
           return row ? send(res, 200, row) : send(res, 404, { error: "Registro no encontrado" });
         }
-        const cached = cachedRows(t, includeDeleted);
+        const cached = !isLookup && limitValue === null && offsetValue === 0 ? cachedRows(t, includeDeleted) : null;
         if (cached) return send(res, 200, cached);
         const source = t === "orders"
           ? `orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id`
           : t;
-        const selection = t === "orders"
-          ? "orders.*,order_client.name AS client_name,order_client.city AS client_city"
-          : listSelectFor(t);
-        const where = includeDeleted ? "" : `WHERE CAST(COALESCE(${t === "orders" ? "orders" : t}.deleted,0) AS INTEGER)=0`;
-        const rows = db.prepare(`SELECT ${selection} FROM ${source} ${where} ORDER BY ${t === "orders" ? "orders.id" : "id"} DESC`).all();
+        const selection = isLookup ? lookupSelectFor(t) : t === "orders" ? "orders.*,order_client.name AS client_name,order_client.city AS client_city" : listSelectFor(t);
+        const filters = [];
+        if (!includeDeleted) filters.push(`CAST(COALESCE(${t === "orders" ? "orders" : t}.deleted,0) AS INTEGER)=0`);
+        if (!includeInactive && ["suppliers", "clients", "products"].includes(t)) filters.push(t === "products" ? `CAST(COALESCE(products.active,1) AS INTEGER)=1 AND LOWER(COALESCE(products.product_status,'Activo')) NOT IN ('inactivo','baja','descatalogado')` : `CAST(COALESCE(${t}.active,1) AS INTEGER)=1`);
+        const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+        const pagination = limitValue === null ? "" : ` LIMIT ${limitValue} OFFSET ${offsetValue}`;
+        const rows = db.prepare(`SELECT ${selection} FROM ${source} ${where} ORDER BY ${t === "orders" ? "orders.id" : "id"} DESC${pagination}`).all();
         return send(
           res,
           200,
-          storeRows(t, includeDeleted, rows),
+          !isLookup && limitValue === null && offsetValue === 0 ? storeRows(t, includeDeleted, rows) : rows,
         );
       }
       const d = await read(req);
