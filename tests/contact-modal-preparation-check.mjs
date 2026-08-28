@@ -70,7 +70,7 @@ try {
   console.log("PASS Clientes: fila abre ficha modal completa");
 
   await page.getByRole("button", { name: "Preparación de pedidos", exact: true }).last().click();
-  await page.locator(".manager-head h2").filter({ hasText: "Preparación de pedidos" }).waitFor({ state: "visible", timeout: 15000 });
+  await page.locator(".prep-command-board").waitFor({ state: "visible", timeout: 15000 });
   await waitForData();
   const tomorrowButton = page.locator(".prep-command-filters").getByRole("button", { name: "Mañana", exact: true });
   if (!(await tomorrowButton.count())) throw new Error("No aparece el botón Mañana en preparación");

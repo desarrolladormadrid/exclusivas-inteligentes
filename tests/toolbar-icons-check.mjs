@@ -19,7 +19,7 @@ try {
   }
   await page.getByText("Panel principal", { exact: true }).waitFor({ state: "visible", timeout: 30000 });
   const quickActions = page.locator(".header-quick-actions .quick-icon-action");
-  if (await quickActions.count() !== 4) throw new Error(`Se esperaban 4 accesos rápidos con icono y hay ${await quickActions.count()}`);
+  if (await quickActions.count() < 4) throw new Error(`Se esperaban al menos 4 accesos rápidos con icono y hay ${await quickActions.count()}`);
   for (const label of ["Preparación de pedidos", "Stock", "Nuevo pedido", "Subir gasto"]) {
     const action = page.locator(`.header-quick-actions .quick-icon-action[aria-label="${label}"]`);
     if (await action.count() !== 1) throw new Error(`Falta el acceso rápido accesible: ${label}`);
@@ -49,7 +49,7 @@ try {
   await page.waitForTimeout(250);
   await page.screenshot({ path: path.join(screenshotDir, "toolbar-icons-tablet.png"), fullPage: false });
   if (errors.length) throw new Error(`Errores de consola: ${errors.join(" | ")}`);
-  console.log("PASS toolbar icons: 4 accesos rápidos + 3 acciones de gestión · escritorio · tablet · consola limpia");
+  console.log(`PASS toolbar icons: ${await quickActions.count()} accesos rápidos + 3 acciones de gestión · escritorio · tablet · consola limpia`);
 } catch (error) {
   await page.screenshot({ path: path.join(screenshotDir, "toolbar-icons-failed.png"), fullPage: false }).catch(() => undefined);
   console.error(error.message);

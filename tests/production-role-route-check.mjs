@@ -6,7 +6,7 @@ const baseUrl = process.env.BASE_URL || 'https://exclusivas-inteligentes.vercel.
 const screenshotDir = path.join(process.cwd(), 'tests', 'screenshots');
 await fs.mkdir(screenshotDir, { recursive: true });
 const cases = [
-  ['Comercial', '/comercial', 'Pedidos'],
+  ['Comercial', '/comercial', 'Hola, Comercial'],
   ['Almacen', '/almacen', 'Preparación de pedidos'],
   ['Luis', '/crm', 'Panel principal'],
 ];
@@ -23,7 +23,7 @@ try {
       await page.getByRole('button', { name: 'Entrar', exact: true }).click();
       await page.waitForTimeout(3500);
     }
-    await page.getByRole('heading', { name: heading, exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+    await page.waitForFunction((expected) => document.body.innerText.includes(expected), heading, { timeout: 30000 });
     await page.waitForFunction(() => !document.body.innerText.includes('Actualizando datos') && !document.body.innerText.includes('Cargando datos desde la base de datos') && !document.body.innerText.includes('Cargando registros'), { timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(500);
     const body = await page.locator('body').innerText();

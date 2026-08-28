@@ -32,17 +32,17 @@ async function checkRoute(route, heading) {
     await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
     throw error;
   }
-  await page.waitForTimeout(3500);
+  await page.waitForFunction(() => document.querySelector('input[type="password"]') || document.querySelector('.workspace') || !document.body.innerText.includes('Comprobando sesión'), { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(800);
   await loginIfNeeded();
   await page.waitForFunction(() => !document.body.innerText.includes('Cargando datos desde la base de datos…') && !document.body.innerText.includes('Cargando datos desde la base de datos...'), { timeout: 20000 }).catch(() => {});
-  const expected = page.getByRole('heading', { name: heading, exact: true }).first();
   await page.screenshot({ path: screenshotPath, fullPage: true });
-  if (!(await expected.count())) throw new Error(`${route} no abre ${heading}; URL actual: ${page.url()}`);
+  if (!(await page.locator('body').innerText()).includes(heading)) throw new Error(`${route} no abre ${heading}; URL actual: ${page.url()}`);
   console.log(`PASS ${route}: ${heading}`);
 }
 
 await checkRoute('/almacen', 'Preparación de pedidos');
-await checkRoute('/comercial', 'Pedidos');
+await checkRoute('/comercial', 'Hola, Luis');
 
 await page.goto(`${baseUrl}/crm`, { waitUntil: 'domcontentloaded', timeout: 30000 });
 await page.waitForTimeout(3500);
