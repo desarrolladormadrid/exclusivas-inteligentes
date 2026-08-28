@@ -1304,6 +1304,7 @@ body {
 }
 .header-quick-actions .quick-icon-action { display: inline-grid; place-items: center; width: 34px; min-width: 34px; height: 32px; padding: 0; }
 .header-quick-actions .quick-icon-action:hover, .header-quick-actions .quick-icon-action:focus-visible { background: #991b1b; border-color: #991b1b; }
+.app-route-shortcut { text-decoration: none; }
 .icon-button {
   border: 0;
   background: none;
@@ -3356,7 +3357,12 @@ select.form-control option:hover {
   .mobile-sidebar-user b { font-size: 18px; line-height: 1; }
   .mobile-sidebar-user small { color: #687982; font-size: 13px; }
   .mobile-sidebar-account { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; border-bottom: 1px solid #cbd7dc; background: #fff; color: #526670; font-size: 15px; }
-  .mobile-sidebar-account button { min-height: 38px; padding: 0 13px; border: 1px solid #e1aeb2; background: #fff7f7; color: #a52323; cursor: pointer; font: inherit; font-size: 15px; }
+.mobile-sidebar-account button { min-height: 38px; padding: 0 13px; border: 1px solid #e1aeb2; background: #fff7f7; color: #a52323; cursor: pointer; font: inherit; font-size: 15px; }
+  .sidebar-route-shortcuts { border-top: 1px solid #cbd7dc; background: #f7f9fa; }
+  .sidebar-route-shortcuts .side-label { margin-top: 0; }
+  .sidebar-route-shortcuts a { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 10px 28px; border-bottom: 1px solid #dce5e9; color: #2f4e62; font-size: 18px; text-decoration: none; }
+  .sidebar-route-shortcuts a:hover, .sidebar-route-shortcuts a:focus-visible { background: #e6edef; color: #a52323; outline: 0; }
+  .sidebar-route-shortcuts .toolbar-action-icon { width: 20px; height: 20px; flex: 0 0 20px; }
   .workspace .sidebar.mobile-open .side-label { padding: 14px 18px 7px; font-size: 16px; letter-spacing: .08em; }
   .workspace .sidebar.mobile-open .sidebar-group-title { height: 48px; min-height: 48px; padding: 0 18px; font-size: 16px; letter-spacing: .08em; }
   .workspace .sidebar.mobile-open .sidebar-group-title > span { width: 20px; margin-right: 6px; font-size: 18px; }
