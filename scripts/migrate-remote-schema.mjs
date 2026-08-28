@@ -19,6 +19,15 @@ const migrationsByTable = {
   web_registrations: [
     ["table", "CREATE TABLE IF NOT EXISTS web_registrations(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL DEFAULT 'cliente',company_name TEXT NOT NULL,tax_id TEXT,contact_name TEXT NOT NULL,email TEXT NOT NULL,phone TEXT,address TEXT,city TEXT,message TEXT,status TEXT NOT NULL DEFAULT 'Pendiente de validar',created_at TEXT,updated_at TEXT,reviewed_by TEXT,reviewed_at TEXT)"],
   ],
+  purchase_requests: [
+    ["table", "CREATE TABLE IF NOT EXISTS purchase_requests(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,request_type TEXT DEFAULT 'Solicitud de oferta',status TEXT DEFAULT 'Borrador',product_ids TEXT,supplier_ids TEXT,notes TEXT,created_by TEXT,validated_by TEXT,created_at TEXT,updated_at TEXT,public_token TEXT,channels TEXT,sent_at TEXT)"],
+    ["public_token", "ALTER TABLE purchase_requests ADD COLUMN public_token TEXT"],
+    ["channels", "ALTER TABLE purchase_requests ADD COLUMN channels TEXT"],
+    ["sent_at", "ALTER TABLE purchase_requests ADD COLUMN sent_at TEXT"],
+  ],
+  purchase_request_offers: [
+    ["table", "CREATE TABLE IF NOT EXISTS purchase_request_offers(id INTEGER PRIMARY KEY AUTOINCREMENT,request_id INTEGER NOT NULL,supplier_id INTEGER,supplier_ref TEXT,contact_name TEXT,email TEXT,valid_until TEXT,delivery_days INTEGER DEFAULT 0,notes TEXT,lines_json TEXT NOT NULL,status TEXT DEFAULT 'Recibida',created_at TEXT,updated_at TEXT)"],
+  ],
   order_lines: [
     ["incident_resolution", "ALTER TABLE order_lines ADD COLUMN incident_resolution TEXT"],
     ["incident_resolved_at", "ALTER TABLE order_lines ADD COLUMN incident_resolved_at TEXT"],

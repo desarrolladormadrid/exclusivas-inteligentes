@@ -1,5 +1,6 @@
 import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRemoteDatabaseSync } from "./remote-db-sync.mjs";
@@ -42,7 +43,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS product_suppliers(id INTEGER PRIMARY KEY AUT
 db.exec(`CREATE TABLE IF NOT EXISTS product_lots(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,lot_code TEXT NOT NULL,quantity REAL DEFAULT 0,expiry_date TEXT,received_date TEXT,warehouse_id INTEGER,created_at TEXT,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS product_equivalents(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,equivalent_product_id INTEGER NOT NULL,priority INTEGER DEFAULT 1,notes TEXT,active INTEGER DEFAULT 1,created_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS purchase_suggestions(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,suggested_quantity REAL DEFAULT 0,reason TEXT,status TEXT DEFAULT 'Pendiente de validar',recommended_supplier_id INTEGER,comparison TEXT,created_at TEXT,updated_at TEXT,validated_by TEXT,validated_at TEXT);`);
-db.exec(`CREATE TABLE IF NOT EXISTS purchase_requests(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,request_type TEXT DEFAULT 'Solicitud de oferta',status TEXT DEFAULT 'Borrador',product_ids TEXT,supplier_ids TEXT,notes TEXT,created_by TEXT,validated_by TEXT,created_at TEXT,updated_at TEXT);`);
+db.exec(`CREATE TABLE IF NOT EXISTS purchase_requests(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,request_type TEXT DEFAULT 'Solicitud de oferta',status TEXT DEFAULT 'Borrador',product_ids TEXT,supplier_ids TEXT,notes TEXT,created_by TEXT,validated_by TEXT,created_at TEXT,updated_at TEXT,public_token TEXT,channels TEXT,sent_at TEXT);`);
+for (const column of ["public_token TEXT", "channels TEXT", "sent_at TEXT"]) { try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN ${column}`); } catch {} }
+db.exec(`CREATE TABLE IF NOT EXISTS purchase_request_offers(id INTEGER PRIMARY KEY AUTOINCREMENT,request_id INTEGER NOT NULL,supplier_id INTEGER,supplier_ref TEXT,contact_name TEXT,email TEXT,valid_until TEXT,delivery_days INTEGER DEFAULT 0,notes TEXT,lines_json TEXT NOT NULL,status TEXT DEFAULT 'Recibida',created_at TEXT,updated_at TEXT);`);
 for (const [table, columns] of [["orders", ["collection_point_id", "prepared_by", "shipped_by", "delivered_by", "address", "preparation_date", "shipping_date"]], ["shipments", ["collection_point_id", "prepared_by", "shipped_by", "delivered_by", "preparation_date"]]]) for (const column of columns) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`); } catch {} }
 try { db.exec("ALTER TABLE orders ADD COLUMN source_order_id INTEGER"); } catch {}
 try { db.exec("ALTER TABLE shipments ADD COLUMN urgent INTEGER DEFAULT 0"); } catch {}
@@ -155,6 +158,7 @@ const tables = new Set([
   "product_equivalents",
   "purchase_suggestions",
   "purchase_requests",
+  "purchase_request_offers",
   "users",
 ]);
 // Auditoría común para todos los módulos: permite ordenar, filtrar y ejecutar
@@ -376,6 +380,54 @@ http
       const t = p[1];
       if (p[0] !== "api")
         return send(res, 404, { error: "Recurso no encontrado" });
+      if (t === "purchase_requests" && p[2] === "public") {
+        const params = new URL(req.url, "http://local").searchParams;
+        const token = String(params.get("token") || "").trim();
+        const request = token ? db.prepare("SELECT * FROM purchase_requests WHERE public_token=? LIMIT 1").get(token) : null;
+        if (!request) return send(res, 404, { error: "Solicitud no encontrada o enlace caducado" });
+        let productIds = [];
+        let supplierIds = [];
+        try { productIds = JSON.parse(String(request.product_ids || "[]")); } catch {}
+        try { supplierIds = JSON.parse(String(request.supplier_ids || "[]")); } catch {}
+        const products = productIds.length ? db.prepare(`SELECT id,name,sku,unit,format FROM products WHERE id IN (${productIds.map(() => "?").join(",")}) ORDER BY name`).all(...productIds.map(Number)) : [];
+        const supplierId = Number(params.get("supplier") || 0);
+        const supplier = supplierId ? db.prepare("SELECT id,name,email,phone FROM suppliers WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(supplierId) : null;
+        if (req.method === "GET") return send(res, 200, { code: request.code, request_type: request.request_type, notes: request.notes || "", status: request.status, valid_until: request.valid_until || null, supplier, products });
+        if (req.method === "POST") {
+          const d = await read(req);
+          if (!supplierId || !supplierIds.map(Number).includes(supplierId)) return send(res, 400, { error: "Proveedor no autorizado para esta solicitud" });
+          const lines = Array.isArray(d.lines) ? d.lines.filter((line) => productIds.map(Number).includes(Number(line.product_id))) : [];
+          if (!lines.length) return send(res, 400, { error: "Indica al menos una respuesta de producto" });
+          const now = new Date().toISOString();
+          const existing = db.prepare("SELECT id FROM purchase_request_offers WHERE request_id=? AND supplier_id=? ORDER BY id DESC LIMIT 1").get(Number(request.id), supplierId);
+          if (existing) db.prepare("UPDATE purchase_request_offers SET supplier_ref=?,contact_name=?,email=?,valid_until=?,delivery_days=?,notes=?,lines_json=?,status='Recibida',updated_at=? WHERE id=?").run(String(d.supplier_ref || "").trim(), String(d.contact_name || "").trim(), String(d.email || "").trim(), String(d.valid_until || "").trim(), Number(d.delivery_days || 0), String(d.notes || "").trim(), JSON.stringify(lines), now, Number(existing.id));
+          else db.prepare("INSERT INTO purchase_request_offers(request_id,supplier_id,supplier_ref,contact_name,email,valid_until,delivery_days,notes,lines_json,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").run(Number(request.id), supplierId, String(d.supplier_ref || "").trim(), String(d.contact_name || "").trim(), String(d.email || "").trim(), String(d.valid_until || "").trim(), Number(d.delivery_days || 0), String(d.notes || "").trim(), JSON.stringify(lines), "Recibida", now, now);
+          db.prepare("UPDATE purchase_requests SET status='Respuestas recibidas',updated_at=? WHERE id=? AND status NOT IN ('Cerrada','Cancelada')").run(now, Number(request.id));
+          const supplierName = supplier?.name || `Proveedor #${supplierId}`;
+          db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,completed,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)").run(`Respuesta de precios · ${supplierName}`, `El proveedor ${supplierName} ha respondido a la solicitud ${request.code}. Se han recibido ${lines.length} referencias para comparar.`, "Alta", "Compras", Number(request.id), 1, 0, now, now);
+          recordAudit("Portal proveedor", "POST", `purchase_requests/${Number(request.id)}`, "Respuesta solicitud precios", JSON.stringify({ request_id: Number(request.id), supplier_id: supplierId, supplier_name: supplierName, lines: lines.length }));
+          return send(res, 201, { ok: true, status: "Recibida" });
+        }
+      }
+      if (t === "purchase_requests" && req.method === "POST" && !p[2]) {
+        const d = await read(req);
+        let productIds = [], supplierIds = [], channels = [];
+        try { productIds = JSON.parse(String(d.product_ids || "[]")); } catch { productIds = Array.isArray(d.product_ids) ? d.product_ids : []; }
+        try { supplierIds = JSON.parse(String(d.supplier_ids || "[]")); } catch { supplierIds = Array.isArray(d.supplier_ids) ? d.supplier_ids : []; }
+        channels = Array.isArray(d.channels) ? d.channels.filter((value) => ["email", "web", "whatsapp"].includes(String(value))) : [];
+        productIds = Array.from(new Set(productIds.map(Number).filter(Number.isInteger)));
+        supplierIds = Array.from(new Set(supplierIds.map(Number).filter(Number.isInteger)));
+        if (!productIds.length || !supplierIds.length) return send(res, 400, { error: "Selecciona al menos un producto y un proveedor" });
+        const now = new Date().toISOString();
+        const code = String(d.code || `SOL-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`);
+        const token = randomBytes(18).toString("hex");
+        const status = String(d.status || (channels.length ? "Preparada para enviar" : "Borrador"));
+        const created = db.prepare("INSERT INTO purchase_requests(code,request_type,status,product_ids,supplier_ids,notes,created_by,created_at,updated_at,public_token,channels,sent_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").run(code, String(d.request_type || "Solicitud de oferta"), status, JSON.stringify(productIds), JSON.stringify(supplierIds), String(d.notes || ""), String(d.created_by || actor), now, now, token, JSON.stringify(channels), channels.length ? now : null);
+        const id = Number(created.lastInsertRowid);
+        db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,completed,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)").run(`Solicitud de precios · ${code}`, `Solicitud preparada para ${supplierIds.length} proveedores y ${productIds.length} productos. Canales: ${channels.join(", ") || "pendiente de elegir"}.`, "Normal", "Compras", id, 0, 0, now, now);
+        recordAudit(actor, "POST", `purchase_requests/${id}`, "Solicitud de precios", JSON.stringify({ id, code, product_ids: productIds, supplier_ids: supplierIds, channels }));
+        return send(res, 201, { id, code, status, public_token: token, channels });
+      }
       if (t === "web_registrations") {
         if (req.method === "GET") {
           const includeClosed = new URL(req.url, "http://local").searchParams.get("include_closed") === "1";

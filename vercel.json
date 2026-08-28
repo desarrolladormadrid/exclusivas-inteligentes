@@ -10,6 +10,7 @@
     { "source": "/web", "destination": "/api/index" },
     { "source": "/ocr", "destination": "/api/index" },
     { "source": "/portal-pedidos", "destination": "/api/index" },
+    { "source": "/portal-ofertas", "destination": "/api/index" },
     { "source": "/_next/:path*", "destination": "/api/index" },
     { "source": "/favicon.svg", "destination": "/api/index" },
     { "source": "/favicon.ico", "destination": "/api/index" }
