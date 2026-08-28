@@ -31,10 +31,13 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 
 - Unificar todas las creaciones y ediciones en modales coherentes, con título específico, campos bien agrupados y botón de guardar abajo a la derecha.
 - En modales largas, bloquear el scroll de la página de fondo y permitir el scroll dentro de la modal; cerrar al pulsar fuera cuando no haya cambios sin guardar.
+- Las tablas anchas de una modal solo pueden imponer un `min-width` en escritorio. En tablet y móvil deben tener una adaptación explícita (tarjetas, columnas apiladas o scroll interno justificado); nunca se debe aceptar un scroll horizontal accidental que oculte campos o acciones.
+- Una modal debe aprovechar su anchura real: no puede conservar huecos grandes, contenido desplazado fuera de la pantalla ni una zona vacía causada por reglas de escritorio heredadas. La comprobación debe hacerse con la modal abierta, no solo mirando la pantalla anterior.
 - En formularios largos usar acordeones para datos generales y mostrar en la cabecera un resumen y un indicador de completitud.
 - Los pedidos, presupuestos, facturas y albaranes deben admitir líneas de productos claras, con buscador, tipo de unidad, cantidad, unidades totales y suma visible.
 - Los selectores de clientes y productos deben permitir búsqueda incremental y borrar la selección correctamente.
 - Las tablas deben ofrecer búsqueda en columnas principales, contadores de registros, columnas configurables y ordenación al pulsar en cabeceras cuando sea aplicable.
+- Los listados deben priorizar información visible: texto de datos mínimo de 12 px, padding vertical moderado y filas compactas, manteniendo salto de línea, contraste y objetivos táctiles suficientes. La densidad debe verificarse en más de un listado representativo y en tablet.
 - La edición inline solo debe afectar a la fila seleccionada, nunca a todas las filas.
 - Al cargar datos mostrar un loading real; no mostrar “no hay registros” hasta recibir respuesta.
 - Al abrir un registro desde una tarjeta, notificación o listado, abrir el detalle en modal sin cambiar la sección que queda detrás.
@@ -59,6 +62,7 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 
 - Un mismo concepto debe usar la misma fuente en todas las secciones. En particular, el inicio y Preparación de pedidos deben coincidir en número, fechas y estados.
 - No presentar datos de prueba, objetos JavaScript (`[object Object]`) o valores vacíos como si fueran información real.
+- Las relaciones visibles para personas (cliente, proveedor, proveedor principal, producto, almacén, pedido y documentos relacionados) deben mostrar nombre o código legible; los IDs numéricos quedan solo para lógica interna, búsquedas o auditoría técnica.
 - Los documentos deben mostrar sus líneas, cantidades, importes, base imponible, IVA y total cuando corresponda.
 - Las acciones deben respetar el flujo: un pedido puede editarse mientras no esté enviado; una incidencia debe dejar trazabilidad de la resolución.
 
@@ -72,9 +76,12 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 ## Responsive y tablet
 
 - El responsive móvil y tablet es prioritario: el sidebar debe seguir siendo accesible, el contenido no puede quedar cortado y las modales deben poder desplazarse internamente.
+- Al abrir el menú tablet debe mostrarse en modo compacto: solo se expande el acordeón de la sección activa (o ninguno si está en Inicio), el panel debe caber sin una barra vertical innecesaria y nunca debe aparecer scroll horizontal. Si el usuario abre más contenido del que cabe, el desplazamiento será interno, discreto y no alterará el ancho del diseño.
+- En cualquier viewport no escritorio, incluido móvil horizontal, el número de versión debe permanecer dentro del menú de hamburguesa y ocultarse cuando el menú está cerrado; nunca debe aparecer flotando bajo la cabecera.
 - “Pedido desde tablet” debe compartir campos, validaciones y comportamiento con “Nuevo pedido”, adaptado a una experiencia de ruta comercial.
 - En tablet, los datos generales del pedido deben poder colapsarse para dejar visible y cómoda la lista de productos.
 - La creación de líneas debe tener una maquetación estable en tablet, sin solapamientos ni campos huérfanos.
+- La nota de carga debe probarse abierta con varias líneas en móvil y tablet: todas las ubicaciones, productos, cantidades, estados y acciones deben quedar visibles y utilizables sin scroll horizontal; en móvil las líneas pueden convertirse en tarjetas compactas.
 
 ## Verificación y despliegue
 
@@ -97,10 +104,17 @@ Antes de dar por terminada una sección o una mejora, revisar también estos pun
 - Revisar siempre la densidad visual antes de entregar una vista: aprovechar el ancho disponible, reducir alturas vacías y reservar el espacio principal para listados, tarjetas y acciones de trabajo.
 - Comprobar que al plegar un sidebar, acordeón o panel el espacio liberado lo ocupa realmente el contenido; nunca debe quedar una franja vacía ni mantenerse un margen antiguo.
 - Revisar todas las vistas en escritorio, tablet horizontal, tablet vertical y móvil. No basta con que el contenido quepa: debe poder usarse, leerse y desplazarse sin solapamientos ni recortes.
+- Para cada modal que contenga tablas, listas densas o documentos, repetir la prueba con la modal realmente abierta en al menos `1440×900`, `768×1024`, `812×375` y `441×820`. Medir el contenedor y su contenido: un overflow horizontal inesperado o un hueco visual grande es un fallo aunque la ruta y el build pasen.
+- No dar por válida una corrección responsive porque la vista principal cargue: hay que recorrer la acción que abre el detalle, modal o documento afectado y revisar el estado final en captura. Las reglas de escritorio con `min-width`, `width`, `height` u `overflow` deben tener una revisión específica en cada breakpoint.
+- En tablet, abrir el menú con el icono de hamburguesa y comprobar visualmente que no aparece una barra de scroll innecesaria; verificar también el caso con varias secciones abiertas y que el desplazamiento, si resulta imprescindible, se mantiene dentro del panel sin scroll horizontal.
+- Repetir la comprobación del menú en móvil horizontal: pie de versión oculto con el menú cerrado y como último elemento del panel cuando se abre.
 - Verificar que las tarjetas, tablas, modales, notas y mensajes largos hacen salto de línea y que las acciones importantes siguen visibles.
 - Comprobar que cada botón, enlace, notificación y tarjeta abre el detalle correcto sin cambiar innecesariamente de sección ni perder el contexto.
 - Revisar que los nombres de títulos, botones, estados, columnas y campos describen exactamente la acción o el dato real; evitar textos genéricos, ambiguos o redundantes.
 - Validar la semántica de los datos: unidades, cantidades, importes, fechas, estados, stock, reservas e incidencias deben ser comprensibles y coherentes entre listados, detalles y panel de inicio.
+- En cada listado con relaciones, revisar explícitamente que las columnas de nombres no muestran IDs crudos. Comprobar al menos proveedor principal en Productos y cliente/proveedor en documentos, incluyendo registros con relación válida y sin relación.
+- En Pedidos debe existir un control visible y sencillo de facturación con al menos los estados “Sin facturar” y “Facturados”. La prevención de duplicados debe apoyarse en la relación persistente pedido–factura, también cuando la factura agrupa varios pedidos del mismo cliente.
+- La revisión mensual debe poder partir del listado de Pedidos filtrando por “Sin facturar”; no se considera suficiente bloquear duplicados si no se puede localizar rápidamente lo pendiente de facturar.
 - Buscar valores imposibles o engañosos antes de mostrar la interfaz, como `NaN`, `[object Object]`, ceros por defecto que no significan nada, fechas en formato incorrecto o registros vacíos presentados como resultado definitivo.
 - En cualquier carga asíncrona mostrar un estado de carga claro y no mostrar “sin registros” hasta recibir una respuesta válida. Las acciones rápidas no deben bloquear toda la pantalla si no es necesario.
 - Comprobar que los controles tienen un comportamiento evidente: búsquedas incrementales, borrado de selección, ordenación desde cabeceras, filtros persistentes cuando proceda y botones activos claramente diferenciados.
@@ -108,8 +122,10 @@ Antes de dar por terminada una sección o una mejora, revisar también estos pun
 - Probar recorridos completos y no solo pantallas aisladas: crear, abrir, editar, guardar, cancelar, eliminar/restaurar, filtrar, descargar y resolver incidencias cuando existan.
 - En cada recorrido, comprobar la experiencia de la persona usuaria: identificar claramente qué pantalla está viendo, qué acción puede realizar, qué campos son necesarios, qué resultado se ha producido y cuál es el siguiente paso. Los controles deben ser cómodos para ratón, teclado y tacto, con objetivos táctiles suficientes y sin exigir precisión innecesaria.
 - Hacer una revisión visual deliberada después de cada cambio: comprobar jerarquía, legibilidad, contraste, espaciado, alineación, densidad, textos completos, estados vacíos/cargando/error, foco y feedback tras pulsar. Si algo parece confuso, cortado, redundante o incómodo, corregirlo antes de entregar aunque la prueba automática pase.
+- En esa revisión buscar expresamente cuatro defectos que las pruebas funcionales suelen no detectar: scroll horizontal no solicitado, contenido cortado, huecos sin función y controles fuera del área visible. Revisar la primera, una intermedia y la última línea cuando el listado tenga varias filas.
 - Validar la tarea desde la perspectiva del usuario final y del rol que la ejecuta: una persona de almacén debe poder preparar un pedido rápidamente; administración debe poder revisar y resolver incidencias; un comercial debe poder crear pedidos sin entender IDs técnicos. Priorizar siempre claridad y velocidad operativa.
 - Probar también el peor caso razonable: muchos registros, nombres largos, varias líneas de producto, incidencias, datos faltantes, pantalla estrecha, teclado virtual y respuestas lentas. La interfaz debe conservar el contexto y seguir siendo utilizable.
+- En cada revisión visual de listados comprobar simultáneamente legibilidad y densidad: no aceptar filas con demasiado espacio vacío ni reducir tanto la altura que se pierdan textos, estados o acciones.
 - Si una acción puede fallar por datos o configuración, mostrar un mensaje útil dentro de la interfaz y conservar el contexto; no depender de `alert()` del navegador ni dejar botones que parezcan no hacer nada.
 - Revisar el ciclo de vida completo de avisos y notificaciones: deben distinguir pendientes de leídas, desaparecer de la bandeja al leerse sin borrarse del historial, permitir marcar una individual o todas, y abrir siempre el registro contextual correcto.
 - Evitar acumulaciones infinitas de elementos temporales: definir siempre qué ocurre al leer, completar, resolver, archivar o eliminar un aviso y reflejar ese estado en contadores y filtros.

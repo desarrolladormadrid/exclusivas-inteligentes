@@ -127,7 +127,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           <button className="button primary" disabled={loginBusy}>
             {loginBusy ? "Comprobando…" : "Entrar"}
           </button>
-          <small>Contraseña inicial: Temporal2026</small>
         </form>
       </main>
     );

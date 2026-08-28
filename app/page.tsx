@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.2";
+const APP_VERSION = "2.0.19";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -111,6 +111,26 @@ async function fetchWithRetry(url: string, init?: RequestInit, attempts = 3) {
   }
   throw lastError instanceof Error ? lastError : new Error("No se pudo conectar con el CRM");
 }
+const lookupMemoryCache = new Map<string, { expiresAt: number; rows: any[]; pending?: Promise<any[]> }>();
+async function fetchCompactLookup(resource: string, actor: string) {
+  const cached = lookupMemoryCache.get(resource);
+  if (cached && cached.expiresAt > Date.now()) return cached.rows;
+  if (cached?.pending) return cached.pending;
+  const pending = fetch(`/api/${resource}?view=lookup&limit=2000`, { headers: { "X-Actor": actor } })
+    .then((response) => response.ok ? response.json() : [])
+    .then((value) => {
+      const rows = Array.isArray(value) ? value : [];
+      lookupMemoryCache.set(resource, { rows, expiresAt: Date.now() + 30000 });
+      return rows;
+    })
+    .catch(() => [])
+    .finally(() => {
+      const current = lookupMemoryCache.get(resource);
+      if (current?.pending) lookupMemoryCache.set(resource, { ...current, pending: undefined });
+    });
+  lookupMemoryCache.set(resource, { rows: cached?.rows || [], expiresAt: cached?.expiresAt || 0, pending });
+  return pending;
+}
 function allowedModulesFor(user: any) {
   if (user?.role === "admin") return initialModules;
   try {
@@ -174,6 +194,7 @@ const cfg: any = {
       "warehouse_id",
       "picking_order",
       "product_status",
+      "active",
       "created_at",
       "preorder",
       "product_tracking_code",
@@ -236,6 +257,7 @@ const cfg: any = {
       "Código de almacén",
       "Orden de recogida",
       "Estado del producto",
+      "Estado activo",
       "Fecha de alta",
       "Preventa",
       "Código seguimiento producto",
@@ -262,6 +284,7 @@ const cfg: any = {
     title: "Clientes",
     fields: [
       "name",
+      "external_code",
       "tax_id",
       "contact",
       "phone",
@@ -272,9 +295,11 @@ const cfg: any = {
       "longitude",
       "payment_terms",
       "credit_limit",
+      "active",
     ],
     labels: [
       "Nombre",
+      "Código externo",
       "NIF/CIF",
       "Contacto",
       "Teléfono",
@@ -285,6 +310,7 @@ const cfg: any = {
       "Longitud",
       "Condiciones de pago",
       "Límite crédito",
+      "Estado activo",
     ],
   },
   Stock: {
@@ -368,21 +394,25 @@ const cfg: any = {
     title: "Proveedores",
     fields: [
       "name",
+      "external_code",
       "tax_id",
       "contact",
       "phone",
       "email",
       "address",
       "payment_terms",
+      "active",
     ],
     labels: [
       "Nombre",
+      "Código externo",
       "NIF/CIF",
       "Contacto",
       "Teléfono",
       "Email",
       "Dirección",
       "Condiciones de pago",
+      "Estado activo",
     ],
   },
   Compras: {
@@ -593,6 +623,7 @@ const cfg: any = {
       "discount",
       "amount",
       "status",
+      "billing_status",
       "delivery_date",
       "preparation_date",
       "shipping_date",
@@ -613,6 +644,7 @@ const cfg: any = {
       "Descuento %",
       "Importe",
       "Estado",
+      "Facturación",
       "Fecha de entrega",
       "Día de preparación",
       "Día de envío",
@@ -761,6 +793,21 @@ const icon = (m: string) =>
     Papelera: "♲",
     Documentos: "▤",
   })[m] || "•";
+
+type ToolbarIconName = "download" | "upload" | "template" | "preparation" | "stock" | "order" | "expense" | "map";
+function ToolbarIcon({ name }: { name: ToolbarIconName }) {
+  const paths: Record<ToolbarIconName, ReactNode> = {
+    download: <><path d="M12 3v11" /><path d="m7.5 10.5 4.5 4.5 4.5-4.5" /><path d="M4 20h16" /></>,
+    upload: <><path d="M12 21V10" /><path d="m7.5 13.5 4.5-4.5 4.5 4.5" /><path d="M4 4h16" /></>,
+    template: <><path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4" /><path d="M9 12h6" /><path d="M9 15.5h6" /></>,
+    preparation: <><rect x="5" y="4" width="14" height="16" rx="1" /><path d="M8 8h8M8 12h8M8 16h5" /></>,
+    stock: <><path d="m4 8 8-4 8 4-8 4-8-4Z" /><path d="m4 12 8 4 8-4" /><path d="m4 16 8 4 8-4" /></>,
+    order: <><path d="M12 5v14M5 12h14" /></>,
+    expense: <><path d="M6 4h9l3 3v13H6z" /><path d="M15 4v4h3M9 12h6M9 15.5h4" /></>,
+    map: <><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></>,
+  };
+  return <svg className="toolbar-action-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
+}
 const sidebarGroups = [
   {
     name: "Ventas y clientes",
@@ -818,11 +865,13 @@ export function Sidebar({
   setActive,
   user,
   moduleScope,
+  onLogout,
 }: {
   active: string;
   setActive: (x: string) => void;
   user: any;
   moduleScope?: string[];
+  onLogout: () => void;
 }) {
   const [items, setItems] = useState(initialModules);
   const [drag, setDrag] = useState("");
@@ -881,8 +930,9 @@ export function Sidebar({
       >
         {sidebarCollapsed ? "›" : "‹"}
       </button>
-      <button type="button" className="mobile-sidebar-toggle" onClick={() => setMobileOpen((open) => !open)} aria-expanded={mobileOpen}>
-        <b>{mobileOpen ? "Cerrar menú" : "Menú"}</b><em>{active}</em>
+      <button type="button" className="mobile-sidebar-toggle" onClick={() => { const next = !mobileOpen; if (next) { const activeGroup = sidebarGroups.find((group) => group.items.includes(active))?.name; setOpenGroups((current) => Object.fromEntries(Object.keys(current).map((name) => [name, name === activeGroup]))); } setMobileOpen(next); }} aria-expanded={mobileOpen} aria-label={mobileOpen ? "Cerrar menú" : "Abrir menú"} title={mobileOpen ? "Cerrar menú" : "Abrir menú"}>
+        <span className="mobile-sidebar-menu-label"><span className="mobile-sidebar-hamburger" aria-hidden="true"><i /><i /><i /></span><b className="mobile-sidebar-toggle-text">{mobileOpen ? "Cerrar menú" : "Menú"}</b><em>{active}</em></span>
+        <span className="mobile-sidebar-user"><b>{user?.username || "Usuario"}</b><small>{user?.role === "admin" ? "Administrador" : "Usuario"}</small></span>
       </button>
       <div className="side-label">GESTIÓN</div>
       {allowedModulesFor(user).includes("Inicio") && (!moduleScope || moduleScope.includes("Inicio")) && (
@@ -929,6 +979,7 @@ export function Sidebar({
           </div>
         );
       })}
+      {mobileOpen && <div className="mobile-sidebar-account"><span><b>{user?.username || "Usuario"}</b><small>{user?.role === "admin" ? "Administrador" : "Usuario"}</small></span><button type="button" onClick={() => { setMobileOpen(false); onLogout(); }}>Cerrar sesión</button></div>}
       <div className="sidebar-footer" title={`Versión ${APP_VERSION} · Entorno ${APP_ENVIRONMENT}`}>
         v{APP_VERSION} · {APP_ENVIRONMENT}
       </div>
@@ -954,8 +1005,8 @@ function Contacts({ onNavigate }: { onNavigate: (section: string) => void }) {
         ]);
         const clients = clientsResponse.ok ? await clientsResponse.json() : [];
         const suppliers = suppliersResponse.ok ? await suppliersResponse.json() : [];
-        const clientRows = (Array.isArray(clients) ? clients : []).map((client: any) => ({ id: "cliente-" + client.id, name: client.name, email: client.email || "", phone: client.phone || "", contact: client.contact || "", address: client.address || "", city: client.city || "", type: "Cliente", invoices: [], payments: [] }));
-        const supplierRows = (Array.isArray(suppliers) ? suppliers : []).map((supplier: any) => ({ id: "proveedor-" + supplier.id, name: supplier.name, email: supplier.email || "", phone: supplier.phone || "", contact: supplier.contact || "", address: supplier.address || "", city: supplier.city || "", type: "Proveedor", purchases: [] }));
+        const clientRows = (Array.isArray(clients) ? clients : []).map((client: any) => ({ ...client, id: "cliente-" + client.id, name: client.name, email: client.email || "", phone: client.phone || "", contact: client.contact || "", address: client.address || "", city: client.city || "", type: "Cliente", invoices: [], payments: [] }));
+        const supplierRows = (Array.isArray(suppliers) ? suppliers : []).map((supplier: any) => ({ ...supplier, id: "proveedor-" + supplier.id, name: supplier.name, email: supplier.email || "", phone: supplier.phone || "", contact: supplier.contact || "", address: supplier.address || "", city: supplier.city || "", type: "Proveedor", purchases: [] }));
         setRows([...clientRows, ...supplierRows]);
         setLoading(false);
         const [invoicesResult, paymentsResult, purchasesResult] = await Promise.allSettled([
@@ -1028,20 +1079,29 @@ function Contacts({ onNavigate }: { onNavigate: (section: string) => void }) {
     setEditingId(row.id);
     setEditingDraft({
       name: row.name || "",
+      type: row.type || "Contacto",
+      external_code: row.external_code || "",
+      tax_id: row.tax_id || "",
       email: row.email || "",
       phone: row.phone || "",
       contact: row.contact || "",
       address: row.address || "",
       city: row.city || "",
+      payment_terms: row.payment_terms || "",
+      active: Number(row.active ?? 1),
+      source_balance: row.balance || 0,
+      source_activity: row.activity || 0,
+      source_created_at: row.created_at || "",
     });
   }
   async function saveEdit(row: any) {
     const resource = row.type === "Cliente" ? "clients" : "suppliers";
     const id = row.id.split("-").slice(1).join("-");
+    const { name, external_code, tax_id, email, phone, contact, address, city, payment_terms, active } = editingDraft;
     const response = await fetch(`/api/${resource}/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", "X-Actor": "Contactos" },
-      body: JSON.stringify(editingDraft),
+      body: JSON.stringify({ name, external_code, tax_id, email, phone, contact, address, city, payment_terms, active }),
     });
     if (response.ok) {
       setRows((current) =>
@@ -1135,67 +1195,14 @@ function Contacts({ onNavigate }: { onNavigate: (section: string) => void }) {
                 <tr
                   key={row.id}
                   className={editingId === row.id ? "selected" : ""}
-                  onClick={() => {
-                    if (editingId !== row.id) beginEdit(row);
-                  }}
+                  onClick={() => beginEdit(row)}
                 >
                   <td>
-                    <span className="contact-avatar">
-                      {(editingId === row.id
-                        ? editingDraft.name
-                        : row.name
-                      )?.slice(0, 1).toUpperCase()}
-                    </span>
-                    {editingId === row.id ? (
-                      <input
-                        className="contacts-inline-input"
-                        value={editingDraft.name}
-                        onChange={(event) =>
-                          setEditingDraft({
-                            ...editingDraft,
-                            name: event.target.value,
-                          })
-                        }
-                        onClick={(event) => event.stopPropagation()}
-                      />
-                    ) : (
-                      <b>{row.name}</b>
-                    )}
+                    <span className="contact-avatar">{row.name?.slice(0, 1).toUpperCase()}</span>
+                    <b>{row.name}</b>
                   </td>
-                  <td>
-                    {editingId === row.id ? (
-                      <input
-                        className="contacts-inline-input"
-                        value={editingDraft.email}
-                        onChange={(event) =>
-                          setEditingDraft({
-                            ...editingDraft,
-                            email: event.target.value,
-                          })
-                        }
-                        onClick={(event) => event.stopPropagation()}
-                      />
-                    ) : (
-                      row.email || "—"
-                    )}
-                  </td>
-                  <td>
-                    {editingId === row.id ? (
-                      <input
-                        className="contacts-inline-input"
-                        value={editingDraft.phone}
-                        onChange={(event) =>
-                          setEditingDraft({
-                            ...editingDraft,
-                            phone: event.target.value,
-                          })
-                        }
-                        onClick={(event) => event.stopPropagation()}
-                      />
-                    ) : (
-                      row.phone || "—"
-                    )}
-                  </td>
+                  <td>{row.email || "—"}</td>
+                  <td>{row.phone || "—"}</td>
                   <td>
                     <span
                       className={
@@ -1208,38 +1215,7 @@ function Contacts({ onNavigate }: { onNavigate: (section: string) => void }) {
                     </span>
                   </td>
                   <td className="contacts-actions">
-                    {editingId === row.id ? (
-                      <>
-                        <button
-                          className="contact-action save"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            saveEdit(row);
-                          }}
-                        >
-                          Guardar
-                        </button>
-                        <button
-                          className="contact-action"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setEditingId("");
-                          }}
-                        >
-                          Cancelar
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        className="contact-action"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          beginEdit(row);
-                        }}
-                      >
-                        Editar
-                      </button>
-                    )}
+                    <button className="contact-action" onClick={(event) => { event.stopPropagation(); beginEdit(row); }}>Editar</button>
                     <button
                       className="contact-action delete"
                       onClick={(event) => {
@@ -1261,6 +1237,30 @@ function Contacts({ onNavigate }: { onNavigate: (section: string) => void }) {
           )}
         </div>
       </div>
+      {editingId && (
+        <div className="contact-edit-overlay" role="dialog" aria-modal="true" aria-label={`Editar ${editingDraft.name || "contacto"}`}>
+          <form className="contact-edit-modal" onSubmit={(event) => { event.preventDefault(); void saveEdit(rows.find((row) => row.id === editingId)); }}>
+            <header className="contact-edit-head">
+              <div><p className="eyebrow">{editingDraft.type || rows.find((row) => row.id === editingId)?.type || "CONTACTO"}</p><h2>Editar contacto</h2><span>{editingDraft.name || "Completa los datos del contacto"}</span></div>
+              <button type="button" className="preview-close" aria-label="Cerrar" onClick={() => setEditingId("")}>×</button>
+            </header>
+            <div className="contact-edit-grid">
+              <label>Empresa / nombre *<input required value={editingDraft.name || ""} onChange={(event) => setEditingDraft({ ...editingDraft, name: event.target.value })} /></label>
+              <label>Código externo<input value={editingDraft.external_code || ""} onChange={(event) => setEditingDraft({ ...editingDraft, external_code: event.target.value })} /></label>
+              <label>NIF / CIF<input value={editingDraft.tax_id || ""} onChange={(event) => setEditingDraft({ ...editingDraft, tax_id: event.target.value })} /></label>
+              <label>Persona de contacto<input value={editingDraft.contact || ""} onChange={(event) => setEditingDraft({ ...editingDraft, contact: event.target.value })} /></label>
+              <label>Email<input type="email" value={editingDraft.email || ""} onChange={(event) => setEditingDraft({ ...editingDraft, email: event.target.value })} /></label>
+              <label>Teléfono<input value={editingDraft.phone || ""} onChange={(event) => setEditingDraft({ ...editingDraft, phone: event.target.value })} /></label>
+              <label>Ciudad<input value={editingDraft.city || ""} onChange={(event) => setEditingDraft({ ...editingDraft, city: event.target.value })} /></label>
+              <label>Condiciones de pago<input value={editingDraft.payment_terms || ""} onChange={(event) => setEditingDraft({ ...editingDraft, payment_terms: event.target.value })} /></label>
+              <label className="contact-edit-wide">Dirección<textarea rows={3} value={editingDraft.address || ""} onChange={(event) => setEditingDraft({ ...editingDraft, address: event.target.value })} /></label>
+              <label>Estado<select value={String(editingDraft.active ?? 1)} onChange={(event) => setEditingDraft({ ...editingDraft, active: Number(event.target.value) })}><option value="1">Activo</option><option value="0">Baja</option></select></label>
+            </div>
+            <div className="contact-source-summary"><span>Saldo origen <b>{Number(editingDraft.source_balance || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</b></span><span>Actividad origen <b>{Number(editingDraft.source_activity || 0)} movimiento{Number(editingDraft.source_activity || 0) === 1 ? "" : "s"}</b></span><span>Alta origen <b>{editingDraft.source_created_at || "—"}</b></span></div>
+            <footer className="preview-actions"><button type="button" className="button secondary" onClick={() => setEditingId("")}>Cancelar</button><button type="submit" className="button primary">Guardar cambios</button></footer>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -1714,6 +1714,7 @@ function SmartPurchasing({ user }: { user?: any }) {
 
 function PreparationDayCards({ rows, lookups, onOpen, dateFilter, onDateFilterChange }: { rows: any[]; lookups: any; onOpen: (row: any) => void; dateFilter: string; onDateFilterChange: (value: string) => void }) {
   const today = tabletTodayInput();
+  const tomorrow = tabletDateOffset(1);
   const getClient = (id: any) => (lookups.clients || []).find((item: any) => Number(item.id) === Number(id));
   const items = rows.filter((row) => !dateFilter || String(row.preparation_date || "").slice(0, 10) === dateFilter).sort((a, b) => Number(b.urgent || 0) - Number(a.urgent || 0) || String(a.address || "").localeCompare(String(b.address || ""), "es", { numeric: true }));
   const groups = [
@@ -1723,8 +1724,8 @@ function PreparationDayCards({ rows, lookups, onOpen, dateFilter, onDateFilterCh
     { key: "incident", title: "Con incidencia", hint: "Requieren revisión", match: (row: any) => row.status === "Preparado con incidencia" },
     { key: "paused", title: "Bloqueados / pospuestos", hint: "Fuera del circuito", match: (row: any) => ["Bloqueado", "Pospuesto"].includes(row.status || "") },
   ];
-  const renderCard = (row: any) => { const client = getClient(row.client_id); const address = typeof row.address === "string" ? row.address : row.address?.address || row.address?.name || "Dirección no indicada"; return <button type="button" key={row.id} className={`prep-order-card${Number(row.urgent) === 1 ? " is-urgent" : ""}${row.status === "Preparado" ? " is-completed" : ""}${row.status === "Preparado con incidencia" ? " has-incident" : ""}`} onClick={() => onOpen(row)}><span className="prep-card-top"><b>{row.code}</b><em>{Number(row.urgent) === 1 ? "URGENTE" : row.status || "Pendiente"}</em></span><strong>{client?.name || `Cliente #${row.client_id || "—"}`}</strong><span>{address}</span><span className="prep-card-meta">Entrega: {formatSpanishDateValue(row.delivery_date, false)}{row.packages ? ` · ${row.packages} bultos` : ""}</span><small>{row.notes || "Sin observaciones"}</small><i>▶ Abrir comanda</i></button>; };
-  return <section className="prep-command-board" aria-label="Comandas de preparación"><div className="prep-command-toolbar"><div className="prep-command-toolbar-title"><b>Pedidos para preparar</b><span>{dateFilter ? `Preparación del ${formatSpanishDateValue(dateFilter, false)}` : "Todas las preparaciones"}</span></div><div className="prep-command-filters"><label>Preparar el día<input type="date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value)} /></label><button type="button" className="button primary" onClick={() => onDateFilterChange(today)}>Hoy</button><button type="button" className="button secondary" onClick={() => onDateFilterChange("")}>Todos</button></div></div><div className="prep-command-summary"><span><b>{items.length}</b> pedidos</span><span><b>{items.filter((row) => Number(row.urgent) === 1).length}</b> urgentes</span><span><b>{items.filter((row) => row.status === "Preparado con incidencia").length}</b> con incidencia</span><span className="prep-command-summary-hint">Pulsa una comanda para revisar sus líneas</span></div>{!items.length ? <div className="prep-command-empty"><b>{dateFilter ? "No hay pedidos para esta fecha" : "No hay pedidos pendientes"}</b><span>{dateFilter ? "Prueba otra fecha o pulsa “Todos”." : "Cuando se creen preparaciones aparecerán aquí."}</span></div> : <div className="prep-command-columns">{groups.map((group) => { const groupItems = items.filter(group.match); return <section className={`prep-command-column prep-command-${group.key}`} key={group.key}><header><div><b>{group.title}</b><small>{group.hint}</small></div><strong>{groupItems.length}</strong></header><div>{groupItems.map(renderCard)}{!groupItems.length && <p className="prep-command-none">Sin pedidos</p>}</div></section>; })}</div>}</section>;
+  const renderCard = (row: any) => { const client = getClient(row.client_id); const address = typeof row.address === "string" ? row.address : row.address?.address || row.address?.name || "Dirección no indicada"; return <button type="button" key={row.id} className={`prep-order-card${Number(row.urgent) === 1 ? " is-urgent" : ""}${row.status === "Preparado" ? " is-completed" : ""}${row.status === "Preparado con incidencia" ? " has-incident" : ""}`} onClick={() => onOpen(row)}><span className="prep-card-top"><b>{row.code}</b><em>{Number(row.urgent) === 1 ? "URGENTE" : row.status || "Pendiente"}</em></span><strong>{client?.name || `Cliente #${row.client_id || "—"}`}</strong><span>{address}</span><span className="prep-card-meta">Entrega: {formatSpanishDateValue(row.delivery_date || row.expected_delivery_at, false)}{row.packages ? ` · ${row.packages} bultos` : ""}</span><small>{row.notes || "Sin observaciones"}</small><i>▶ Abrir comanda</i></button>; };
+  return <section className="prep-command-board" aria-label="Comandas de preparación"><div className="prep-command-toolbar"><div className="prep-command-toolbar-title"><b>Pedidos para preparar</b><span>{dateFilter ? `Preparación del ${formatSpanishDateValue(dateFilter, false)}` : "Todas las preparaciones"}</span></div><div className="prep-command-filters"><label>Preparar el día<input type="date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value)} /></label><button type="button" className="button primary" onClick={() => onDateFilterChange(today)}>Hoy</button><button type="button" className="button secondary" onClick={() => onDateFilterChange(tomorrow)}>Mañana</button><button type="button" className="button secondary" onClick={() => onDateFilterChange("")}>Todos</button></div></div><div className="prep-command-summary"><span><b>{items.length}</b> pedidos</span><span><b>{items.filter((row) => Number(row.urgent) === 1).length}</b> urgentes</span><span><b>{items.filter((row) => row.status === "Preparado con incidencia").length}</b> con incidencia</span><span className="prep-command-summary-hint">Pulsa una comanda para revisar sus líneas</span></div>{!items.length ? <div className="prep-command-empty"><b>{dateFilter ? "No hay pedidos para esta fecha" : "No hay pedidos pendientes"}</b><span>{dateFilter ? "Prueba otra fecha o pulsa “Todos”." : "Cuando se creen preparaciones aparecerán aquí."}</span></div> : <div className="prep-command-columns">{groups.map((group) => { const groupItems = items.filter(group.match); return <section className={`prep-command-column prep-command-${group.key}`} key={group.key}><header><div><b>{group.title}</b><small>{group.hint}</small></div><strong>{groupItems.length}</strong></header><div>{groupItems.map(renderCard)}{!groupItems.length && <p className="prep-command-none">Sin pedidos</p>}</div></section>; })}</div>}</section>;
 }
 
 function formatSpanishDateValue(value: any, includeTime = true) {
@@ -1822,7 +1823,7 @@ function BusinessRelatedPanels({ active, rows, lookups, onNavigate }: { active: 
   </section>;
 }
 
-function Manager({ active, user, onNavigate }: { active: string; user?: any; onNavigate?: (module: string) => void }) {
+function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFormConsumed }: { active: string; user?: any; onNavigate?: (module: string) => void; assistantFormIntent?: any; onAssistantFormConsumed?: () => void }) {
   const c = cfg[active];
   const actorHeaders = {
     "Content-Type": "application/json",
@@ -1873,6 +1874,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingSaving, setBillingSaving] = useState(false);
   const [billingError, setBillingError] = useState("");
+  const [billingFilter, setBillingFilter] = useState("todos");
   const [previewLines, setPreviewLines] = useState<any[]>([]);
   const [incidentLineId, setIncidentLineId] = useState<number | null>(null);
   const [incidentText, setIncidentText] = useState("");
@@ -1898,8 +1900,9 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   const [clientSearch, setClientSearch] = useState("");
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
   const [visibleFields, setVisibleFields] = useState<string[]>(c.fields);
-  const orderListFields = ["code", "client_id", "status", "preparation_date", "delivery_date"];
+  const orderListFields = ["code", "client_id", "status", "billing_status", "preparation_date", "delivery_date"];
   const stockListFields = ["product_id", "unit", "warehouse_name", "stock", "stock_reserved", "available_stock", "min_stock", "stock_status"];
   useEffect(() => {
     if (inlineEditing === null) return;
@@ -1916,7 +1919,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   }, [inlineEditing]);
   useEffect(() => {
     try {
-      if (c.api === "orders") {
+    if (c.api === "orders") {
         setVisibleFields(orderListFields);
         localStorage.setItem(`excluvas.columns.${c.api}`, JSON.stringify(orderListFields));
         return;
@@ -1972,13 +1975,77 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     payments: [],
     inventory_movements: [],
   });
+  useEffect(() => {
+    if (!assistantFormIntent || assistantFormIntent.section !== active) return;
+    const source = assistantFormIntent.data && typeof assistantFormIntent.data === "object" ? assistantFormIntent.data : {};
+    const aliases: Record<string, string> = {
+      invoice_number: "code", invoice_date: "issue_date", total: "amount", total_amount: "amount", tax_rate: "vat",
+      supplier: "vendor", supplier_name: "vendor", product_name: "name", product_code: "sku", customer_name: "client_name",
+      customer: "client_name", client: "client_name", date: active === "Gastos y tickets" ? "expense_date" : "issue_date",
+    };
+    const next: Record<string, any> = {};
+    Object.entries(source).forEach(([key, value]) => {
+      const target = aliases[key] || key;
+      if (value !== null && value !== undefined && value !== "" && next[target] === undefined) next[target] = value;
+    });
+    const normalizeDate = (value: any) => {
+      const text = String(value || "").trim();
+      const match = text.match(/^(\d{1,2})[\\/.\-](\d{1,2})[\\/.\-](\d{4})$/);
+      return match ? `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}` : value;
+    };
+    ["issue_date", "due_date", "expense_date", "delivery_date", "valid_until", "preparation_date", "shipping_date"].forEach((field) => {
+      if (next[field]) next[field] = normalizeDate(next[field]);
+    });
+    const findLookup = (items: any[], query: any) => {
+      const needle = String(query || "").trim().toLocaleLowerCase();
+      if (!needle) return null;
+      return (items || []).find((item: any) => String(item.name || item.code || "").trim().toLocaleLowerCase() === needle)
+        || (items || []).find((item: any) => String(item.name || item.code || "").toLocaleLowerCase().includes(needle));
+    };
+    if (!next.client_id && next.client_name) {
+      const client = findLookup(lookups.clients, next.client_name);
+      if (client) next.client_id = String(client.id);
+      setClientSearch(String(next.client_name));
+    }
+    if (!next.product_id && next.product_name) {
+      const product = findLookup(lookups.products, next.product_name);
+      if (product) next.product_id = String(product.id);
+    }
+    if (!next.supplier_id && next.supplier_name) {
+      const supplier = findLookup(lookups.suppliers, next.supplier_name);
+      if (supplier) next.supplier_id = String(supplier.id);
+    }
+    delete next.client_name;
+    delete next.product_name;
+    delete next.supplier_name;
+    delete next.customer_name;
+    delete next.customer;
+    delete next.client;
+    setEditing(null);
+    setInlineEditing(null);
+    setError("");
+    setForm(next);
+    setQuoteLines(Array.isArray(assistantFormIntent.lines) ? assistantFormIntent.lines : []);
+    setFormOpen(true);
+    onAssistantFormConsumed?.();
+  }, [assistantFormIntent, active, lookups]);
   useLayoutEffect(() => {
-    const cacheKey = `excluvas.listado.${c.api}.${showDeleted ? "deleted" : "active"}`;
-    const applyList = (value: any[]) => c.movementFilter
-      ? value.filter((item: any) => String(item.movement_type || "").toLowerCase() === String(c.movementFilter).toLowerCase())
-      : c.statusFilter
-        ? value.filter((item: any) => c.statusFilter.includes(item.status || "Preparando"))
+    const cacheKey = `excluvas.listado.${c.api}.${showDeleted ? "deleted" : "active"}.${showInactive ? "all-statuses" : "active-only"}`;
+    const applyList = (value: any[]) => {
+      const enrichedRows = c.api === "orders"
+        ? value.map((item: any) => ({ ...item, billing_status: item.billing_status || (item.status === "Facturado" ? "Facturado" : "Sin facturar") }))
         : value;
+      const statusRows = !showInactive && ["suppliers", "clients", "products"].includes(c.api)
+        ? enrichedRows.filter((item: any) => c.api === "products"
+          ? Number(item.active ?? 1) === 1 && !["inactivo", "baja", "descatalogado"].includes(String(item.product_status || "Activo").toLowerCase())
+          : Number(item.active ?? 1) === 1)
+        : enrichedRows;
+      return c.movementFilter
+        ? statusRows.filter((item: any) => String(item.movement_type || "").toLowerCase() === String(c.movementFilter).toLowerCase())
+        : c.statusFilter
+          ? statusRows.filter((item: any) => c.statusFilter.includes(item.status || "Preparando"))
+          : statusRows;
+    };
     let hasCachedRows = false;
     try {
       const cached = JSON.parse(localStorage.getItem(cacheKey) || "null");
@@ -1989,7 +2056,10 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     } catch { /* Si la caché está dañada, se ignora y se consulta la API. */ }
     setLoading(!hasCachedRows);
     setDbError("");
-    fetchWithRetry("/api/" + c.api + (showDeleted ? "?include_deleted=1" : ""), {
+    const params = new URLSearchParams();
+    if (showDeleted) params.set("include_deleted", "1");
+    if (showInactive && ["suppliers", "clients", "products"].includes(c.api)) params.set("include_inactive", "1");
+    fetchWithRetry("/api/" + c.api + (params.toString() ? `?${params.toString()}` : ""), {
       headers: { "X-Actor": user?.username || "Usuario local" },
     })
       .then((r) => {
@@ -2007,31 +2077,42 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
         );
       })
       .finally(() => setLoading(false));
-  }, [active, showDeleted]);
+  }, [active, showDeleted, showInactive]);
   useEffect(() => {
-    const baseLookupResources = active === "Productos"
-      ? ["suppliers", "warehouses"]
-      : ["clients", "products", "warehouses", "suppliers", "collection_points", "orders", "shipments"];
-    const relatedLookupResources = ["Pedidos", "Facturas", "Compras", "Gastos y tickets", "Stock", "Entradas", "Preparación de pedidos", "Salidas", "Cobros", "Balance", "Informes"].includes(active)
-      ? ["invoices", "purchase_orders", "payments", "inventory_movements"]
-      : [];
-    const lookupResources = Array.from(new Set([...baseLookupResources, ...relatedLookupResources]));
+    const lookupResourcesByActive: Record<string, string[]> = {
+      Productos: ["suppliers", "warehouses"],
+      Stock: ["products", "warehouses", "inventory_movements"],
+      Envíos: ["clients", "orders", "collection_points", "shipments"],
+      Clientes: ["clients", "collection_points", "invoices", "payments"],
+      Contactos: ["clients", "suppliers"],
+      Proveedores: ["suppliers", "purchase_orders", "payments"],
+      Compras: ["suppliers", "products", "purchase_orders", "invoices"],
+      "Compras inteligentes": ["suppliers", "products", "purchase_orders"],
+      Almacenes: ["warehouses", "products"],
+      "Preparación de pedidos": ["clients", "orders", "products", "collection_points", "shipments"],
+      "Lugares de recogida": ["clients", "collection_points"],
+      Entradas: ["products", "warehouses", "inventory_movements"],
+      Salidas: ["clients", "orders", "collection_points", "shipments"],
+      Pedidos: ["clients", "products", "collection_points", "orders", "invoices"],
+      Presupuestos: ["clients", "products", "quotes"],
+      Albaranes: ["clients", "orders", "products", "delivery_notes"],
+      Facturas: ["clients", "orders", "products", "invoices"],
+      Cobros: ["clients", "invoices", "payments"],
+      "Gastos y tickets": ["clients", "suppliers", "payments"],
+      Balance: ["invoices", "purchase_orders", "payments", "expenses"],
+      Informes: ["orders", "clients", "products", "invoices", "payments", "inventory_movements", "shipments", "purchase_orders", "expenses"],
+      Devoluciones: ["clients", "invoices", "products"],
+    };
+    const lookupResources = lookupResourcesByActive[active] || [];
+    if (!lookupResources.length) return;
     Promise.allSettled(
-      lookupResources.map(async (resource) => {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 12000);
-        try {
-          const response = await fetch("/api/" + resource, { headers: { "X-Actor": user?.username || "Usuario local" }, signal: controller.signal });
-          return [resource, response.ok ? await response.json() : []] as const;
-        } catch { return [resource, []] as const; }
-        finally { clearTimeout(timeout); }
-      }),
+      lookupResources.map(async (resource) => [resource, await fetchCompactLookup(resource, user?.username || "Usuario local")] as const),
     ).then((results) => setLookups((current: any) => {
       const next = { ...current };
       results.forEach((result) => { if (result.status === "fulfilled") next[result.value[0]] = result.value[1]; });
       return next;
     }));
-  }, [active]);
+  }, [active, user?.username]);
   async function attachExpenseFile(file: File) {
     if (file.size > 8 * 1024 * 1024) {
       alert("El justificante no puede superar 8 MB.");
@@ -3240,7 +3321,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     const lookupSource = field === "client_id" ? lookups.clients
       : field === "product_id" ? lookups.products
         : field === "warehouse_id" ? lookups.warehouses
-          : field === "supplier_id" ? lookups.suppliers
+          : ["supplier_id", "primary_supplier_id"].includes(field) ? lookups.suppliers
             : field === "collection_point_id" ? lookups.collection_points
               : field === "order_id" ? lookups.orders
                 : field === "invoice_id" ? lookups.invoices
@@ -3280,6 +3361,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
   ]);
   const isDateField = (field: string) => dateFields.has(field) || field.endsWith("_date") || field.endsWith("_at");
   const isLoadPreparation = active === "Preparación de pedidos";
+  const usesRecordModal = ["Clientes", "Proveedores", "Almacenes", "Lugares de recogida", "Productos"].includes(active);
   const previewLocation = preview ? (lookups.collection_points || []).find((item: any) => Number(item.id) === Number(preview.collection_point_id)) : null;
   const previewLat = Number(previewLocation?.latitude);
   const previewLon = Number(previewLocation?.longitude);
@@ -3329,7 +3411,10 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     const primaryValues = c.fields.slice(0, 4).map((field: string) => row[field]);
     const searchableText = normalizeSearch([...primaryValues, ...relatedValues, JSON.stringify(row)].join(" "));
     const matchesText = !query || query.split(/\s+/).every((token) => searchableText.includes(token));
-    if (!isProducts && !isLoadPreparation) return matchesText;
+    const currentBillingStatus = String(row.billing_status || (row.status === "Facturado" ? "Facturado" : "Sin facturar"));
+    const matchesBilling = active !== "Pedidos" || billingFilter === "todos"
+      || (billingFilter === "pendientes" ? currentBillingStatus !== "Facturado" : currentBillingStatus === "Facturado");
+    if (!isProducts && !isLoadPreparation) return matchesText && matchesBilling;
     if (isLoadPreparation) return matchesText && (!preparationDateFilter || String(row.preparation_date || "").slice(0, 10) === preparationDateFilter);
     const available = Number(row.stock || 0) - Number(row.stock_reserved || 0);
     const matchesCategory = !productFilters.category || row.category === productFilters.category;
@@ -3432,6 +3517,8 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
             <option key={item.id} value={item.id}>{item.name || item.code || (f === "order_id" ? `Pedido #${item.id}` : f === "shipment_id" ? `Hoja #${item.id}` : `Registro #${item.id}`)}</option>
           ))}
         </select>
+      ) : ["Proveedores", "Clientes", "Productos"].includes(active) && f === "active" ? (
+        <select aria-label={c.labels[i]} value={String(form[f] ?? "1")} onChange={(e) => handleFormChange(f, e.target.value)}><option value="1">Activo</option><option value="0">Baja</option></select>
       ) : active === "Productos" && f === "product_status" ? (
         <select aria-label={c.labels[i]} value={form[f] ?? "Activo"} onChange={(e) => handleFormChange(f, e.target.value)}>{["Activo", "Inactivo", "Descatalogado", "Estacional"].map((value) => <option key={value}>{value}</option>)}</select>
       ) : active === "Productos" && ["family", "subfamily"].includes(f) ? (
@@ -3491,7 +3578,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
     </label>
   );
   const productSections = [
-    { title: "Producto", fields: ["name", "sku", "description", "barcode", "supplier_ref", "category", "category_code", "brand", "format", "unit", "purchase_format", "sale_format", "product_status", "created_at", "supplier_id"] },
+    { title: "Producto", fields: ["name", "sku", "external_code", "description", "barcode", "supplier_ref", "category", "category_code", "brand", "format", "unit", "purchase_format", "sale_format", "product_status", "active", "created_at", "supplier_id"] },
     { title: "Inventario y logística", fields: ["warehouse_id", "warehouse_location", "preorder", "inventory_valuation_method", "stock", "stock_reserved", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "picking_order"] },
     { title: "Costes y márgenes", fields: ["cost_price", "last_direct_cost", "unit_price", "markup_percent", "margin_percent", "target_margin_percent", "min_margin_percent", "freight_cost", "handling_cost", "real_cost"] },
     { title: "Precios e impuestos", fields: ["vat", "accounting_product_group", "accounting_vat_group", "inventory_register_group", "tax_surcharge_percent", "extra_tax_name", "extra_tax_percent", "fixed_supplier", "primary_supplier_id"] },
@@ -3586,11 +3673,13 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
           )}{" "}
           {active === "Pedidos" && <button type="button" className="button secondary" onClick={() => { setBillingOpen(true); void loadBillingOrders(); }}>Facturar pedidos</button>}{" "}
           {!isLoadPreparation && <>
-            <button type="button" className="button secondary" onClick={download}>
-              ↓ Descargar Excel/CSV
+            <button type="button" className="button secondary icon-action" onClick={download} aria-label="Descargar Excel/CSV" title="Descargar Excel/CSV">
+              <ToolbarIcon name="download" />
+              <span className="icon-action-label">Descargar Excel/CSV</span>
             </button>{" "}
-            <label className="import-button">
-              ↑ Importar CSV
+            <label className="import-button icon-action" aria-label="Importar CSV" title="Importar CSV">
+              <ToolbarIcon name="upload" />
+              <span className="icon-action-label">Importar CSV</span>
               <input
                 type="file"
                 accept=".csv,text/csv"
@@ -3601,10 +3690,13 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
             </label>{" "}
             <button
               type="button"
-              className="button secondary"
+              className="button secondary icon-action"
               onClick={downloadTemplate}
+              aria-label="Descargar plantilla"
+              title="Descargar plantilla"
             >
-              ↓ Descargar plantilla
+              <ToolbarIcon name="template" />
+              <span className="icon-action-label">Descargar plantilla</span>
             </button>
           </>}
         </div>
@@ -3623,7 +3715,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
       )}
       <details
         ref={formAccordionRef}
-        className={`form-accordion${active === "Productos" ? " product-form-accordion" : ""}`}
+        className={`form-accordion${active === "Productos" ? " product-form-accordion" : ""}${usesRecordModal && editing ? " record-edit-modal" : ""}`}
         open={formOpen || !!editing}
         onToggle={(e: any) => setFormOpen(e.currentTarget.open)}
       >
@@ -3663,7 +3755,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
             <details className="order-general-accordion" open>
               <summary><b>Datos generales del pedido</b><span><em className="order-created-date">Fecha del pedido: {formatSpanishDateValue(String(form.created_at || tabletTodayInput()).slice(0, 10), false)}</em> · {orderGeneralComplete ? <em className="accordion-complete" title="Campos obligatorios completos">✓ Completo</em> : <em className="accordion-pending">Pendiente de completar</em>} · Mostrar más/menos</span></summary>
               <div className="order-general-fields">
-                {c.fields.filter((f: string) => !["product_id", "quantity", "unit_price", "discount", "amount", "prepared_by", "shipped_by", "delivered_by"].includes(f)).map((f: string) => renderFormField(f, c.fields.indexOf(f)))}
+                {c.fields.filter((f: string) => !["product_id", "quantity", "unit_price", "discount", "amount", "billing_status", "prepared_by", "shipped_by", "delivered_by"].includes(f)).map((f: string) => renderFormField(f, c.fields.indexOf(f)))}
               </div>
             </details>
             </>
@@ -3782,7 +3874,8 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
           <span className="list-count" role="status">
             {loading ? "Cargando registros…" : `${filteredRows.length} registros`}
           </span>
-          {isLoadPreparation && <div className="prep-date-filter" aria-label="Filtrar preparación por fecha"><label>Preparar el día <input type="date" value={preparationDateFilter} onChange={(event) => setPreparationDateFilter(event.target.value)} /></label><button type="button" className="button secondary" onClick={() => setPreparationDateFilter(tabletTodayInput())}>Hoy</button><button type="button" className="button secondary" onClick={() => setPreparationDateFilter("")}>Todos</button></div>}
+          {active === "Pedidos" && <select className="billing-filter-select" value={billingFilter} onChange={(event) => setBillingFilter(event.target.value)} aria-label="Filtrar pedidos por facturación"><option value="todos">Facturación: todos</option><option value="pendientes">Sin facturar</option><option value="facturados">Facturados</option></select>}
+          {isLoadPreparation && <div className="prep-date-filter" aria-label="Filtrar preparación por fecha"><label>Preparar el día <input type="date" value={preparationDateFilter} onChange={(event) => setPreparationDateFilter(event.target.value)} /></label><button type="button" className="button secondary" onClick={() => setPreparationDateFilter(tabletTodayInput())}>Hoy</button><button type="button" className="button secondary" onClick={() => setPreparationDateFilter(tabletDateOffset(1))}>Mañana</button><button type="button" className="button secondary" onClick={() => setPreparationDateFilter("")}>Todos</button></div>}
           {isLoadPreparation && <div className="prep-summary"><b>{filteredRows.length} pedidos a preparar</b><span>{preparationUrgentCount} urgentes</span><span>{preparationIncidentCount} con incidencia</span></div>}
           {active === "Stock" && (
             <select className="stock-sort-select" value={stockSort} onChange={(event) => setStockSort(event.target.value)} aria-label="Ordenar stock">
@@ -3794,6 +3887,17 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
               <option value="status_asc">Estado: más urgente primero</option>
               <option value="status_desc">Estado: stock saludable primero</option>
             </select>
+          )}
+          {["Proveedores", "Clientes", "Productos"].includes(active) && (
+            <button
+              type="button"
+              className={`deleted-toggle${showInactive ? " is-active" : ""}`}
+              title={showInactive ? "Ocultar los registros dados de baja" : "Mostrar también los registros dados de baja"}
+              aria-pressed={showInactive}
+              onClick={() => setShowInactive((current) => !current)}
+            >
+              {showInactive ? "Ocultar bajas" : "Mostrar bajas"}
+            </button>
           )}
           <button
             type="button"
@@ -3877,14 +3981,16 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
             </thead>
             <tbody>
               {sortedRows.map((r) => (
-                  <tr key={r.id ?? r.product_id} data-inline-row={r.id ?? r.product_id} data-row-modal={active === "Presupuestos" || active === "Pedidos" ? "true" : undefined} className={`${isProducts && Number(r.stock || 0) - Number(r.stock_reserved || 0) <= Number(r.min_stock || 0) ? "product-row-critical" : ""}${isLoadPreparation && Number(r.urgent) === 1 ? " prep-row-urgent" : ""}${isLoadPreparation && r.status === "Preparado con incidencia" ? " prep-row-incident" : ""}${Number(r.deleted) === 1 ? " deleted-row" : ""}${active === "Pedidos" ? " order-list-row" : ""}`} onClick={(event) => { if (inlineEditing === (r.id ?? r.product_id) || (event.target as HTMLElement).closest("button, input, select, textarea, a")) return; if (active === "Presupuestos" || active === "Pedidos") { if (active === "Pedidos" && isOrderSent(r)) void openPreview(r); else void openRecordModal(r); return; } if (isLoadPreparation) { void openPreparationRow(r); return; } beginInline(r); }}>
+                  <tr key={r.id ?? r.product_id} data-inline-row={r.id ?? r.product_id} data-row-modal={active === "Presupuestos" || active === "Pedidos" || usesRecordModal ? "true" : undefined} className={`${isProducts && Number(r.stock || 0) - Number(r.stock_reserved || 0) <= Number(r.min_stock || 0) ? "product-row-critical" : ""}${isLoadPreparation && Number(r.urgent) === 1 ? " prep-row-urgent" : ""}${isLoadPreparation && r.status === "Preparado con incidencia" ? " prep-row-incident" : ""}${Number(r.deleted) === 1 ? " deleted-row" : ""}${active === "Pedidos" ? " order-list-row" : ""}`} onClick={(event) => { if (inlineEditing === (r.id ?? r.product_id) || (event.target as HTMLElement).closest("button, input, select, textarea, a")) return; if (active === "Presupuestos" || active === "Pedidos") { if (active === "Pedidos" && isOrderSent(r)) void openPreview(r); else void openRecordModal(r); return; } if (isLoadPreparation) { void openPreparationRow(r); return; } if (usesRecordModal) { void openRecordModal(r); return; } beginInline(r); }}>
                     {isProducts && <td className="product-check-column"><input type="checkbox" checked={selectedProductIds.includes(Number(r.id))} onChange={() => toggleProductSelection(Number(r.id))} aria-label={`Seleccionar ${r.name}`} /></td>}
                     {visibleFields.map((f: string) => (
                       <td key={f} className={`${stockCellClass(r, f)}${active === "Stock" && ["stock", "stock_reserved", "available_stock", "min_stock"].includes(f) && Number(r[f]) < 0 ? " stock-negative" : ""}`}>
                         {inlineEditing === (r.id ?? r.product_id) ? (
                           renderInlineEditor(f, r)
                         ) : (
-                          f === "client_id" && r.client_name
+                          f === "billing_status"
+                            ? <span className={`billing-status billing-status-${String(r.billing_status || "Sin facturar").toLowerCase().replaceAll(" ", "-")}`}>{r.billing_status || "Sin facturar"}</span>
+                            : f === "client_id" && r.client_name
                             ? `${r.client_name}${r.client_city ? ` · ${r.client_city}` : ""}`
                             : (f === "address" || f === "origin_address") && (r[f] === "[object Object]" || (r[f] && typeof r[f] === "object"))
                               ? (typeof r[f] === "object"
@@ -3979,7 +4085,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                         ) : active === "Pedidos" ? null : (
                           <button
                             className="row-action"
-                            onClick={() => beginInline(r)}
+                            onClick={() => usesRecordModal ? void openRecordModal(r) : beginInline(r)}
                           >
                             Editar
                           </button>
@@ -4072,7 +4178,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                 {(active === "Compras" ? previewSupplier?.name : previewClient?.name) ||
                   `Cliente #${preview.client_id || "sin asignar"}`}
                 <br />
-                {previewClient?.address || "Dirección no indicada"}
+                {previewLocation?.address || previewClient?.address || "Dirección no indicada"}
                 <br />
                 {previewClient?.tax_id || "NIF/CIF no indicado"}
               </p>
@@ -4087,7 +4193,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                 <b>Estado:</b> {preview.status}
               </p>
             </div>
-            {(previewLocation || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewLocation?.address || previewClient?.address || "Dirección no indicada"}</span>{previewLocation?.geocoding_status === "Geolocalizada" ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.openstreetmap.org/?mlat=${previewLat}&mlon=${previewLon}#map=16/${previewLat}/${previewLon}`} target="_blank" rel="noreferrer">Abrir mapa</a><a className="button secondary" href={`https://www.openstreetmap.org/directions?from=&to=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Ver ruta</a></> : <a className="button secondary" href={`https://www.openstreetmap.org/search?query=${encodeURIComponent([previewLocation?.address, previewLocation?.city, "España"].filter(Boolean).join(", "))}`} target="_blank" rel="noreferrer">Buscar en mapa</a>}</section>}
+            {(previewLocation || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewLocation?.address || previewClient?.address || "Dirección no indicada"}</span>{previewLocation?.geocoding_status === "Geolocalizada" ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.openstreetmap.org/?mlat=${previewLat}&mlon=${previewLon}#map=16/${previewLat}/${previewLon}`} target="_blank" rel="noreferrer">Abrir mapa</a><a className="button secondary" href={`https://www.openstreetmap.org/directions?from=&to=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Ver ruta</a></> : <a className="button secondary icon-action map-action" href={`https://www.openstreetmap.org/search?query=${encodeURIComponent([previewLocation?.address, previewLocation?.city, "España"].filter(Boolean).join(", "))}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en el mapa" title="Buscar dirección en el mapa"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</section>}
             {isLoadPreparation && !["Preparando", "Preparado", "Preparado con incidencia"].includes(String(preview.status || "")) && (
               <div className="preparation-start-banner">
                 <div><b>Pedido pendiente de preparar</b><small>Al iniciar quedará asignado a {user?.username || "tu usuario"} con fecha y hora.</small></div>
@@ -4145,7 +4251,7 @@ function Manager({ active, user, onNavigate }: { active: string; user?: any; onN
                   return (
                   <Fragment key={line.id}>
                   <tr key={line.id}>
-                    {isLoadPreparation ? <><td><div className="prep-location-field"><label><span>Ubicación de picking</span><input aria-label={`Ubicación de ${product?.name || "producto"}`} value={locationDrafts[String(product?.id)] ?? product?.warehouse_location ?? ""} placeholder="Ej. B-126" onChange={(event) => setLocationDrafts((current) => ({ ...current, [String(product?.id)]: event.target.value }))} disabled={locationSavingId === -1} /></label></div></td><td><div className="prep-product-cell"><b>{product?.name || `Producto #${line.product_id}`}</b></div></td></> : <td>{product?.name || `Producto #${line.product_id}`}</td>}
+                    {isLoadPreparation ? <><td><div className="prep-location-field"><input aria-label={`Ubicación de ${product?.name || "producto"}`} value={locationDrafts[String(product?.id)] ?? product?.warehouse_location ?? ""} placeholder="Ej. B-126" onChange={(event) => setLocationDrafts((current) => ({ ...current, [String(product?.id)]: event.target.value }))} disabled={locationSavingId === -1} /></div></td><td><div className="prep-product-cell"><b>{product?.name || `Producto #${line.product_id}`}</b></div></td></> : <td>{product?.name || `Producto #${line.product_id}`}</td>}
                     <td>{isLoadPreparation || (["Pedidos", "Presupuestos", "Facturas", "Albaranes"].includes(active) && (line.quantity_unit || line.quantity_requested)) ? <div className="prep-quantity-summary"><b>{line.quantity_requested || line.quantity} {quantityUnitLabel(line.quantity_unit)}{(line.quantity_requested || line.quantity) !== 1 && !String(line.quantity_unit || "unidad").startsWith("pack_") ? "s" : ""}</b><small>· {line.quantity} unidades totales</small></div> : line.quantity}</td>
                     {isLoadPreparation && <td><div className="prep-line-controls"><input className="prep-real-quantity" aria-label={`Cantidad preparada de ${product?.name || "producto"}`} type="number" min="0" max={requestedQuantity} step="any" value={line.prepared_quantity ?? 0} onFocus={(event) => event.currentTarget.select()} onChange={(event) => { const raw = event.target.value; setPreviewLines((current) => current.map((item) => { if (item.id !== line.id) return item; if (raw === "") return { ...item, prepared_quantity: "" }; const requested = Number(item.quantity || 0); return { ...item, prepared_quantity: Math.min(requested, Math.max(0, Number(raw) || 0)) }; })) }} onBlur={() => { if (line.prepared_quantity === "") setPreviewLines((current) => current.map((item) => item.id === line.id ? { ...item, prepared_quantity: 0 } : item)); }} /><span className="prep-unit-caption">uds.</span></div></td>}
                     {isLoadPreparation && <td><span className={`prep-line-status prep-line-status-${displayLineStatus.toLowerCase()}`}>{displayLineStatus}</span></td>}
@@ -4555,7 +4661,7 @@ function Balance() {
     setLoading(true);
     Promise.all(
       ["invoices", "payments", "purchase_orders", "expenses"].map((resource) =>
-        fetch(`/api/${resource}`).then((response) =>
+        fetch(`/api/${resource}?view=lookup&limit=5000`).then((response) =>
           response.json(),
         ),
       ),
@@ -4822,7 +4928,7 @@ function Reports() {
         "purchase_orders",
         "expenses",
       ].map((x) =>
-        fetch("/api/" + x).then((r) => r.json()),
+        fetch(`/api/${x}?view=lookup&limit=5000`).then((r) => r.json()),
       ),
     ).then(
       ([
@@ -6298,6 +6404,12 @@ function TabletCrudPanel({
 
 function tabletTodayInput() {
   const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function tabletDateOffset(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
@@ -7820,7 +7932,8 @@ export function OcrIntelligent({ user = { username: "Usuario local" } }: { user?
   const [saving, setSaving] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [message, setMessage] = useState("");
-  const readHistory = async () => { try { const response = await fetch("/api/ocr_documents", { headers: { "X-Audit-Query": "true", "X-Actor": user?.username || "Usuario local" } }); const body = await response.json(); setHistory(Array.isArray(body) ? body : []); } catch { setMessage("No se pudo cargar el historial."); } };
+  const historyRequestRef = useRef(0);
+  const readHistory = async () => { const requestId = ++historyRequestRef.current; try { const response = await fetch(`/api/ocr_documents?refresh=${Date.now()}`, { cache: "no-store", headers: { "X-Audit-Query": "true", "X-Actor": user?.username || "Usuario local" } }); const body = await response.json(); if (requestId === historyRequestRef.current) setHistory(Array.isArray(body) ? body : []); } catch { if (requestId === historyRequestRef.current) setMessage("No se pudo cargar el historial."); } };
   useEffect(() => { void readHistory(); }, []);
   useEffect(() => { const handlePaste = (event: ClipboardEvent) => { const pasted = event.clipboardData?.files?.[0]; if (pasted) { event.preventDefault(); void selectFile(pasted); } }; window.addEventListener("paste", handlePaste); return () => window.removeEventListener("paste", handlePaste); }, []);
   function classify(name: string, text: string) { const value = `${name} ${text}`.toLowerCase(); if (/factura|invoice|iva|base imponible|total a pagar/.test(value)) return "Factura"; if (/presupuesto|cotizaci|proforma|oferta/.test(value)) return "Presupuesto"; return "Otro"; }
@@ -7842,6 +7955,18 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
       return routeModules.includes(stored) ? stored : routeModules[0];
     } catch { return routeModules[0]; }
   });
+  const [assistantFormIntent, setAssistantFormIntent] = useState<any>(null);
+  useEffect(() => {
+    function assistantFormRequested(event: Event) {
+      const detail = (event as CustomEvent<any>).detail;
+      const section = String(detail?.section || "");
+      if (!section || !routeModules.includes(section)) return;
+      setAssistantFormIntent(detail);
+      setActive(section);
+    }
+    window.addEventListener("excluvas:assistant-form", assistantFormRequested);
+    return () => window.removeEventListener("excluvas:assistant-form", assistantFormRequested);
+  }, [routeModules]);
   useEffect(() => {
     const section = routeDefaultSections[window.location.pathname.replace(/\/$/, "")] || "";
     if (section && routeModules.includes(section)) setActive(section);
@@ -7866,19 +7991,13 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
   const [stockAlertPreview, setStockAlertPreview] = useState<any>(null);
   async function loadNotifications() {
     try {
-      const [response, ordersResponse, clientsResponse] = await Promise.all([
+      const [response, orders, clients, products] = await Promise.all([
         fetch("/api/audit_logs", { headers: { "X-Audit-Query": "true" } }),
-        fetch("/api/orders"),
-        fetch("/api/clients"),
+        fetchCompactLookup("orders", currentUser.username || "Usuario local"),
+        fetchCompactLookup("clients", currentUser.username || "Usuario local"),
+        fetchCompactLookup("products", currentUser.username || "Usuario local"),
       ]);
-      const productsResponse = await fetch("/api/products");
-      const [data, ordersData, clientsData] = await Promise.all([
-        response.json(), ordersResponse.json(), clientsResponse.json(),
-      ]);
-      const productsData = await productsResponse.json().catch(() => []);
-      const orders = Array.isArray(ordersData) ? ordersData : [];
-      const clients = Array.isArray(clientsData) ? clientsData : [];
-      const products = Array.isArray(productsData) ? productsData : [];
+      const data = await response.json();
       const getOrderId = (item: any) => {
         const resourceMatch = String(item?.resource || "").match(/(?:orders|order)\/(\d+)/i);
         const detailsMatch = String(item?.details || "").match(/(?:orders|order)[\/]?(\d+)/i);
@@ -8010,31 +8129,9 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
   }, [resolvedRouteMode]);
   useEffect(() => {
     if (!currentUser?.username) return;
-    let cancelled = false;
-    const resources = [
-      "clients", "orders", "products", "shipments", "suppliers",
-      "purchase_orders", "expenses", "invoices", "payments", "notes",
-    ];
-    const warmCache = async () => {
-      // Tres peticiones simultáneas mantienen ágil el arranque y evitan
-      // saturar la API mientras se prepara la navegación.
-      for (let index = 0; index < resources.length && !cancelled; index += 3) {
-        await Promise.all(resources.slice(index, index + 3).map(async (resource) => {
-          try {
-            const response = await fetch(`/api/${resource}`, {
-              headers: { "X-Actor": currentUser.username || "Usuario local" },
-            });
-            if (!response.ok || cancelled) return;
-            const data = await response.json();
-            if (Array.isArray(data)) {
-              localStorage.setItem(`excluvas.listado.${resource}.active`, JSON.stringify(data));
-            }
-          } catch { /* La precarga es opcional; la sección consultará al abrirse. */ }
-        }));
-      }
-    };
-    void warmCache();
-    return () => { cancelled = true; };
+    // Las secciones cargan sus propios datos compactos al abrirse. Evitamos
+    // precargar todos los listados completos al iniciar sesión: Productos,
+    // en particular, puede ocupar varios megabytes.
   }, [currentUser.username]);
   const [summary, setSummary] = useState({
     sales: 0,
@@ -8272,41 +8369,19 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
   }
   useEffect(() => {
     if (active !== "Inicio") return;
-    loadImportantNotes();
-  }, [active]);
-  useEffect(() => {
-    if (active !== "Inicio") return;
     setHomeLoading(true);
     let cancelled = false;
     const loadEssential = async () => {
       try {
-        const [orders, invoices, products, clients, shipments] = await Promise.all(
-          ["orders", "invoices", "products", "clients", "shipments"].map((x) =>
-            fetchWithRetry("/api/" + x).then((r) => r.json()),
-          ),
-        );
+        const response = await fetchWithRetry(`/api/summary?from=${encodeURIComponent(homeOrderRangeStart)}&to=${encodeURIComponent(homeOrderRangeEnd)}`);
+        const payload = await response.json();
         if (cancelled) return;
-        setHomeOrders(Array.isArray(orders) ? orders : []);
-        setHomeShipments(Array.isArray(shipments) ? shipments : []);
-        setHomeClients(Array.isArray(clients) ? clients : []);
-        const invoicesInRange = (Array.isArray(invoices) ? invoices : []).filter((invoice: any) => homeDateInRange(invoice.issue_date || invoice.invoice_date || invoice.created_at));
-        const ordersInRange = (Array.isArray(orders) ? orders : []).filter((order: any) => homeDateInRange(order.delivery_date || order.created_at));
-        const productsList = Array.isArray(products) ? products : [];
-        setSummary((current) => ({
-          ...current,
-          sales: invoicesInRange.filter((x: any) => x.status !== "Anulada").reduce((n: number, x: any) => n + Number(x.amount || 0), 0),
-          openOrders: ordersInRange.filter((x: any) => !["Entregado", "Cancelado"].includes(x.status)).length,
-          receivables: invoicesInRange.filter((x: any) => !["Cobrada", "Pagada", "Anulada"].includes(x.status)).reduce((n: number, x: any) => n + Number(x.amount || 0), 0),
-          criticalStock: productsList.filter((x: any) => Number(x.stock || 0) <= Number(x.min_stock || 0)).length,
-          products: productsList.length, clients: Array.isArray(clients) ? clients.length : 0, orders: Array.isArray(orders) ? orders.length : 0, invoices: Array.isArray(invoices) ? invoices.length : 0, reports: (Array.isArray(invoices) ? invoices.length : 0) + (Array.isArray(orders) ? orders.length : 0),
-        }));
+        setHomeOrders(Array.isArray(payload.orders) ? payload.orders : []);
+        setHomeShipments(Array.isArray(payload.shipments) ? payload.shipments : []);
+        setHomeClients(Array.isArray(payload.clients) ? payload.clients : []);
+        setImportantNotes(Array.isArray(payload.importantNotes) ? payload.importantNotes : []);
+        setSummary((current) => ({ ...current, ...(payload.summary || {}) }));
         setHomeLoading(false);
-        Promise.all(["delivery_notes", "payments", "suppliers"].map((x) => fetchWithRetry("/api/" + x).then((r) => r.json())))
-          .then(([deliveryNotes, payments, suppliers]) => {
-            if (cancelled) return;
-            setSummary((current) => ({ ...current, deliveryNotes: Array.isArray(deliveryNotes) ? deliveryNotes.length : 0, payments: Array.isArray(payments) ? payments.length : 0, suppliers: Array.isArray(suppliers) ? suppliers.length : 0 }));
-          })
-          .catch(() => {});
       } catch {
         if (!cancelled) setHomeLoading(false);
       }
@@ -8368,31 +8443,43 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
         <div className="appbar-actions">
           <div className="header-quick-actions" aria-label="Accesos rápidos">
             <button
-              className="button primary"
+              className="button primary quick-icon-action"
               onClick={() => setActive("Preparación de pedidos")}
+              aria-label="Preparación de pedidos"
+              title="Preparación de pedidos"
             >
-              Preparación de pedidos
+              <ToolbarIcon name="preparation" />
+              <span className="icon-action-label">Preparación de pedidos</span>
             </button>
             <button
-              className="button primary"
+              className="button primary quick-icon-action"
               onClick={() => setActive("Stock")}
+              aria-label="Stock"
+              title="Stock"
             >
-              Stock
+              <ToolbarIcon name="stock" />
+              <span className="icon-action-label">Stock</span>
             </button>
             <button
-              className="button primary"
+              className="button primary quick-icon-action"
               onClick={() => {
                 setActive("Pedidos");
                 window.setTimeout(() => window.dispatchEvent(new Event("crm:nuevo-pedido")), 120);
               }}
+              aria-label="Nuevo pedido"
+              title="Nuevo pedido"
             >
-              Nuevo pedido
+              <ToolbarIcon name="order" />
+              <span className="icon-action-label">Nuevo pedido</span>
             </button>
             <button
-              className="button primary home-expense-launch"
+              className="button primary home-expense-launch quick-icon-action"
               onClick={() => setHomeExpenseModalOpen(true)}
+              aria-label="Subir gasto"
+              title="Subir gasto"
             >
-              Subir gasto
+              <ToolbarIcon name="expense" />
+              <span className="icon-action-label">Subir gasto</span>
             </button>
           </div>
           <div className="notification-box">
@@ -8490,7 +8577,7 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
         </div>
       </div>
       <div className="workspace">
-        <Sidebar active={active} setActive={setActive} user={currentUser} moduleScope={routeModules} />
+        <Sidebar active={active} setActive={setActive} user={currentUser} moduleScope={routeModules} onLogout={logoutFromMenu} />
         <section
           className={`content ${active === "Inicio" ? "home-content" : ""}`}
         >
@@ -8900,7 +8987,13 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
           ) : active === "Papelera" ? (
             <TrashManager user={currentUser} />
           ) : (
-            <Manager active={active} user={currentUser} onNavigate={setActive} />
+            <Manager
+              active={active}
+              user={currentUser}
+              onNavigate={setActive}
+              assistantFormIntent={assistantFormIntent}
+              onAssistantFormConsumed={() => setAssistantFormIntent(null)}
+            />
           )}
           <footer>
             Exclusivas Inteligentes · Todo en orden para trabajar{" "}

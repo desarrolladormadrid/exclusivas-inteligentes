@@ -41,6 +41,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS ocr_documents(id INTEGER PRIMARY KEY AUTOINC
 db.exec(`CREATE TABLE IF NOT EXISTS whatsapp_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,wa_id TEXT,client_id INTEGER,direction TEXT DEFAULT 'Entrante',message_type TEXT DEFAULT 'Texto',content TEXT,media_name TEXT,media_mime TEXT,media_data TEXT,status TEXT DEFAULT 'Pendiente',transcription TEXT,human_review INTEGER DEFAULT 0,suggested_action TEXT,created_at TEXT,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS product_price_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,supplier_id INTEGER,price_type TEXT DEFAULT 'Coste',amount REAL DEFAULT 0,currency TEXT DEFAULT 'EUR',valid_from TEXT,valid_to TEXT,source TEXT,notes TEXT,created_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS product_suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,supplier_id INTEGER NOT NULL,supplier_ref TEXT,unit_cost REAL DEFAULT 0,minimum_order REAL DEFAULT 0,order_unit TEXT DEFAULT 'caja',transport_cost REAL DEFAULT 0,lead_time_days INTEGER DEFAULT 0,promotion TEXT,rappel_percent REAL DEFAULT 0,reliability_percent REAL DEFAULT 0,is_primary INTEGER DEFAULT 0,is_fixed INTEGER DEFAULT 0,active INTEGER DEFAULT 1,created_at TEXT,updated_at TEXT);`);
+db.exec(`CREATE TABLE IF NOT EXISTS import_batches(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,source_system TEXT NOT NULL,source_file TEXT NOT NULL,entity TEXT NOT NULL,status TEXT DEFAULT 'Pendiente',rows_read INTEGER DEFAULT 0,rows_inserted INTEGER DEFAULT 0,rows_updated INTEGER DEFAULT 0,rows_skipped INTEGER DEFAULT 0,started_at TEXT,completed_at TEXT,notes TEXT,created_by TEXT DEFAULT 'Sistema',created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT);`);
+db.exec(`CREATE TABLE IF NOT EXISTS import_records(id INTEGER PRIMARY KEY AUTOINCREMENT,batch_id INTEGER NOT NULL,entity TEXT NOT NULL,source_code TEXT,local_id INTEGER,action TEXT NOT NULL,payload_hash TEXT,source_file TEXT,notes TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS product_lots(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,lot_code TEXT NOT NULL,quantity REAL DEFAULT 0,expiry_date TEXT,received_date TEXT,warehouse_id INTEGER,created_at TEXT,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS product_equivalents(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,equivalent_product_id INTEGER NOT NULL,priority INTEGER DEFAULT 1,notes TEXT,active INTEGER DEFAULT 1,created_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS purchase_suggestions(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,suggested_quantity REAL DEFAULT 0,reason TEXT,status TEXT DEFAULT 'Pendiente de validar',recommended_supplier_id INTEGER,comparison TEXT,created_at TEXT,updated_at TEXT,validated_by TEXT,validated_at TEXT);`);
@@ -67,7 +69,9 @@ db.exec(
 );
 for (const [table, columns] of [
   ["products", ["photo_name TEXT", "photo_mime TEXT", "photo_data TEXT", "description TEXT", "category_code TEXT", "warehouse_id INTEGER", "preorder INTEGER DEFAULT 1", "product_tracking_code TEXT DEFAULT 'Sin seguimiento'", "inventory_valuation_method TEXT DEFAULT 'FIFO'", "last_direct_cost REAL DEFAULT 0", "accounting_product_group TEXT DEFAULT 'Mercaderías'", "accounting_vat_group TEXT DEFAULT '21%'", "inventory_register_group TEXT DEFAULT 'Mercaderías'", "created_at TEXT", "created_by TEXT", "family TEXT", "subfamily TEXT", "purchase_format TEXT", "sale_format TEXT", "cases_per_pallet REAL DEFAULT 0", "units_per_pallet REAL DEFAULT 0", "weight_kg REAL DEFAULT 0", "volume_m3 REAL DEFAULT 0", "warehouse_location TEXT", "picking_order INTEGER DEFAULT 0", "product_status TEXT DEFAULT 'Activo'", "primary_supplier_id INTEGER", "fixed_supplier INTEGER DEFAULT 0", "target_margin_percent REAL DEFAULT 0", "min_margin_percent REAL DEFAULT 0", "stock_min REAL DEFAULT 0", "stock_target REAL DEFAULT 0", "stock_safety REAL DEFAULT 0", "lot_tracking INTEGER DEFAULT 0", "expiry_tracking INTEGER DEFAULT 0", "returnable_packaging INTEGER DEFAULT 0", "tax_surcharge_percent REAL DEFAULT 0", "extra_tax_name TEXT", "extra_tax_percent REAL DEFAULT 0", "freight_cost REAL DEFAULT 0", "handling_cost REAL DEFAULT 0", "real_cost REAL DEFAULT 0"]],
-  ["suppliers", ["tax_id TEXT", "contact TEXT", "payment_terms TEXT", "minimum_order REAL DEFAULT 0", "transport_cost REAL DEFAULT 0", "lead_time_days INTEGER DEFAULT 0", "reliability_percent REAL DEFAULT 0", "promotions TEXT", "rappel_percent REAL DEFAULT 0", "active INTEGER DEFAULT 1"]],
+  ["suppliers", ["tax_id TEXT", "contact TEXT", "payment_terms TEXT", "minimum_order REAL DEFAULT 0", "transport_cost REAL DEFAULT 0", "lead_time_days INTEGER DEFAULT 0", "reliability_percent REAL DEFAULT 0", "promotions TEXT", "rappel_percent REAL DEFAULT 0", "active INTEGER DEFAULT 1", "external_code TEXT", "source_system TEXT", "source_warehouse_code TEXT", "source_created_at TEXT", "source_closed_at TEXT", "source_balance REAL DEFAULT 0", "source_overdue_balance REAL DEFAULT 0", "source_payments REAL DEFAULT 0"]],
+  ["clients", ["external_code TEXT", "source_system TEXT", "active INTEGER DEFAULT 1", "payment_method_code TEXT", "payment_terms_code TEXT", "source_warehouse_code TEXT", "source_created_at TEXT", "source_closed_at TEXT", "source_balance REAL DEFAULT 0", "source_overdue_balance REAL DEFAULT 0", "source_sales REAL DEFAULT 0", "source_payments REAL DEFAULT 0"]],
+  ["products", ["external_code TEXT", "source_system TEXT", "active INTEGER DEFAULT 1", "source_type TEXT", "source_substitute TEXT", "assembly_item INTEGER DEFAULT 0", "cost_adjusted INTEGER DEFAULT 0", "default_split_template TEXT", "source_supplier_code TEXT", "source_created_at TEXT", "source_closed_at TEXT"]],
   ["purchase_orders", ["validation_status TEXT DEFAULT 'Pendiente de validar'", "request_id INTEGER", "supplier_ids TEXT", "comparison TEXT"]],
 ]) for (const column of columns) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`); } catch {} }
 // Conservamos los campos históricos de stock y rellenamos los nuevos umbrales
@@ -108,6 +112,7 @@ db.exec(
   `CREATE TABLE IF NOT EXISTS order_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,order_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS quote_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,quote_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS delivery_note_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,delivery_note_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS invoice_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);`,
 );
 db.exec(`CREATE TABLE IF NOT EXISTS invoice_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL,order_id INTEGER NOT NULL,UNIQUE(invoice_id,order_id),UNIQUE(order_id));`);
+try { db.exec("INSERT OR IGNORE INTO invoice_orders(invoice_id,order_id) SELECT id,order_id FROM invoices WHERE order_id IS NOT NULL"); } catch {}
 for (const column of ["quantity_requested", "quantity_unit", "units_factor"]) { try { db.exec(`ALTER TABLE order_lines ADD COLUMN ${column} TEXT`); } catch {} }
 try { db.exec("ALTER TABLE order_lines ADD COLUMN prepared INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE order_lines ADD COLUMN prepared_quantity REAL DEFAULT 0"); } catch {}
@@ -160,6 +165,8 @@ const tables = new Set([
   "product_equivalents",
   "purchase_suggestions",
   "purchase_requests",
+  "import_batches",
+  "import_records",
   "users",
 ]);
 // Auditoría común para todos los módulos: permite ordenar, filtrar y ejecutar
@@ -209,6 +216,10 @@ for (const [name, table, columns] of [
   ["idx_price_history_product_date", "product_price_history", "product_id, created_at"],
   ["idx_product_location_history_product_date", "product_location_history", "product_id, changed_at"],
   ["idx_product_suppliers_product", "product_suppliers", "product_id, active"],
+  ["idx_suppliers_external_code", "suppliers", "source_system, external_code"],
+  ["idx_clients_external_code", "clients", "source_system, external_code"],
+  ["idx_products_external_code", "products", "source_system, external_code"],
+  ["idx_import_records_batch", "import_records", "batch_id, entity, source_code"],
   ["idx_product_lots_expiry", "product_lots", "product_id, expiry_date"],
   ["idx_purchase_suggestions_status", "purchase_suggestions", "status, created_at"],
 ]) {
@@ -270,6 +281,20 @@ const send = (r, s, d) => {
 const readCache = new Map();
 const READ_CACHE_MS = 60000;
 const listColumnsCache = new Map();
+const lookupFields = {
+  clients: ["id", "name", "city", "address", "phone", "email", "active", "external_code"],
+  suppliers: ["id", "name", "tax_id", "contact", "phone", "email", "active", "minimum_order", "transport_cost", "lead_time_days", "reliability_percent", "rappel_percent", "external_code"],
+  warehouses: ["id", "name", "address"],
+  collection_points: ["id", "code", "name", "client_id", "address", "city", "contact", "phone", "email", "geocoding_status", "latitude", "longitude"],
+  products: ["id", "name", "sku", "unit", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "vat", "stock", "stock_reserved", "min_stock", "stock_min", "category", "brand", "format", "active", "product_status", "warehouse_id", "supplier_id", "primary_supplier_id", "warehouse_location", "cost_price"],
+  orders: ["id", "code", "client_id", "status", "amount", "created_at", "updated_at", "delivery_date", "preparation_date", "shipping_date", "address", "collection_point_id", "urgent", "stock_alert"],
+  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "carrier", "packages", "incidents", "notes"],
+  invoices: ["id", "code", "order_id", "client_id", "amount", "status", "created_at", "issue_date", "due_date"],
+  purchase_orders: ["id", "code", "supplier_id", "status", "order_date", "expected_date", "amount", "validation_status"],
+  payments: ["id", "invoice_id", "amount", "payment_date", "method"],
+  inventory_movements: ["id", "product_id", "warehouse_id", "movement_type", "quantity", "reference", "movement_date", "notes"],
+  expenses: ["id", "code", "client_id", "expense_date", "category", "vendor", "amount", "vat", "payment_method", "notes", "created_at"],
+};
 function listSelectFor(resource) {
   if (!["products", "expenses"].includes(resource)) return "*";
   if (!listColumnsCache.has(resource)) {
@@ -282,17 +307,42 @@ function listSelectFor(resource) {
   }
   return listColumnsCache.get(resource);
 }
+function lookupSelectFor(resource) {
+  const requested = lookupFields[resource];
+  if (!requested) return listSelectFor(resource);
+  if (!listColumnsCache.has(`lookup:${resource}`)) {
+    const available = new Set(db.prepare(`PRAGMA table_info(${resource})`).all().map((column) => String(column.name || "")));
+    const columns = requested.filter((column) => available.has(column)).map((column) => `${resource === "orders" ? "orders." : ""}"${column.replaceAll('"', '""')}"`);
+    if (resource === "orders") columns.push("order_client.name AS client_name", "order_client.city AS client_city");
+    listColumnsCache.set(`lookup:${resource}`, columns.length ? columns.join(",") : "*");
+  }
+  return listColumnsCache.get(`lookup:${resource}`);
+}
+function queryBatch(statements) {
+  if (remoteMode && typeof db.batch === "function") return db.batch(statements);
+  return statements.map(({ sql, args = [] }) => db.prepare(sql).all(...args));
+}
 function invalidateReadCache(resource) {
   for (const key of readCache.keys()) {
     if (key.startsWith(`${resource}:`)) readCache.delete(key);
   }
 }
-function cachedRows(resource, includeDeleted) {
+function invalidateRelatedReadCaches(resource) {
+  invalidateReadCache(resource);
+  if (["orders", "order_lines", "inventory_movements", "purchase_orders", "purchase_order_lines", "returns", "shipments"].includes(resource)) {
+    invalidateReadCache("products");
+    invalidateReadCache("stock");
+  }
+  if (["payments", "billing", "invoices", "delivery_notes"].includes(resource)) {
+    invalidateReadCache("invoices");
+  }
+}
+function cachedRows(resource, includeDeleted, includeInactive) {
   // Turso es compartido por varias instancias serverless. Una caché local
   // podría devolver reservas de stock obsoletas después de una escritura
   // realizada por otra instancia.
   if (remoteMode) return null;
-  const key = `${resource}:${includeDeleted ? 1 : 0}`;
+  const key = `${resource}:${includeDeleted ? 1 : 0}:${includeInactive ? 1 : 0}`;
   const cached = readCache.get(key);
   if (!cached || Date.now() - cached.createdAt > READ_CACHE_MS) {
     if (cached) readCache.delete(key);
@@ -300,9 +350,9 @@ function cachedRows(resource, includeDeleted) {
   }
   return cached.rows;
 }
-function storeRows(resource, includeDeleted, rows) {
+function storeRows(resource, includeDeleted, includeInactive, rows) {
   if (remoteMode) return rows;
-  readCache.set(`${resource}:${includeDeleted ? 1 : 0}`, { createdAt: Date.now(), rows });
+  readCache.set(`${resource}:${includeDeleted ? 1 : 0}:${includeInactive ? 1 : 0}`, { createdAt: Date.now(), rows });
   return rows;
 }
 function recordAudit(actor, method, resource, action, details = "") {
@@ -563,7 +613,7 @@ export async function crmApiHandler(req, res) {
         if (params.get("from")) { clauses.push("date(o.created_at) >= date(?)"); args.push(params.get("from")); }
         if (params.get("to")) { clauses.push("date(o.created_at) <= date(?)"); args.push(params.get("to")); }
         if (params.get("client_id")) { clauses.push("o.client_id=?"); args.push(Number(params.get("client_id"))); }
-        const rows = db.prepare(`SELECT o.id,o.code,o.client_id,o.status,o.amount,o.created_at,c.name client_name,CASE WHEN o.status='Facturado' OR EXISTS(SELECT 1 FROM invoices i WHERE i.order_id=o.id) THEN 1 ELSE 0 END billed FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE ${clauses.join(" AND ")} ORDER BY date(o.created_at) DESC,o.id DESC`).all(...args);
+        const rows = db.prepare(`SELECT o.id,o.code,o.client_id,o.status,o.amount,o.created_at,c.name client_name,CASE WHEN o.status='Facturado' OR EXISTS(SELECT 1 FROM invoice_orders io JOIN invoices i ON i.id=io.invoice_id WHERE io.order_id=o.id AND COALESCE(i.status,'')<>'Anulada' AND COALESCE(i.deleted,0)=0) OR EXISTS(SELECT 1 FROM invoices i WHERE i.order_id=o.id AND COALESCE(i.status,'')<>'Anulada' AND COALESCE(i.deleted,0)=0) THEN 1 ELSE 0 END billed,CASE WHEN o.status='Facturado' OR EXISTS(SELECT 1 FROM invoice_orders io JOIN invoices i ON i.id=io.invoice_id WHERE io.order_id=o.id AND COALESCE(i.status,'')<>'Anulada' AND COALESCE(i.deleted,0)=0) OR EXISTS(SELECT 1 FROM invoices i WHERE i.order_id=o.id AND COALESCE(i.status,'')<>'Anulada' AND COALESCE(i.deleted,0)=0) THEN 'Facturado' ELSE 'Sin facturar' END billing_status FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE ${clauses.join(" AND ")} ORDER BY date(o.created_at) DESC,o.id DESC`).all(...args);
         return send(res, 200, rows);
       }
       if (t === "billing" && req.method === "POST") {
@@ -576,7 +626,7 @@ export async function crmApiHandler(req, res) {
         if (orders.length !== ids.length) return send(res, 400, { error: "Uno de los pedidos ya no está disponible" });
         const clients = new Set(orders.map((row) => Number(row.client_id || 0)));
         if (clients.size !== 1) return send(res, 400, { error: "Solo se pueden agrupar pedidos del mismo cliente" });
-        const billed = db.prepare(`SELECT o.id order_id,i.code FROM orders o JOIN invoices i ON i.order_id=o.id WHERE o.id IN (${marks}) UNION SELECT id order_id,'Factura existente' code FROM orders WHERE status='Facturado' AND id IN (${marks})`).all(...ids, ...ids);
+        const billed = db.prepare(`SELECT o.id order_id,COALESCE(i.code,'Factura existente') code FROM orders o LEFT JOIN invoice_orders io ON io.order_id=o.id LEFT JOIN invoices i ON i.id=io.invoice_id AND COALESCE(i.status,'')<>'Anulada' AND COALESCE(i.deleted,0)=0 WHERE o.id IN (${marks}) AND (o.status='Facturado' OR i.id IS NOT NULL OR EXISTS(SELECT 1 FROM invoices bi WHERE bi.order_id=o.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0))`).all(...ids);
         if (billed.length) return send(res, 409, { error: `Ya facturado: ${billed.map((row) => row.code).join(", ")}` });
         const total = orders.reduce((sum, row) => sum + Number(row.amount || 0), 0);
         const code = `FAC-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
@@ -585,8 +635,11 @@ export async function crmApiHandler(req, res) {
           const created = db.prepare("INSERT INTO invoices(code,order_id,client_id,amount,status) VALUES(?,?,?,?,?)").run(code, ids[0], orders[0].client_id, total, "Pendiente");
           const invoiceId = Number(created.lastInsertRowid);
           const line = db.prepare("INSERT INTO invoice_lines(invoice_id,product_id,quantity,unit_price,discount,vat,amount) SELECT ?,product_id,quantity,unit_price,discount,vat,amount FROM order_lines WHERE order_id=?");
-          for (const id of ids) { line.run(invoiceId, id); db.prepare("UPDATE orders SET status='Facturado',updated_at=? WHERE id=?").run(new Date().toISOString(), id); }
+          const relation = db.prepare("INSERT INTO invoice_orders(invoice_id,order_id) VALUES(?,?)");
+          for (const id of ids) { relation.run(invoiceId, id); line.run(invoiceId, id); db.prepare("UPDATE orders SET status='Facturado',updated_at=? WHERE id=?").run(new Date().toISOString(), id); }
           if (!remoteMode) db.exec("COMMIT");
+          invalidateReadCache("invoice_lines");
+          invalidateReadCache("orders");
           return send(res, 201, { id: invoiceId, code, amount: total, client_id: orders[0].client_id, order_ids: ids, status: "Pendiente" });
         } catch (error) { if (!remoteMode) { try { db.exec("ROLLBACK"); } catch {} } return send(res, 500, { error: error?.message || "No se pudo crear la factura" }); }
       }
@@ -600,6 +653,10 @@ export async function crmApiHandler(req, res) {
         const order = db.prepare("SELECT * FROM orders WHERE id=?").get(orderId);
         if (!order) return send(res, 404, { error: "Pedido no encontrado" });
         const delivery = action === "convert-delivery";
+        if (!delivery) {
+          const existingInvoice = db.prepare("SELECT i.code FROM invoices i LEFT JOIN invoice_orders io ON io.invoice_id=i.id AND io.order_id=? WHERE (i.order_id=? OR io.order_id=?) AND COALESCE(i.status,'')<>'Anulada' AND COALESCE(i.deleted,0)=0 LIMIT 1").get(order.id, order.id, order.id);
+          if (order.status === "Facturado" || existingInvoice) return send(res, 409, { error: `El pedido ${order.code} ya está facturado${existingInvoice?.code ? ` en ${existingInvoice.code}` : ""}` });
+        }
         const table = delivery ? "delivery_notes" : "invoices";
         const code =
           (delivery ? "ALB" : "FAC") +
@@ -614,7 +671,7 @@ export async function crmApiHandler(req, res) {
           ? [code, order.id, order.client_id, "Pendiente"]
           : [code, order.id, order.client_id, order.amount || 0, "Pendiente"];
         const created = db
-          .prepare(`INSERT INTO ${table} (${fields}) VALUES (?,?,?,?)`)
+          .prepare(`INSERT INTO ${table} (${fields}) VALUES (${values.map(() => "?").join(",")})`)
           .run(...values);
         const newId = Number(created.lastInsertRowid);
         if (delivery)
@@ -625,10 +682,13 @@ export async function crmApiHandler(req, res) {
           db.prepare(
             "INSERT INTO invoice_lines(invoice_id,product_id,quantity,unit_price,discount,vat,amount) SELECT ?,product_id,quantity,unit_price,discount,vat,amount FROM order_lines WHERE order_id=?",
           ).run(newId, order.id);
+        if (!delivery) db.prepare("INSERT INTO invoice_orders(invoice_id,order_id) VALUES(?,?)").run(newId, order.id);
         db.prepare("UPDATE orders SET status=? WHERE id=?").run(
           delivery ? "Preparado" : "Facturado",
           order.id,
         );
+        invalidateReadCache(delivery ? "delivery_note_lines" : "invoice_lines");
+        invalidateReadCache("orders");
         return send(res, 201, {
           id: newId,
           code,
@@ -645,8 +705,8 @@ export async function crmApiHandler(req, res) {
           ? db.prepare("SELECT * FROM orders WHERE id=?").get(delivery.order_id)
           : null;
         const existing = db.prepare(
-          "SELECT id,code FROM invoices WHERE delivery_note_id=? OR (order_id IS NOT NULL AND order_id=?) LIMIT 1",
-        ).get(delivery.id, delivery.order_id || 0);
+          "SELECT id,code FROM invoices WHERE COALESCE(deleted,0)=0 AND COALESCE(status,'')<>'Anulada' AND (delivery_note_id=? OR (order_id IS NOT NULL AND order_id=?) OR EXISTS(SELECT 1 FROM invoice_orders io WHERE io.invoice_id=invoices.id AND io.order_id=?)) LIMIT 1",
+        ).get(delivery.id, delivery.order_id || 0, delivery.order_id || 0);
         if (existing) return send(res, 409, { error: `La factura ${existing.code} ya existe`, ...existing });
         const code = `FAC-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
         const created = db.prepare(
@@ -656,41 +716,119 @@ export async function crmApiHandler(req, res) {
         db.prepare(
           "INSERT INTO invoice_lines(invoice_id,product_id,quantity,unit_price,discount,vat,amount) SELECT ?,d.product_id,d.quantity,COALESCE(o.unit_price,0),COALESCE(o.discount,0),COALESCE(o.vat,21),COALESCE(o.amount,d.quantity*COALESCE(o.unit_price,0)) FROM delivery_note_lines d LEFT JOIN order_lines o ON o.order_id=? AND o.product_id=d.product_id WHERE d.delivery_note_id=?",
         ).run(invoiceId, delivery.order_id || 0, delivery.id);
+        if (delivery.order_id) db.prepare("INSERT INTO invoice_orders(invoice_id,order_id) VALUES(?,?)").run(invoiceId, delivery.order_id);
         if (delivery.order_id) db.prepare("UPDATE orders SET status='Facturado',updated_at=? WHERE id=?").run(new Date().toISOString(), delivery.order_id);
+        invalidateReadCache("invoice_lines");
+        invalidateReadCache("orders");
         return send(res, 201, { id: invoiceId, code, order_id: delivery.order_id || null, delivery_note_id: delivery.id, client_id: delivery.client_id, amount: order?.amount || 0, status: "Pendiente" });
+      }
+      if (t === "summary" && req.method === "GET") {
+        const query = new URL(req.url, "http://local").searchParams;
+        const today = new Date().toISOString().slice(0, 10);
+        const from = String(query.get("from") || today).slice(0, 10);
+        const to = String(query.get("to") || from).slice(0, 10);
+        const invoiceRange = "CAST(COALESCE(deleted,0) AS INTEGER)=0 AND DATE(COALESCE(issue_date,created_at)) BETWEEN ? AND ?";
+        const orderRange = "CAST(COALESCE(deleted,0) AS INTEGER)=0 AND DATE(COALESCE(delivery_date,created_at)) BETWEEN ? AND ?";
+        const activeProduct = "CAST(COALESCE(deleted,0) AS INTEGER)=0 AND CAST(COALESCE(active,1) AS INTEGER)=1 AND LOWER(COALESCE(product_status,'Activo')) NOT IN ('inactivo','baja','descatalogado')";
+        const statements = [
+          { sql: `SELECT orders.id,orders.code,orders.client_id,orders.status,orders.amount,orders.created_at,orders.updated_at,orders.delivery_date,orders.preparation_date,orders.shipping_date,orders.address,orders.collection_point_id,orders.urgent,orders.stock_alert,order_client.name AS client_name,order_client.city AS client_city FROM orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id WHERE CAST(COALESCE(orders.deleted,0) AS INTEGER)=0 ORDER BY orders.id DESC LIMIT 500` },
+          { sql: `SELECT id,code,order_id,client_id,collection_point_id,status,expected_delivery_at,preparation_date,address,carrier,packages,incidents,notes FROM shipments WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 ORDER BY id DESC LIMIT 500` },
+          { sql: `SELECT id,name,city,address,phone,email,active,external_code FROM clients WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 AND CAST(COALESCE(active,1) AS INTEGER)=1 ORDER BY id DESC` },
+          { sql: `SELECT id,title,content,priority,module,record_id,important,completed,created_at,updated_at,created_by,resolution,resolved_at,resolved_by FROM notes WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 AND CAST(COALESCE(important,0) AS INTEGER)=1 AND CAST(COALESCE(completed,0) AS INTEGER)=0 ORDER BY id DESC LIMIT 6` },
+          { sql: `SELECT COALESCE(SUM(amount),0) total FROM invoices WHERE ${invoiceRange} AND status NOT IN ('Anulada')`, args: [from, to] },
+          { sql: `SELECT COUNT(*) total FROM orders WHERE ${orderRange} AND status NOT IN ('Entregado','Cancelado')`, args: [from, to] },
+          { sql: `SELECT COALESCE(SUM(amount),0) total FROM invoices WHERE ${invoiceRange} AND status NOT IN ('Cobrada','Pagada','Anulada')`, args: [from, to] },
+          { sql: `SELECT COUNT(*) total FROM products WHERE ${activeProduct} AND COALESCE(stock,0)<=COALESCE(NULLIF(stock_min,0),min_stock,0)` },
+          { sql: `SELECT COUNT(*) total FROM products WHERE ${activeProduct}` },
+          { sql: "SELECT COUNT(*) total FROM orders WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0" },
+          { sql: "SELECT COUNT(*) total FROM invoices WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0" },
+          { sql: "SELECT COUNT(*) total FROM delivery_notes WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0" },
+          { sql: "SELECT COUNT(*) total FROM payments WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0" },
+          { sql: "SELECT COUNT(*) total FROM suppliers WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 AND CAST(COALESCE(active,1) AS INTEGER)=1" },
+        ];
+        const results = queryBatch(statements);
+        const rowsAt = (index) => results[index] || [];
+        const totalAt = (index) => Number(rowsAt(index)[0]?.total || 0);
+        const orders = rowsAt(0);
+        const shipments = rowsAt(1);
+        const clients = rowsAt(2);
+        const importantNotes = rowsAt(3);
+        return send(res, 200, {
+          summary: {
+            sales: totalAt(4),
+            openOrders: totalAt(5),
+            receivables: totalAt(6),
+            criticalStock: totalAt(7),
+            products: totalAt(8),
+            clients: clients.length,
+            orders: totalAt(9),
+            invoices: totalAt(10),
+            deliveryNotes: totalAt(11),
+            payments: totalAt(12),
+            suppliers: totalAt(13),
+            reports: totalAt(9) + totalAt(10),
+          },
+          orders,
+          shipments,
+          clients,
+          importantNotes,
+        });
       }
       if (!tables.has(t))
         return send(res, 404, { error: "Recurso no encontrado" });
       if (["PUT", "DELETE"].includes(req.method) && (!p[2] || !Number.isInteger(Number(p[2]))))
         return send(res, 400, { error: "Falta un identificador válido" });
       if (req.method === "GET") {
-        const includeDeleted = new URL(req.url, "http://local").searchParams.get("include_deleted") === "1";
+        const query = new URL(req.url, "http://local").searchParams;
+        const includeDeleted = query.get("include_deleted") === "1";
+        const includeInactive = query.get("include_inactive") === "1";
+        const isLookup = query.get("view") === "lookup";
+        const parsePageValue = (value, fallback) => {
+          const parsed = Number.parseInt(String(value || ""), 10);
+          return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+        };
+        const limitValue = query.has("limit") ? Math.min(parsePageValue(query.get("limit"), 0), 5000) : null;
+        const offsetValue = query.has("offset") ? parsePageValue(query.get("offset"), 0) : 0;
         if (p[2] && Number.isInteger(Number(p[2]))) {
           const source = t === "orders"
             ? `orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id`
             : t;
           const selection = t === "orders"
-            ? "orders.*,order_client.name AS client_name,order_client.city AS client_city"
+            ? "orders.*,order_client.name AS client_name,order_client.city AS client_city,CASE WHEN orders.status='Facturado' OR EXISTS(SELECT 1 FROM invoice_orders io JOIN invoices bi ON bi.id=io.invoice_id WHERE io.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) OR EXISTS(SELECT 1 FROM invoices bi WHERE bi.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) THEN 'Facturado' ELSE 'Sin facturar' END AS billing_status"
             : p[2] ? "*" : listSelectFor(t);
           const tableReference = t === "orders" ? "orders" : t;
           const deletedClause = includeDeleted ? "" : ` AND CAST(COALESCE(${tableReference}.deleted,0) AS INTEGER)=0`;
           const row = db.prepare(`SELECT ${selection} FROM ${source} WHERE ${tableReference}.id=?${deletedClause}`).get(Number(p[2]));
           return row ? send(res, 200, row) : send(res, 404, { error: "Registro no encontrado" });
         }
-        const cached = cachedRows(t, includeDeleted);
+        const cached = !isLookup && limitValue === null && offsetValue === 0
+          ? cachedRows(t, includeDeleted, includeInactive)
+          : null;
         if (cached) return send(res, 200, cached);
         const source = t === "orders"
           ? `orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id`
           : t;
-        const selection = t === "orders"
-          ? "orders.*,order_client.name AS client_name,order_client.city AS client_city"
-          : listSelectFor(t);
-        const where = includeDeleted ? "" : `WHERE CAST(COALESCE(${t === "orders" ? "orders" : t}.deleted,0) AS INTEGER)=0`;
-        const rows = db.prepare(`SELECT ${selection} FROM ${source} ${where} ORDER BY ${t === "orders" ? "orders.id" : "id"} DESC`).all();
+        const selection = isLookup
+          ? lookupSelectFor(t)
+          : t === "orders"
+            ? "orders.*,order_client.name AS client_name,order_client.city AS client_city,CASE WHEN orders.status='Facturado' OR EXISTS(SELECT 1 FROM invoice_orders io JOIN invoices bi ON bi.id=io.invoice_id WHERE io.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) OR EXISTS(SELECT 1 FROM invoices bi WHERE bi.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) THEN 'Facturado' ELSE 'Sin facturar' END AS billing_status"
+            : listSelectFor(t);
+        const filters = [];
+        if (!includeDeleted) filters.push(`CAST(COALESCE(${t === "orders" ? "orders" : t}.deleted,0) AS INTEGER)=0`);
+        if (!includeInactive && ["suppliers", "clients", "products"].includes(t)) {
+          filters.push(t === "products"
+            ? `CAST(COALESCE(products.active,1) AS INTEGER)=1 AND LOWER(COALESCE(products.product_status,'Activo')) NOT IN ('inactivo','baja','descatalogado')`
+            : `CAST(COALESCE(${t}.active,1) AS INTEGER)=1`);
+        }
+        const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+        const pagination = limitValue === null ? "" : ` LIMIT ${limitValue} OFFSET ${offsetValue}`;
+        const rows = db.prepare(`SELECT ${selection} FROM ${source} ${where} ORDER BY ${t === "orders" ? "orders.id" : "id"} DESC${pagination}`).all();
         return send(
           res,
           200,
-          storeRows(t, includeDeleted, rows),
+          !isLookup && limitValue === null && offsetValue === 0
+            ? storeRows(t, includeDeleted, includeInactive, rows)
+            : rows,
         );
       }
       const d = await read(req);
@@ -707,7 +845,7 @@ export async function crmApiHandler(req, res) {
           const duplicate = db.prepare("SELECT id FROM products WHERE LOWER(TRIM(COALESCE(sku,'')))=LOWER(TRIM(?)) AND CAST(COALESCE(deleted,0) AS INTEGER)=0 LIMIT 1").get(String(d.sku));
           if (duplicate) return send(res, 409, { error: "Ya existe un producto con ese SKU" });
         }
-        invalidateReadCache(t);
+        invalidateRelatedReadCaches(t);
         const now = new Date().toISOString();
         if (d.created_at === undefined) d.created_at = now;
         if (d.updated_at === undefined) d.updated_at = now;
@@ -867,8 +1005,11 @@ export async function crmApiHandler(req, res) {
         }
         if (t === "orders") {
           const client = d.client_id ? db.prepare("SELECT address FROM clients WHERE id=?").get(Number(d.client_id)) : null;
+          const shippingLocation = d.collection_point_id
+            ? db.prepare("SELECT address FROM collection_points WHERE id=? AND (client_id=? OR client_id IS NULL)").get(Number(d.collection_point_id), Number(d.client_id || 0))
+            : null;
           const shipmentCode = `ENV-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`;
-          db.prepare("INSERT INTO shipments(code,order_id,client_id,status,preparation_date,urgent,expected_delivery_at,address,packages,incidents,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)").run(shipmentCode, Number(r.lastInsertRowid), d.client_id || null, "Preparando", d.preparation_date || null, Number(d.urgent || 0), d.shipping_date || d.delivery_date || null, d.address || client?.address || null, 1, "", d.urgent ? "PEDIDO URGENTE · Revisar todas las líneas antes de preparar." : "Preparación pendiente de revisión.", now, now);
+          db.prepare("INSERT INTO shipments(code,order_id,client_id,collection_point_id,status,preparation_date,urgent,expected_delivery_at,address,packages,incidents,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(shipmentCode, Number(r.lastInsertRowid), d.client_id || null, d.collection_point_id || null, "Preparando", d.preparation_date || null, Number(d.urgent || 0), d.shipping_date || d.delivery_date || null, shippingLocation?.address || d.address || client?.address || null, 1, "", d.urgent ? "PEDIDO URGENTE · Revisar todas las líneas antes de preparar." : "Preparación pendiente de revisión.", now, now);
         }
         if (t === "orders" && stockShortages.length) {
           recordAudit(actor, "POST", `orders/${Number(r.lastInsertRowid)}`, "Alerta stock", JSON.stringify(stockShortages));
@@ -886,7 +1027,7 @@ export async function crmApiHandler(req, res) {
         return send(res, 201, createdRecord);
       }
       if (req.method === "DELETE") {
-        invalidateReadCache(t);
+        invalidateRelatedReadCaches(t);
         const now = new Date().toISOString();
         if (t === "orders") {
           const order = db.prepare("SELECT * FROM orders WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(Number(p[2]));
@@ -912,10 +1053,11 @@ export async function crmApiHandler(req, res) {
           const duplicate = db.prepare("SELECT id FROM products WHERE LOWER(TRIM(COALESCE(sku,'')))=LOWER(TRIM(?)) AND id<>? AND CAST(COALESCE(deleted,0) AS INTEGER)=0 LIMIT 1").get(String(d.sku), Number(p[2]));
           if (duplicate) return send(res, 409, { error: "Ya existe un producto con ese SKU" });
         }
-        invalidateReadCache(t);
+        invalidateRelatedReadCaches(t);
         const currentRecord = db.prepare(`SELECT id FROM ${t} WHERE id=?`).get(Number(p[2]));
         if (!currentRecord) return send(res, 404, { error: "Registro no encontrado" });
         d.updated_at = new Date().toISOString();
+        for (const key of ["stock_alerts", "client_name", "client_city", "billed", "billing_status", "available_stock", "stock_status", "product_name", "warehouse_name"]) delete d[key];
         if (t === "order_lines" && d.quantity !== undefined) {
           const oldLine = db.prepare("SELECT ol.*,o.status order_status FROM order_lines ol LEFT JOIN orders o ON o.id=ol.order_id WHERE ol.id=?").get(Number(p[2]));
           if (oldLine && !["Enviado", "En reparto", "Entregado", "Cancelado"].includes(String(oldLine.order_status || ""))) {
@@ -999,17 +1141,23 @@ export async function crmApiHandler(req, res) {
         if (t === "orders") {
           const linkedShipment = db.prepare("SELECT id FROM shipments WHERE order_id=? ORDER BY id DESC LIMIT 1").get(p[2]);
           if (linkedShipment) {
-            const currentOrder = db.prepare("SELECT client_id,delivery_date,preparation_date,shipping_date,urgent FROM orders WHERE id=?").get(p[2]);
+            const currentOrder = db.prepare("SELECT client_id,collection_point_id,address,delivery_date,preparation_date,shipping_date,urgent FROM orders WHERE id=?").get(p[2]);
             const clientId = d.client_id ?? currentOrder?.client_id ?? null;
+            const collectionPointId = d.collection_point_id ?? currentOrder?.collection_point_id ?? null;
             const client = clientId
               ? db.prepare("SELECT address FROM clients WHERE id=?").get(clientId)
               : null;
-            db.prepare("UPDATE shipments SET client_id=?,preparation_date=?,urgent=?,expected_delivery_at=?,address=? WHERE id=?").run(
+            const shippingLocation = collectionPointId
+              ? db.prepare("SELECT address FROM collection_points WHERE id=? AND (client_id=? OR client_id IS NULL)").get(Number(collectionPointId), Number(clientId || 0))
+              : null;
+            const shipmentAddress = shippingLocation?.address || d.address || client?.address || currentOrder?.address || null;
+            db.prepare("UPDATE shipments SET client_id=?,collection_point_id=?,preparation_date=?,urgent=?,expected_delivery_at=?,address=? WHERE id=?").run(
               clientId,
+              collectionPointId,
               d.preparation_date ?? currentOrder?.preparation_date ?? null,
               Number(d.urgent ?? currentOrder?.urgent ?? 0),
               d.shipping_date ?? currentOrder?.shipping_date ?? d.delivery_date ?? currentOrder?.delivery_date ?? null,
-              client?.address || null,
+              shipmentAddress,
               linkedShipment.id,
             );
           }

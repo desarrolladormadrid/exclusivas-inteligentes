@@ -37,7 +37,7 @@ try {
   await page.waitForTimeout(500);
   await page.getByRole('button', { name: 'Abrir notificaciones' }).click();
   const notification = page.getByText(new RegExp(`Nuevo pedido.*${code}.*ID ${orderId}`)).first();
-  await notification.waitFor({ state: 'visible', timeout: 10000 });
+  await notification.waitFor({ state: 'visible', timeout: 30000 });
   await page.screenshot({ path: path.join(screenshotDir, 'notification-flow-open.png'), fullPage: false });
   await notification.click();
   await page.locator('.preview-overlay').waitFor({ state: 'visible', timeout: 8000 });

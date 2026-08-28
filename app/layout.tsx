@@ -19,8 +19,8 @@ export const metadata: Metadata = {
   title: "Exclusivas Inteligentes · CRM local",
   description: "CRM local para la gestión de una distribuidora de bebidas.",
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: "/favicon.svg?v=2.0.13",
+    shortcut: "/favicon.svg?v=2.0.13",
   },
 };
 

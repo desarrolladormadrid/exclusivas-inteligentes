@@ -1,8 +1,17 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 const ASSISTANT_HEADERS = { "Content-Type": "application/json", "X-Actor": "Asistente" };
 type AdminOperation = "consultar" | "crear" | "editar" | "eliminar" | "recuperar" | "convertir";
 type AdminRequest = { operation: AdminOperation; resource: string; id?: number | string; payload?: Record<string, unknown>; endpoint?: string };
+type VisualFormIntent = {
+  action?: string;
+  resource?: string;
+  section?: string;
+  data?: Record<string, unknown>;
+  missing?: string[];
+  confidence?: Record<string, number>;
+  notes?: string[];
+};
 const ADMIN_RESOURCES: Record<string, string> = {
   clientes: "clients", contactos: "clients", productos: "products", pedidos: "orders", presupuestos: "quotes",
   facturas: "invoices", proformas: "invoices", albaranes: "delivery_notes", envios: "shipments", proveedores: "suppliers",
@@ -13,6 +22,29 @@ const ADMIN_RESOURCES: Record<string, string> = {
 const ADMIN_SENSITIVE = new Set<AdminOperation>(["crear", "editar", "eliminar", "recuperar", "convertir"]);
 function adminResource(value: string) { return ADMIN_RESOURCES[value.toLocaleLowerCase().trim()] || value.toLocaleLowerCase().trim(); }
 function adminOperationNeedsConfirmation(operation: AdminOperation) { return ADMIN_SENSITIVE.has(operation); }
+const VISUAL_RESOURCES: Record<string, string> = {
+  invoices: "Facturas",
+  expenses: "Gastos y tickets",
+  orders: "Pedidos",
+  products: "Productos",
+  clients: "Clientes",
+  quotes: "Presupuestos",
+  notes: "Notas",
+};
+function parseVisualIntent(answer: string): VisualFormIntent {
+  const cleaned = answer.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("El asistente no devolvió una acción estructurada.");
+  const parsed = JSON.parse(cleaned.slice(start, end + 1)) as VisualFormIntent;
+  if (!parsed || parsed.action !== "open_form") throw new Error("La captura no se ha podido convertir en un formulario.");
+  const resource = String(parsed.resource || "").toLowerCase();
+  if (!VISUAL_RESOURCES[resource]) throw new Error("No he identificado si la captura corresponde a una factura, gasto, pedido o producto.");
+  return { ...parsed, resource, section: VISUAL_RESOURCES[resource], data: parsed.data && typeof parsed.data === "object" ? parsed.data : {} };
+}
+function assistantResponseText(body: any) {
+  return body.output_text || body.candidates?.[0]?.content?.parts?.map((part: any) => part.text || "").join("") || body.choices?.[0]?.message?.content || "";
+}
 const ASSISTANT_GREETINGS = [
   "¡Hola! 😊 ¿Qué necesitas consultar hoy?",
   "¡Buenas! Estoy listo para ayudarte con el CRM 😄",
@@ -42,6 +74,10 @@ export default function AssistantWidget() {
   const [messages, setMessages] = useState([ASSISTANT_GREETINGS[0]]);
   const [config, setConfig] = useState<any>(null);
   const [adminAllowed, setAdminAllowed] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageDataUrl, setImageDataUrl] = useState("");
+  const [imageBusy, setImageBusy] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     try {
       const session = localStorage.getItem("excluvas.session") || sessionStorage.getItem("excluvas.session");
@@ -85,6 +121,67 @@ export default function AssistantWidget() {
       setConfig(JSON.parse(localStorage.getItem("excluvas.home") || "{}"));
     } catch {}
   }, []);
+  function selectImage(file?: File) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setMessages((m) => [...m, "Adjunta una captura de pantalla en formato de imagen."]);
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setMessages((m) => [...m, "La captura no puede superar 8 MB."]);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImageFile(file);
+      setImageDataUrl(String(reader.result || ""));
+    };
+    reader.onerror = () => setMessages((m) => [...m, "No he podido leer la captura. Prueba con otra imagen."]);
+    reader.readAsDataURL(file);
+  }
+  async function analyzeImage() {
+    if (!imageDataUrl || imageBusy || busy) return;
+    let runtimeConfig = config;
+    try { runtimeConfig = { ...config, ...JSON.parse(localStorage.getItem("excluvas.home") || "{}") }; } catch {}
+    if (!runtimeConfig?.apiKey) {
+      setMessages((m) => [...m, "Para analizar capturas, abre ⚙ y añade una API key y un modelo con visión."]);
+      return;
+    }
+    const prompt = `Analiza esta captura de pantalla de un documento del CRM de Exclusivas Inteligentes. No guardes datos ni ejecutes cambios. Identifica una sola entidad entre invoices, expenses, orders, products, clients, quotes o notes y devuelve SOLO un JSON válido, sin markdown, con esta forma: {"action":"open_form","resource":"invoices|expenses|orders|products|clients|quotes|notes","data":{},"missing":[],"confidence":{},"notes":[]}. Usa estos nombres de campo cuando correspondan: invoices code, client_name, issue_date YYYY-MM-DD, due_date YYYY-MM-DD, amount, vat, status, notes; expenses code, vendor, expense_date YYYY-MM-DD, category, amount, vat, payment_method, notes; products name, sku, description, category, unit, cost_price, unit_price, stock; clients name, phone, email, address, city; quotes code, client_name, valid_until YYYY-MM-DD, amount, notes; orders code, client_name, delivery_date YYYY-MM-DD, notes; notes title, content, priority, module. No inventes valores dudosos: incluye los campos ausentes o inciertos en missing y asigna una confianza entre 0 y 1 por campo en confidence. Si no puedes identificar una entidad con seguridad, usa notes para explicarlo y elige la más probable.`;
+    setImageBusy(true);
+    setMessages((m) => [...m, `Captura: ${imageFile?.name || "imagen adjunta"}`]);
+    try {
+      const base = (runtimeConfig.endpoint || "https://api.openai.com/v1").replace(/\/$/, "");
+      const isGemini = runtimeConfig.provider === "Gemini";
+      const imageBase64 = imageDataUrl.split(",")[1] || "";
+      const url = isGemini
+        ? `${base}/models/${runtimeConfig.model || "gemini-2.5-flash"}:generateContent?key=${encodeURIComponent(runtimeConfig.apiKey)}`
+        : base + (runtimeConfig.provider === "OpenAI" ? "/responses" : "/chat/completions");
+      const body = isGemini
+        ? { contents: [{ role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: imageFile?.type || "image/png", data: imageBase64 } }] }] }
+        : runtimeConfig.provider === "OpenAI"
+          ? { model: runtimeConfig.model || "gpt-5", input: [{ role: "user", content: [{ type: "input_text", text: prompt }, { type: "input_image", image_url: imageDataUrl, detail: "high" }] }] }
+          : { model: runtimeConfig.model || "llama3.1", messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: imageDataUrl } }] }] };
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(isGemini ? {} : { Authorization: `Bearer ${runtimeConfig.apiKey}` }) },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error?.message || result.error?.status || "El proveedor no ha podido analizar la captura.");
+      const intent = parseVisualIntent(assistantResponseText(result));
+      window.dispatchEvent(new CustomEvent("excluvas:assistant-form", { detail: intent }));
+      const missing = intent.missing?.length ? ` Faltan por revisar: ${intent.missing.join(", ")}.` : "";
+      setMessages((m) => [...m, `He preparado ${intent.section || "el formulario"} con los datos detectados. Revísalos en la modal antes de guardar.${missing}`]);
+      setImageFile(null);
+      setImageDataUrl("");
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    } catch (error: any) {
+      setMessages((m) => [...m, error.message || "No he podido interpretar la captura. Puedes probar con una imagen más nítida."]);
+    } finally {
+      setImageBusy(false);
+    }
+  }
   async function send(value = text) {
     if (!value.trim() || busy) return;
     const q = value.trim();
@@ -676,6 +773,23 @@ export default function AssistantWidget() {
         {busy && <div className="assistant-thinking" role="status" aria-live="polite"><span /><span /><span /> Pensando…</div>}
       </div>
       <div className="assistant-global-input">
+        <input
+          ref={imageInputRef}
+          className="assistant-image-input"
+          type="file"
+          accept="image/*"
+          onChange={(event) => selectImage(event.target.files?.[0])}
+          aria-label="Seleccionar captura de pantalla"
+        />
+        <button
+          type="button"
+          className="assistant-attach-button"
+          onClick={() => imageInputRef.current?.click()}
+          aria-label="Adjuntar captura de pantalla"
+          title="Adjuntar captura de pantalla"
+        >
+          ▧
+        </button>
         <button
           className={listening ? "mic listening" : "mic"}
           onClick={voice}
@@ -686,6 +800,13 @@ export default function AssistantWidget() {
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onPaste={(event) => {
+            const pastedImage = Array.from(event.clipboardData.files || []).find((file) => file.type.startsWith("image/"));
+            if (pastedImage) {
+              event.preventDefault();
+              selectImage(pastedImage);
+            }
+          }}
           onKeyDown={(e) => e.key === "Enter" && send()}
           placeholder={
             listening ? "Escuchando..." : "Escribe o pulsa el micrófono..."
@@ -695,6 +816,18 @@ export default function AssistantWidget() {
           ↑
         </button>
       </div>
+      {imageDataUrl && (
+        <div className="assistant-attachment" role="status">
+          <div className="assistant-attachment-preview">
+            <img src={imageDataUrl} alt="Vista previa de la captura adjunta" />
+            <span>{imageFile?.name || "Captura adjunta"}</span>
+          </div>
+          <div className="assistant-attachment-actions">
+            <button type="button" className="button secondary" onClick={() => { setImageFile(null); setImageDataUrl(""); if (imageInputRef.current) imageInputRef.current.value = ""; }}>Quitar</button>
+            <button type="button" className="button primary" disabled={imageBusy || busy} onClick={() => void analyzeImage()}>{imageBusy ? "Analizando…" : "Analizar captura"}</button>
+          </div>
+        </div>
+      )}
       {clearConfirmOpen && (
         <div className="assistant-confirm-overlay" role="presentation" onClick={() => setClearConfirmOpen(false)}>
           <div className="assistant-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="assistant-confirm-title" onClick={(event) => event.stopPropagation()}>
