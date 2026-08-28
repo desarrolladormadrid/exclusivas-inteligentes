@@ -572,7 +572,7 @@ export async function crmApiHandler(req, res) {
           const actorFilter = String(url.searchParams.get("actor") || "").toLowerCase();
           const searchFilter = String(url.searchParams.get("q") || "").toLowerCase();
           const labels = { products: "Productos", clients: "Clientes", orders: "Pedidos", invoices: "Facturas", delivery_notes: "Albaranes", shipments: "Envíos", users: "Usuarios", expenses: "Gastos y tickets", notes: "Notas", suppliers: "Proveedores", purchase_orders: "Compras", warehouses: "Almacenes", collection_points: "Lugares de recogida", inventory_movements: "Movimientos de stock", returns: "Devoluciones", payments: "Cobros", quotes: "Presupuestos", scheduled_tasks: "Tareas programadas", order_lines: "Líneas de pedidos", quote_lines: "Líneas de presupuestos", delivery_note_lines: "Líneas de albaranes", invoice_lines: "Líneas de facturas", purchase_order_lines: "Líneas de compras", audit_logs: "Historial" };
-          const sources = Array.from(tables).filter((table) => !tableFilter || table === tableFilter);
+          const sources = Array.from(tables).filter((table) => hasColumn(table, "deleted") && (!tableFilter || table === tableFilter));
           const trashLabelColumns = { products: "name", clients: "name", orders: "code", invoices: "code", delivery_notes: "code", shipments: "code", users: "username", expenses: "code", notes: "title", suppliers: "name", purchase_orders: "code", warehouses: "name", collection_points: "name", inventory_movements: "reference", returns: "code", quotes: "code", scheduled_tasks: "title" };
           const trashQuery = sources.map((table) => {
             const labelColumn = trashLabelColumns[table];
