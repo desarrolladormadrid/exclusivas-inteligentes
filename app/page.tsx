@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.19";
+const APP_VERSION = "2.0.21";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -3624,7 +3624,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   return (
     <>
     <div className={`manager${isLoadPreparation ? " load-preparation-manager" : ""}`}>
-      <div className="manager-head">
+      {!isLoadPreparation && <div className="manager-head">
         <div>
           <p className="eyebrow">GESTIÓN · SQLITE LOCAL</p>
           <h2>{c.title}</h2>
@@ -3700,11 +3700,12 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             </button>
           </>}
         </div>
-      </div>
+      </div>}
       {dbError && <div className="db-error">{dbError}</div>}
       {error && <div className="error-message" role="alert">{error}</div>}
       {productSaveMessage && active === "Productos" && <div className="success-message" role="status">{productSaveMessage}</div>}
       {!isLoadPreparation && active !== "Pedidos" && <BusinessRelatedPanels active={active} rows={rows} lookups={lookups} onNavigate={onNavigate} />}
+      {isLoadPreparation && <div className="prep-export-row"><button type="button" className="button secondary icon-action" onClick={download} aria-label="Descargar Excel/CSV" title="Descargar Excel/CSV"><ToolbarIcon name="download" /><span className="icon-action-label">Descargar Excel/CSV</span></button></div>}
       {isLoadPreparation && <PreparationDayCards rows={preparationRows} lookups={lookups} dateFilter={preparationDateFilter} onDateFilterChange={setPreparationDateFilter} onOpen={(row) => void openPreparationRow(row)} />}
       {active === "Gastos y tickets" && (
         <ExpenseScanner
@@ -7944,7 +7945,8 @@ export function OcrIntelligent({ user = { username: "Usuario local" } }: { user?
 }
 
 export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleScopes }) {
-  const resolvedRouteMode = typeof window !== "undefined" && window.location.pathname.replace(/\/$/, "") === "/ocr" ? "ocr" : routeMode;
+  const routePath = typeof window !== "undefined" ? window.location.pathname.replace(/\/$/, "") : "";
+  const resolvedRouteMode = routePath === "/ocr" ? "ocr" : routePath === "/almacen" ? "almacen" : routeMode;
   const routeModules = routeModuleScopes[resolvedRouteMode] || routeModuleScopes.crm;
   const [active, setActive] = useState(() => {
     if (typeof window === "undefined") return "Inicio";
@@ -8605,7 +8607,7 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
               </p>
             </div>
             <div className="head-actions">
-              {active !== "Inicio" && (
+              {active !== "Inicio" && active !== "Preparación de pedidos" && (
                 <button className="button secondary">↧ Exportar</button>
               )}
             </div>
