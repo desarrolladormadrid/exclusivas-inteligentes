@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.24";
+const APP_VERSION = "2.0.25";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -8185,7 +8185,7 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
   };
   const homeToday = tabletTodayInput();
   const [homeRangePreset, setHomeRangePresetState] = useState<
-    "hoy" | "mes" | "trimestre" | "semestre" | "anio" | null
+    "hoy" | "semana" | "mes" | "trimestre" | "semestre" | "anio" | null
   >("hoy");
   const [homeOrderRangeStart, setHomeOrderRangeStart] = useState(homeToday);
   const [homeOrderRangeEnd, setHomeOrderRangeEnd] = useState(homeToday);
@@ -8414,6 +8414,15 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
       `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     if (preset === "hoy") {
       setHomeOrderRangeStart(today);
+    } else if (preset === "semana") {
+      const dayOfWeek = current.getDay();
+      const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const monday = new Date(year, month, current.getDate() + daysToMonday);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      setHomeOrderRangeStart(format(monday));
+      setHomeOrderRangeEnd(format(sunday));
+      return;
     } else if (preset === "mes") {
       setHomeOrderRangeStart(`${today.slice(0, 8)}01`);
     } else if (preset === "trimestre") {
@@ -8675,6 +8684,14 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
                   onClick={() => setHomeRangePreset("hoy")}
                 >
                   Hoy
+                </button>
+                <button
+                  type="button"
+                  className={homeRangePreset === "semana" ? "active" : ""}
+                  aria-pressed={homeRangePreset === "semana"}
+                  onClick={() => setHomeRangePreset("semana")}
+                >
+                  Esta semana
                 </button>
                 <button
                   type="button"
