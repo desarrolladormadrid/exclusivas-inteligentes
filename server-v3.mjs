@@ -268,6 +268,15 @@ const send = (r, s, d) => {
 const readCache = new Map();
 const READ_CACHE_MS = 60000;
 const listColumnsCache = new Map();
+const schemaColumnsCache = new Map();
+function hasColumn(resource, column) {
+  const key = `${resource}:${column}`;
+  if (!schemaColumnsCache.has(key)) {
+    const columns = db.prepare(`PRAGMA table_info(${resource})`).all().map((item) => String(item.name || ""));
+    schemaColumnsCache.set(key, columns.includes(column));
+  }
+  return schemaColumnsCache.get(key);
+}
 const lookupFields = {
   clients: ["id", "name", "city", "address", "phone", "email", "active", "external_code"],
   suppliers: ["id", "name", "tax_id", "contact", "phone", "email", "active", "minimum_order", "transport_cost", "lead_time_days", "reliability_percent", "rappel_percent", "external_code"],
@@ -775,7 +784,7 @@ http
             : t;
           const selection = t === "orders" ? "orders.*,order_client.name AS client_name,order_client.city AS client_city" : p[2] ? "*" : listSelectFor(t);
           const tableReference = t === "orders" ? "orders" : t;
-          const deletedClause = includeDeleted ? "" : ` AND CAST(COALESCE(${tableReference}.deleted,0) AS INTEGER)=0`;
+          const deletedClause = includeDeleted || !hasColumn(tableReference, "deleted") ? "" : ` AND CAST(COALESCE(${tableReference}.deleted,0) AS INTEGER)=0`;
           const row = db.prepare(`SELECT ${selection} FROM ${source} WHERE ${tableReference}.id=?${deletedClause}`).get(Number(p[2]));
           return row ? send(res, 200, row) : send(res, 404, { error: "Registro no encontrado" });
         }
@@ -786,7 +795,7 @@ http
           : t;
         const selection = isLookup ? lookupSelectFor(t) : t === "orders" ? "orders.*,order_client.name AS client_name,order_client.city AS client_city" : listSelectFor(t);
         const filters = [];
-        if (!includeDeleted) filters.push(`CAST(COALESCE(${t === "orders" ? "orders" : t}.deleted,0) AS INTEGER)=0`);
+        if (!includeDeleted && hasColumn(t, "deleted")) filters.push(`CAST(COALESCE(${t === "orders" ? "orders" : t}.deleted,0) AS INTEGER)=0`);
         if (!includeInactive && ["suppliers", "clients", "products"].includes(t)) filters.push(t === "products" ? `CAST(COALESCE(products.active,1) AS INTEGER)=1 AND LOWER(COALESCE(products.product_status,'Activo')) NOT IN ('inactivo','baja','descatalogado')` : `CAST(COALESCE(${t}.active,1) AS INTEGER)=1`);
         const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
         const pagination = limitValue === null ? "" : ` LIMIT ${limitValue} OFFSET ${offsetValue}`;

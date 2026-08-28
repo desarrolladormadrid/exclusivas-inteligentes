@@ -287,6 +287,15 @@ const send = (r, s, d) => {
 const readCache = new Map();
 const READ_CACHE_MS = 60000;
 const listColumnsCache = new Map();
+const schemaColumnsCache = new Map();
+function hasColumn(resource, column) {
+  const key = `${resource}:${column}`;
+  if (!schemaColumnsCache.has(key)) {
+    const columns = db.prepare(`PRAGMA table_info(${resource})`).all().map((item) => String(item.name || ""));
+    schemaColumnsCache.set(key, columns.includes(column));
+  }
+  return schemaColumnsCache.get(key);
+}
 const lookupFields = {
   clients: ["id", "name", "city", "address", "phone", "email", "active", "external_code"],
   suppliers: ["id", "name", "tax_id", "contact", "phone", "email", "active", "minimum_order", "transport_cost", "lead_time_days", "reliability_percent", "rappel_percent", "external_code"],
@@ -881,7 +890,7 @@ export async function crmApiHandler(req, res) {
             ? "orders.*,order_client.name AS client_name,order_client.city AS client_city,CASE WHEN orders.status='Facturado' OR EXISTS(SELECT 1 FROM invoice_orders io JOIN invoices bi ON bi.id=io.invoice_id WHERE io.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) OR EXISTS(SELECT 1 FROM invoices bi WHERE bi.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) THEN 'Facturado' ELSE 'Sin facturar' END AS billing_status"
             : p[2] ? "*" : listSelectFor(t);
           const tableReference = t === "orders" ? "orders" : t;
-          const deletedClause = includeDeleted ? "" : ` AND CAST(COALESCE(${tableReference}.deleted,0) AS INTEGER)=0`;
+          const deletedClause = includeDeleted || !hasColumn(tableReference, "deleted") ? "" : ` AND CAST(COALESCE(${tableReference}.deleted,0) AS INTEGER)=0`;
           const row = db.prepare(`SELECT ${selection} FROM ${source} WHERE ${tableReference}.id=?${deletedClause}`).get(Number(p[2]));
           return row ? send(res, 200, row) : send(res, 404, { error: "Registro no encontrado" });
         }
@@ -898,7 +907,7 @@ export async function crmApiHandler(req, res) {
             ? "orders.*,order_client.name AS client_name,order_client.city AS client_city,CASE WHEN orders.status='Facturado' OR EXISTS(SELECT 1 FROM invoice_orders io JOIN invoices bi ON bi.id=io.invoice_id WHERE io.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) OR EXISTS(SELECT 1 FROM invoices bi WHERE bi.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) THEN 'Facturado' ELSE 'Sin facturar' END AS billing_status"
             : listSelectFor(t);
         const filters = [];
-        if (!includeDeleted) filters.push(`CAST(COALESCE(${t === "orders" ? "orders" : t}.deleted,0) AS INTEGER)=0`);
+        if (!includeDeleted && hasColumn(t, "deleted")) filters.push(`CAST(COALESCE(${t === "orders" ? "orders" : t}.deleted,0) AS INTEGER)=0`);
         if (!includeInactive && ["suppliers", "clients", "products"].includes(t)) {
           filters.push(t === "products"
             ? `CAST(COALESCE(products.active,1) AS INTEGER)=1 AND LOWER(COALESCE(products.product_status,'Activo')) NOT IN ('inactivo','baja','descatalogado')`
