@@ -21,7 +21,7 @@ export default function SettingsPanel() {
   const [prefs, setPrefs] = useState<any>(defaults);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
-    setPublicPortal(window.location.pathname === "/portal-pedidos");
+    setPublicPortal(["/portal-pedidos", "/web"].includes(window.location.pathname.replace(/\/$/, "")));
     try {
       const x = localStorage.getItem("excluvas.home");
       const saved = x ? JSON.parse(x) : {};

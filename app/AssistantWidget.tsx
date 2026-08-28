@@ -98,7 +98,7 @@ export default function AssistantWidget() {
       setMessages([nextGreeting]);
     }
     setMessagesReady(true);
-    setPublicPortal(window.location.pathname === "/portal-pedidos");
+    setPublicPortal(["/portal-pedidos", "/web"].includes(window.location.pathname.replace(/\/$/, "")));
     function loadConfig(event?: Event) {
       try {
         const detail = (event as CustomEvent<any>)?.detail;
