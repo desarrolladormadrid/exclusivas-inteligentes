@@ -38,6 +38,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY AUTOINCREM
 db.exec(`CREATE TABLE IF NOT EXISTS scheduled_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,action_text TEXT NOT NULL,schedule_type TEXT DEFAULT 'Unica',recurrence TEXT,next_run TEXT,status TEXT DEFAULT 'Activa',last_run TEXT,last_result TEXT,created_by TEXT DEFAULT 'Usuario local',created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,client_id INTEGER,expense_date TEXT NOT NULL,category TEXT DEFAULT 'Otros',vendor TEXT,amount REAL DEFAULT 0,vat REAL DEFAULT 21,payment_method TEXT DEFAULT 'Tarjeta',notes TEXT,attachment_name TEXT,attachment_mime TEXT,attachment_data TEXT,created_at TEXT,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS ocr_documents(id INTEGER PRIMARY KEY AUTOINCREMENT,file_name TEXT NOT NULL,mime_type TEXT,file_size INTEGER DEFAULT 0,document_type TEXT DEFAULT 'Otro',detected_email TEXT,detected_total TEXT,extracted_text TEXT,status TEXT DEFAULT 'Pendiente',created_by TEXT DEFAULT 'Usuario local',created_at TEXT,updated_at TEXT);`);
+db.exec(`CREATE TABLE IF NOT EXISTS web_registrations(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL DEFAULT 'cliente',company_name TEXT NOT NULL,tax_id TEXT,contact_name TEXT NOT NULL,email TEXT NOT NULL,phone TEXT,address TEXT,city TEXT,message TEXT,status TEXT NOT NULL DEFAULT 'Pendiente de validar',created_at TEXT,updated_at TEXT,reviewed_by TEXT,reviewed_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS whatsapp_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,wa_id TEXT,client_id INTEGER,direction TEXT DEFAULT 'Entrante',message_type TEXT DEFAULT 'Texto',content TEXT,media_name TEXT,media_mime TEXT,media_data TEXT,status TEXT DEFAULT 'Pendiente',transcription TEXT,human_review INTEGER DEFAULT 0,suggested_action TEXT,created_at TEXT,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS product_price_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,supplier_id INTEGER,price_type TEXT DEFAULT 'Coste',amount REAL DEFAULT 0,currency TEXT DEFAULT 'EUR',valid_from TEXT,valid_to TEXT,source TEXT,notes TEXT,created_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS product_suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,supplier_id INTEGER NOT NULL,supplier_ref TEXT,unit_cost REAL DEFAULT 0,minimum_order REAL DEFAULT 0,order_unit TEXT DEFAULT 'caja',transport_cost REAL DEFAULT 0,lead_time_days INTEGER DEFAULT 0,promotion TEXT,rappel_percent REAL DEFAULT 0,reliability_percent REAL DEFAULT 0,is_primary INTEGER DEFAULT 0,is_fixed INTEGER DEFAULT 0,active INTEGER DEFAULT 1,created_at TEXT,updated_at TEXT);`);
@@ -158,6 +159,7 @@ const tables = new Set([
   "collection_points",
   "expenses",
   "ocr_documents",
+  "web_registrations",
   "whatsapp_messages",
   "product_price_history",
   "product_suppliers",
@@ -431,6 +433,36 @@ export async function crmApiHandler(req, res) {
       const t = p[1];
       if (p[0] !== "api")
         return send(res, 404, { error: "Recurso no encontrado" });
+      if (t === "web_registrations") {
+        if (req.method === "GET") {
+          const includeClosed = new URL(req.url, "http://local").searchParams.get("include_closed") === "1";
+          return send(res, 200, db.prepare(`SELECT * FROM web_registrations ${includeClosed ? "" : "WHERE status NOT IN ('Validada','Rechazada')"} ORDER BY id DESC LIMIT 500`).all());
+        }
+        const d = await read(req);
+        if (req.method === "POST") {
+          const kind = ["cliente", "proveedor"].includes(String(d.kind)) ? String(d.kind) : "cliente";
+          const companyName = String(d.company_name || "").trim();
+          const contactName = String(d.contact_name || "").trim();
+          const email = String(d.email || "").trim();
+          if (!companyName || !contactName || !email) return send(res, 400, { error: "Empresa, contacto y email son obligatorios" });
+          const now = new Date().toISOString();
+          const created = db.prepare("INSERT INTO web_registrations(kind,company_name,tax_id,contact_name,email,phone,address,city,message,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").run(kind, companyName, String(d.tax_id || "").trim(), contactName, email, String(d.phone || "").trim(), String(d.address || "").trim(), String(d.city || "").trim(), String(d.message || "").trim(), "Pendiente de validar", now, now);
+          const id = Number(created.lastInsertRowid);
+          const label = kind === "proveedor" ? "proveedor" : "cliente";
+          db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)").run(`Validar alta web · ${companyName}`, `Solicitud de alta de ${label} recibida desde la web. Contacto: ${contactName}. Email: ${email}. Teléfono: ${String(d.phone || "").trim() || "No indicado"}. NIF/CIF: ${String(d.tax_id || "").trim() || "No indicado"}. Dirección: ${String(d.address || "").trim() || "No indicada"}. ${String(d.message || "").trim()}`, "Alta", "Web", id, 1, now, now);
+          recordAudit("Portal web", "POST", `web_registrations/${id}`, "Alta web", JSON.stringify({ id, kind, company_name: companyName, contact_name: contactName, email }));
+          return send(res, 201, { id, status: "Pendiente de validar" });
+        }
+        if (req.method === "PUT" && p[2]) {
+          const id = Number(p[2]);
+          const status = ["Pendiente de validar", "Validada", "Rechazada"].includes(String(d.status)) ? String(d.status) : "Pendiente de validar";
+          const now = new Date().toISOString();
+          const result = db.prepare("UPDATE web_registrations SET status=?,updated_at=?,reviewed_by=?,reviewed_at=? WHERE id=?").run(status, now, actor, status === "Pendiente de validar" ? null : now, id);
+          if (!result.changes) return send(res, 404, { error: "Solicitud no encontrada" });
+          recordAudit(actor, "PUT", `web_registrations/${id}`, "Revisión alta web", JSON.stringify({ id, status }));
+          return send(res, 200, { id, status });
+        }
+      }
       if (t === "assistant" && req.method === "POST" && p[2] === "adjust-order-line") {
         const d = await read(req);
         const orderIdentifier = String(d.order_identifier || "").trim();

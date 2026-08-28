@@ -16,6 +16,9 @@ const migrationsByTable = {
     ["deleted_at", "ALTER TABLE ocr_documents ADD COLUMN deleted_at TEXT"],
     ["deleted_by", "ALTER TABLE ocr_documents ADD COLUMN deleted_by TEXT"],
   ],
+  web_registrations: [
+    ["table", "CREATE TABLE IF NOT EXISTS web_registrations(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL DEFAULT 'cliente',company_name TEXT NOT NULL,tax_id TEXT,contact_name TEXT NOT NULL,email TEXT NOT NULL,phone TEXT,address TEXT,city TEXT,message TEXT,status TEXT NOT NULL DEFAULT 'Pendiente de validar',created_at TEXT,updated_at TEXT,reviewed_by TEXT,reviewed_at TEXT)"],
+  ],
   order_lines: [
     ["incident_resolution", "ALTER TABLE order_lines ADD COLUMN incident_resolution TEXT"],
     ["incident_resolved_at", "ALTER TABLE order_lines ADD COLUMN incident_resolved_at TEXT"],

@@ -39,6 +39,7 @@ const initialModules = [
   "Papelera",
   "Documentos",
   "OCR inteligente",
+  "Altas web",
 ];
 const permissionModules = initialModules.filter((module) => module !== "Inicio" && module !== "Usuarios y permisos" && module !== "Papelera");
 function normalizeSearchText(value: unknown) {
@@ -790,6 +791,7 @@ const icon = (m: string) =>
     Notas: "✎",
     Devoluciones: "↶",
     "Usuarios y permisos": "⚙",
+    "Altas web": "✦",
     Papelera: "♲",
     Documentos: "▤",
   })[m] || "•";
@@ -843,7 +845,7 @@ const sidebarGroups = [
   },
   { name: "Análisis y control", items: ["Balance", "Informes"] },
   { name: "Automatización", items: ["Tareas programadas", "Notas", "OCR inteligente"] },
-  { name: "Administración", items: ["Usuarios y permisos", "Documentos", "Historial", "Papelera"] },
+  { name: "Administración", items: ["Usuarios y permisos", "Altas web", "Documentos", "Historial", "Papelera"] },
 ];
 
 const routeModuleScopes: Record<string, string[]> = {
@@ -6602,7 +6604,7 @@ export function ClientOrderPortal({
                 {error && <p className="web-order-error">{error}</p>}
                 <button className="button primary web-order-submit" disabled={saving}>{saving ? "Enviando pedido…" : "Enviar pedido al CRM"}</button>
                 <button type="button" className="web-order-whatsapp" onClick={openWhatsApp}>Continuar por WhatsApp</button>
-                <small className="web-order-privacy">Este portal es una simulación conectada a la base de datos local de Exclusivas.</small>
+                <small className="web-order-privacy">Este portal envía el pedido al CRM para su revisión comercial.</small>
               </aside>
             </div>
           </form>
@@ -7936,6 +7938,37 @@ function HomeNotePreviewModal({ note, user, onClose, onOpenPreparation }: { note
   </div>;
 }
 
+function WebRegistrationsManager({ user }: { user: any }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("Pendiente de validar");
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [message, setMessage] = useState("");
+  async function load() {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/web_registrations?include_closed=1", { headers: { "X-Audit-Query": "true", "X-Actor": user?.username || "Usuario local" } });
+      const data = await response.json();
+      setRows(Array.isArray(data) ? data : []);
+    } catch { setMessage("No se han podido cargar las solicitudes web."); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+  async function review(row: any, status: string) {
+    setSavingId(Number(row.id)); setMessage("");
+    try {
+      const response = await fetch(`/api/web_registrations/${row.id}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-Actor": user?.username || "Usuario local" }, body: JSON.stringify({ status }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se ha podido actualizar la solicitud.");
+      setRows((current) => current.map((item) => item.id === row.id ? { ...item, status } : item));
+      setMessage(`Solicitud de ${row.company_name} marcada como ${status.toLowerCase()}.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se ha podido actualizar la solicitud."); }
+    finally { setSavingId(null); }
+  }
+  const visibleRows = rows.filter((row) => filter === "Todas" || row.status === filter);
+  return <section className="web-registrations-manager"><div className="manager-head"><div><p className="eyebrow">PORTAL WEB · VALIDACIÓN</p><h2>Altas web</h2><p className="muted">Revisa y valida las solicitudes recibidas desde la web pública.</p></div><div><button className="button secondary" onClick={() => void load()}>Actualizar</button></div></div><div className="web-registration-toolbar"><label>Estado<select value={filter} onChange={(event) => setFilter(event.target.value)}><option>Pendiente de validar</option><option>Validada</option><option>Rechazada</option><option>Todas</option></select></label><span>{visibleRows.length} solicitudes</span></div>{message && <p className="success-message" role="status">{message}</p>}{loading ? <div className="data-loading" role="status"><span className="loading-spinner" />Cargando solicitudes…</div> : <div className="web-registration-list">{visibleRows.length ? visibleRows.map((row) => <article className="web-registration-card" key={row.id}><header><div><span className="web-registration-kind">{row.kind === "proveedor" ? "PROVEEDOR" : "CLIENTE"}</span><h3>{row.company_name}</h3></div><b className={`web-registration-status status-${String(row.status).toLowerCase().replaceAll(" ", "-")}`}>{row.status}</b></header><div className="web-registration-data"><span><b>Contacto</b>{row.contact_name}</span><span><b>Email</b>{row.email}</span><span><b>Teléfono</b>{row.phone || "No indicado"}</span><span><b>Ubicación</b>{[row.address, row.city].filter(Boolean).join(" · ") || "No indicada"}</span></div>{row.message && <p>{row.message}</p>}<footer><small>{row.created_at ? formatSpanishDateValue(row.created_at, true) : "Fecha no indicada"} · Portal web</small>{row.status === "Pendiente de validar" && <div><button className="button secondary" disabled={savingId === row.id} onClick={() => void review(row, "Rechazada")}>Rechazar</button><button className="button primary" disabled={savingId === row.id} onClick={() => void review(row, "Validada")}>{savingId === row.id ? "Guardando…" : "Validar solicitud"}</button></div>}</footer></article>) : <p className="empty-state">No hay solicitudes con este estado.</p>}</div>}</section>;
+}
+
 export function OcrIntelligent({ user = { username: "Usuario local" } }: { user?: any }) {
   const [file, setFile] = useState<File | null>(null);
   const [data, setData] = useState<any>(null);
@@ -8023,6 +8056,7 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
       setNotifications((Array.isArray(data) ? data : [])
         .filter((item: any) => item.method === "POST" && (
           ["Alerta stock", "Incidencia preparación"].includes(item.action) ||
+          item.action === "Alta web" ||
           (item.action === "Alta" && /^orders\/\d+$/i.test(String(item.resource || "")))
         ))
         .slice(0, 8)
@@ -8091,6 +8125,11 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
   }
   function openNotificationTarget(item: any) {
     markNotificationRead(item);
+    if (item?.action === "Alta web") {
+      setNotificationOpen(false);
+      setActive("Altas web");
+      return;
+    }
     if (item?.action === "Alerta stock") {
       setStockAlertPreview(item);
       setNotificationOpen(false);
@@ -9012,6 +9051,8 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
                 </div>
               )}
             </>
+          ) : active === "Altas web" ? (
+            <WebRegistrationsManager user={currentUser} />
           ) : active === "OCR inteligente" ? (
             <OcrIntelligent user={currentUser} />
           ) : active === "Balance" ? (
