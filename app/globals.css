@@ -2545,7 +2545,7 @@ footer span {
 .prep-command-filters input { height: 31px; padding: 0 7px; border: 1px solid #cbd7dc; background: #fff; font: inherit; }
 .prep-command-filters .button { height: 31px; }
 .prep-command-summary { display: flex; align-items: center; gap: 18px; padding: 8px 16px; border-bottom: 1px solid #dfe6e9; background: #fbfcfc; color: #71818a; font-size: 10px; }.prep-command-summary b { color: #26343d; font-size: 13px; }.prep-command-summary-hint { margin-left: auto; color: #819098; }
-.prep-command-columns { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding: 10px; }
+.prep-command-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 10px; padding: 10px; }
 .prep-command-column { min-width: 0; border: 1px solid #d1d9dd; background: #fff; }
 .prep-command-column > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px; border-bottom: 3px solid #94a3ab; }
 .prep-command-column > header > div { display: grid; gap: 3px; }
@@ -2589,8 +2589,8 @@ footer span {
 .prep-command-column > header { padding: 9px 10px; }
 .prep-command-column > header b { font-size: 13px; }
 .prep-command-board .prep-order-card { min-height: 118px; }
-@media (max-width: 1250px) { .prep-command-columns { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 1050px) { .prep-command-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1250px) { .prep-command-columns { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); } }
+@media (max-width: 1050px) { .prep-command-columns { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); } }
 @media (max-width: 650px) { .prep-command-toolbar { align-items: stretch; flex-direction: column; }.prep-command-filters { flex-wrap: wrap; }.prep-command-summary { flex-wrap: wrap; gap: 8px 14px; }.prep-command-summary-hint { flex-basis: 100%; margin-left: 0; }.prep-command-columns { grid-template-columns: 1fr; }.preparation-start-banner { align-items: stretch; flex-direction: column; }.preparation-start-banner .button { width: 100%; } }
 .product-drawer-overlay { position: fixed; inset: 0; z-index: 130; display: flex; justify-content: flex-end; background: rgba(38,52,61,.32); }
 .product-drawer { box-sizing: border-box; width: min(390px, calc(100vw - 18px)); height: 100%; overflow-y: auto; padding: 18px; border-left: 1px solid #d5dfe3; background: #fff; box-shadow: -12px 0 30px rgba(38,52,61,.18); }
