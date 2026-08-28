@@ -3606,15 +3606,17 @@ select.form-control option:hover {
 .public-web *, .public-web *::before, .public-web *::after { box-sizing: border-box; }
 .public-web a { color: inherit; text-decoration: none; }
 .public-web button, .public-web input, .public-web textarea { font: inherit; }
-.public-web-header { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 30px; width: min(1280px, calc(100% - 36px)); min-height: 64px; margin: 16px auto 0; padding: 8px 12px; border: 1px solid #d8d8d0; background: #f4f3ed; color: #11110f; }
+.public-web-header { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 30px; width: min(1280px, calc(100% - 36px)); min-height: 64px; margin: 16px auto 0; padding: 8px 12px; border: 1px solid #3a3530; background: #11110f; box-shadow: 0 8px 24px rgba(0, 0, 0, .18); color: #f4f3ed; }
 .public-web-brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
 .public-web-brand > span { display: grid; place-items: center; width: 35px; height: 35px; background: #bd2027; color: #fff; font-size: 23px; font-weight: 800; }
 .public-web-brand div { display: grid; gap: 0; line-height: 1; }
-.public-web-brand b { font-size: 17px; letter-spacing: -.04em; }
+.public-web-brand b { color: #f7f4ed; font-size: 17px; letter-spacing: -.04em; }
 .public-web-brand small { margin-top: 4px; color: #bd2027; font-size: 8px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; }
-.public-web-header nav { display: flex; align-items: center; gap: 24px; font-size: 11px; font-weight: 700; }
+.public-web-header nav { display: flex; align-items: center; gap: 24px; color: #f4f3ed; font-size: 11px; font-weight: 700; }
+.public-web-header nav a { color: #f4f3ed; }
 .public-web-header nav a:hover, .public-web-footer a:hover { color: #bd2027; }
-.public-web-order-link { display: flex; align-items: center; gap: 12px; padding: 10px 13px; background: #11110f; color: #f4f3ed !important; font-size: 11px; font-weight: 700; }
+.public-web-order-link { display: flex; align-items: center; gap: 12px; padding: 10px 13px; background: #f4f3ed; color: #11110f !important; font-size: 11px; font-weight: 700; }
+.public-web-order-link:hover { background: #bd2027; color: #fff !important; }
 .public-web-order-link span, .public-web-text-link span { color: #bd2027; font-size: 16px; }
 .public-web-hero { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(390px, .8fr); align-items: center; min-height: 670px; width: min(1280px, calc(100% - 36px)); margin: 0 auto; padding: 80px 8%; background: radial-gradient(circle at 76% 37%, #44230f 0, #16100d 17%, transparent 36%), linear-gradient(120deg, #0a0a09 0%, #11110f 60%, #180f0b 100%); }
 .public-web-hero-copy { position: relative; z-index: 2; max-width: 650px; }
