@@ -796,7 +796,7 @@ const icon = (m: string) =>
     Documentos: "▤",
   })[m] || "•";
 
-type ToolbarIconName = "download" | "upload" | "template" | "preparation" | "stock" | "order" | "expense" | "map" | "commercial" | "warehouse";
+type ToolbarIconName = "download" | "upload" | "template" | "preparation" | "stock" | "order" | "expense" | "map" | "commercial" | "warehouse" | "web";
 function ToolbarIcon({ name }: { name: ToolbarIconName }) {
   const paths: Record<ToolbarIconName, ReactNode> = {
     download: <><path d="M12 3v11" /><path d="m7.5 10.5 4.5 4.5 4.5-4.5" /><path d="M4 20h16" /></>,
@@ -809,6 +809,7 @@ function ToolbarIcon({ name }: { name: ToolbarIconName }) {
     map: <><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></>,
     commercial: <><path d="M5 8h14v12H5z" /><path d="M8 8V5h8v3M8 12h8M12 12v8" /></>,
     warehouse: <><path d="m3 10 9-6 9 6v10H3z" /><path d="M7 20v-6h10v6M7 10h.01M12 10h.01M17 10h.01" /></>,
+    web: <><circle cx="12" cy="12" r="8.5" /><path d="M3.8 9h16.4M3.8 15h16.4M12 3.5c2.1 2.3 3.2 5.1 3.2 8.5S14.1 18.2 12 20.5C9.9 18.2 8.8 15.4 8.8 12S9.9 5.8 12 3.5Z" /></>,
   };
   return <svg className="toolbar-action-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -911,6 +912,7 @@ export function Sidebar({
   }, [active]);
   const canOpenCommercialView = user?.role === "admin" || allowedModulesFor(user).includes("Pedidos");
   const canOpenWarehouseView = user?.role === "admin" || allowedModulesFor(user).includes("Preparación de pedidos");
+  const canOpenWebView = user?.role === "admin" || allowedModulesFor(user).includes("Clientes");
   function drop(target: string) {
     if (!drag || drag === target) return;
     const next = [...items],
@@ -985,11 +987,12 @@ export function Sidebar({
           </div>
         );
       })}
-      {mobileOpen && (canOpenCommercialView || canOpenWarehouseView) && (
+      {mobileOpen && (canOpenCommercialView || canOpenWarehouseView || canOpenWebView) && (
         <div className="sidebar-route-shortcuts" aria-label="Vistas operativas">
           <div className="side-label">VISTAS OPERATIVAS</div>
           {canOpenCommercialView && <a href="/comercial" onClick={() => setMobileOpen(false)}><ToolbarIcon name="commercial" /><span>Vista comercial</span></a>}
           {canOpenWarehouseView && <a href="/almacen" onClick={() => setMobileOpen(false)}><ToolbarIcon name="warehouse" /><span>Vista almacén</span></a>}
+          {canOpenWebView && <a href="/web" onClick={() => setMobileOpen(false)}><ToolbarIcon name="web" /><span>Web pública</span></a>}
         </div>
       )}
       {mobileOpen && <div className="mobile-sidebar-account"><span><b>{user?.username || "Usuario"}</b><small>{user?.role === "admin" ? "Administrador" : "Usuario"}</small></span><button type="button" onClick={() => { setMobileOpen(false); onLogout(); }}>Cerrar sesión</button></div>}
@@ -8027,6 +8030,7 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
   const allowedModules = allowedModulesFor(currentUser).filter((module) => routeModules.includes(module));
   const canOpenCommercialView = currentUser.role === "admin" || allowedModules.includes("Pedidos");
   const canOpenWarehouseView = currentUser.role === "admin" || allowedModules.includes("Preparación de pedidos");
+  const canOpenWebView = currentUser.role === "admin" || allowedModules.includes("Clientes");
   const [homeAmountsVisible, setHomeAmountsVisible] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
@@ -8533,6 +8537,12 @@ export default function Home({ routeMode = "crm" }: { routeMode?: keyof typeof r
               <a className="button primary quick-icon-action app-route-shortcut" href="/almacen" aria-label="Vista almacén" title="Vista almacén">
                 <ToolbarIcon name="warehouse" />
                 <span className="icon-action-label">Vista almacén</span>
+              </a>
+            )}
+            {canOpenWebView && (
+              <a className="button primary quick-icon-action app-route-shortcut" href="/web" aria-label="Web pública" title="Web pública">
+                <ToolbarIcon name="web" />
+                <span className="icon-action-label">Web pública</span>
               </a>
             )}
             <button
