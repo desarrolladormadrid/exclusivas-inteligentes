@@ -107,6 +107,7 @@ try {
   const loadNote = page.locator(".document-preview");
   await loadNote.waitFor({ state: "visible", timeout: 15000 });
   if (!(await loadNote.getByText("Preparado por:", { exact: false }).count())) throw new Error("La nota de carga no muestra el responsable de preparación");
+  await page.screenshot({ path: path.join(screenshotDir, `preparation-responsible-${screenshotPrefix}.png`), fullPage: false });
   await page.setViewportSize({ width: 441, height: 820 });
   await page.waitForTimeout(250);
   const loadNoteMetrics = await loadNote.evaluate((element) => {
