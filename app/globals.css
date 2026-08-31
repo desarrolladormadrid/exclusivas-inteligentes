@@ -2080,7 +2080,7 @@ footer span {
   position: fixed;
   inset: 0;
   background: rgba(30, 38, 44, 0.38);
-  z-index: 80;
+  z-index: 160;
   display: grid;
   place-items: center;
 }
