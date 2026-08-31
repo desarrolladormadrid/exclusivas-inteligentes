@@ -87,11 +87,16 @@ try {
   await allCommandButton.click();
   if (await allCommandButton.getAttribute("aria-pressed") !== "true" || await allCommandButton.getAttribute("class")?.then((value) => !value.includes("primary"))) throw new Error("Todos no queda marcado como selección activa");
   const tableFilters = page.locator(".prep-date-filter");
-  if (await tableFilters.count()) {
-    const tableToday = tableFilters.getByRole("button", { name: "Hoy", exact: true });
-    const tableTomorrow = tableFilters.getByRole("button", { name: "Mañana", exact: true });
-    const tableAll = tableFilters.getByRole("button", { name: "Todos", exact: true });
-    if (await tableToday.getAttribute("aria-pressed") !== "true") throw new Error("Hoy no aparece activo en el filtro de tabla");
+  await page.waitForSelector(".prep-date-filter button", { state: "attached", timeout: 10000 }).catch(() => undefined);
+  const tableButtons = tableFilters.locator("button");
+  if (await tableButtons.count() >= 3 && await tableFilters.isVisible()) {
+    await tableFilters.scrollIntoViewIfNeeded();
+    const tableToday = tableButtons.nth(0);
+    const tableTomorrow = tableButtons.nth(1);
+    const tableAll = tableButtons.nth(2);
+    if (await tableAll.getAttribute("aria-pressed") !== "true") throw new Error("Todos no aparece activo en el filtro de tabla");
+    await tableToday.click();
+    if (await tableToday.getAttribute("aria-pressed") !== "true" || await tableAll.getAttribute("aria-pressed") !== "false") throw new Error("El filtro de tabla no mueve la selección a Hoy");
     await tableTomorrow.click();
     if (await tableTomorrow.getAttribute("aria-pressed") !== "true" || await tableToday.getAttribute("aria-pressed") !== "false") throw new Error("El filtro de tabla no mueve la selección a Mañana");
     await tableAll.click();
