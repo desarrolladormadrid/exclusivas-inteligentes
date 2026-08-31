@@ -108,6 +108,9 @@ try {
   await loadNote.waitFor({ state: "visible", timeout: 15000 });
   if (!(await loadNote.getByText("Preparado por:", { exact: false }).count())) throw new Error("La nota de carga no muestra el responsable de preparación");
   if (!(await loadNote.getByRole("textbox", { name: "Anotación de preparación", exact: true }).count())) throw new Error("La nota de carga no muestra el campo de anotaciones");
+  if (!(await loadNote.getByRole("textbox", { name: "Dirección de entrega", exact: true }).count())) throw new Error("La nota de carga no permite editar la dirección de entrega");
+  if (!(await loadNote.getByRole("textbox", { name: "Ciudad de entrega", exact: true }).count())) throw new Error("La nota de carga no permite editar la ciudad de entrega");
+  if (!(await loadNote.getByRole("checkbox", { name: "Actualizar también la ficha del cliente", exact: true }).count())) throw new Error("La nota de carga no ofrece confirmación para actualizar la ficha del cliente");
   if (!(await loadNote.getByRole("button", { name: "Guardar anotación", exact: true }).count()) || !(await loadNote.getByRole("button", { name: "Generar incidencia", exact: true }).count())) throw new Error("La nota de carga no muestra las acciones de anotación e incidencia");
   await loadNote.locator(".preview-loading-state").waitFor({ state: "detached", timeout: 30000 }).catch(() => undefined);
   await page.screenshot({ path: path.join(screenshotDir, `preparation-responsible-${screenshotPrefix}.png`), fullPage: false });

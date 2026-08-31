@@ -54,7 +54,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS purchase_suggestions(id INTEGER PRIMARY KEY 
 db.exec(`CREATE TABLE IF NOT EXISTS purchase_requests(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,request_type TEXT DEFAULT 'Solicitud de oferta',status TEXT DEFAULT 'Borrador',product_ids TEXT,supplier_ids TEXT,notes TEXT,created_by TEXT,validated_by TEXT,created_at TEXT,updated_at TEXT,public_token TEXT,channels TEXT,sent_at TEXT);`);
 for (const column of ["public_token TEXT", "channels TEXT", "sent_at TEXT"]) { try { db.exec(`ALTER TABLE purchase_requests ADD COLUMN ${column}`); } catch {} }
 db.exec(`CREATE TABLE IF NOT EXISTS purchase_request_offers(id INTEGER PRIMARY KEY AUTOINCREMENT,request_id INTEGER NOT NULL,supplier_id INTEGER,supplier_ref TEXT,contact_name TEXT,email TEXT,valid_until TEXT,delivery_days INTEGER DEFAULT 0,notes TEXT,lines_json TEXT NOT NULL,status TEXT DEFAULT 'Recibida',created_at TEXT,updated_at TEXT);`);
-for (const [table, columns] of [["orders", ["collection_point_id", "prepared_by", "shipped_by", "delivered_by", "address", "preparation_date", "shipping_date"]], ["shipments", ["collection_point_id", "prepared_by", "shipped_by", "delivered_by", "preparation_date"]]]) for (const column of columns) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`); } catch {} }
+for (const [table, columns] of [["orders", ["collection_point_id", "prepared_by", "shipped_by", "delivered_by", "address", "delivery_city", "preparation_date", "shipping_date"]], ["shipments", ["collection_point_id", "prepared_by", "shipped_by", "delivered_by", "preparation_date", "delivery_city"]]]) for (const column of columns) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`); } catch {} }
 try { db.exec("ALTER TABLE orders ADD COLUMN source_order_id INTEGER"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN urgent INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN created_by TEXT"); } catch {}
@@ -68,7 +68,7 @@ db.exec(
 );
 // Estas migraciones se repiten después de crear las tablas base para que también
 // se apliquen en instalaciones antiguas donde el primer bloque aún no existía.
-for (const [table, columns] of [["orders", ["preparation_date", "shipping_date"]], ["shipments", ["preparation_date"]]]) for (const column of columns) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`); } catch {} }
+for (const [table, columns] of [["orders", ["preparation_date", "shipping_date", "delivery_city"]], ["shipments", ["preparation_date", "delivery_city"]]]) for (const column of columns) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`); } catch {} }
 try { db.exec("ALTER TABLE orders ADD COLUMN urgent INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE shipments ADD COLUMN urgent INTEGER DEFAULT 0"); } catch {}
 db.exec(
@@ -312,8 +312,8 @@ const lookupFields = {
   warehouses: ["id", "name", "address"],
   collection_points: ["id", "code", "name", "client_id", "address", "city", "contact", "phone", "email", "geocoding_status", "latitude", "longitude"],
   products: ["id", "name", "sku", "unit", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "vat", "stock", "stock_reserved", "min_stock", "stock_min", "category", "brand", "format", "active", "product_status", "warehouse_id", "supplier_id", "primary_supplier_id", "warehouse_location", "cost_price"],
-  orders: ["id", "code", "client_id", "status", "amount", "created_at", "updated_at", "delivery_date", "preparation_date", "shipping_date", "address", "collection_point_id", "urgent", "stock_alert"],
-  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "carrier", "packages", "incidents", "notes"],
+  orders: ["id", "code", "client_id", "status", "amount", "created_at", "updated_at", "delivery_date", "preparation_date", "shipping_date", "address", "delivery_city", "collection_point_id", "urgent", "stock_alert"],
+  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "delivery_city", "carrier", "packages", "incidents", "notes"],
   invoices: ["id", "code", "order_id", "client_id", "amount", "status", "created_at", "issue_date", "due_date"],
   purchase_orders: ["id", "code", "supplier_id", "status", "order_date", "expected_date", "amount", "validation_status"],
   goods_receipts: ["id", "code", "supplier_id", "purchase_order_id", "warehouse_id", "receipt_date", "status", "line_count", "incident_count", "received_by", "notes"],
@@ -1017,7 +1017,9 @@ export async function crmApiHandler(req, res) {
       }
       const d = await read(req);
       const reopenPreparation = Boolean(d.reopen_preparation);
+      const updateClientAddress = Boolean(d.update_client_address);
       delete d.reopen_preparation;
+      delete d.update_client_address;
       if (req.method === "POST") {
         if (["products", "clients", "suppliers", "warehouses"].includes(t) && !String(d.name || "").trim()) {
           return send(res, 400, { error: "El nombre es obligatorio" });
@@ -1376,6 +1378,26 @@ export async function crmApiHandler(req, res) {
             d.warehouse_location = String(d.warehouse_location || "").trim().toUpperCase();
             d.picking_order = d.picking_order === undefined ? Number(previous?.picking_order || 0) : d.picking_order;
           }
+        }
+        if (t === "shipments" && d.address !== undefined) {
+          const existingShipment = db.prepare("SELECT order_id,client_id,collection_point_id,delivery_city FROM shipments WHERE id=?").get(Number(p[2]));
+          const deliveryAddress = String(d.address || "").trim();
+          const deliveryCity = d.delivery_city === undefined ? String(existingShipment?.delivery_city || "").trim() : String(d.delivery_city || "").trim();
+          const changedAt = new Date().toISOString();
+          if (existingShipment?.collection_point_id) {
+            db.prepare("UPDATE collection_points SET address=?,city=? WHERE id=?").run(deliveryAddress, deliveryCity, Number(existingShipment.collection_point_id));
+          }
+          if (existingShipment?.order_id) {
+            db.prepare("UPDATE orders SET address=?,delivery_city=?,updated_at=? WHERE id=?").run(deliveryAddress, deliveryCity, changedAt, Number(existingShipment.order_id));
+          }
+          if (updateClientAddress && existingShipment?.client_id) {
+            if (hasColumn("clients", "updated_at")) {
+              db.prepare("UPDATE clients SET address=?,city=?,updated_at=? WHERE id=?").run(deliveryAddress, deliveryCity, changedAt, Number(existingShipment.client_id));
+            } else {
+              db.prepare("UPDATE clients SET address=?,city=? WHERE id=?").run(deliveryAddress, deliveryCity, Number(existingShipment.client_id));
+            }
+          }
+          recordAudit(actor, "PUT", `shipments/${Number(p[2])}`, "Cambio dirección de entrega", JSON.stringify({ order_id: existingShipment?.order_id || null, client_id: existingShipment?.client_id || null, collection_point_id: existingShipment?.collection_point_id || null, address: deliveryAddress, city: deliveryCity, update_client_address: updateClientAddress }));
         }
         const keys = Object.keys(d).filter((k) => k !== "id");
         db.prepare(

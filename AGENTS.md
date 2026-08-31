@@ -41,6 +41,7 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 - La edición inline solo debe afectar a la fila seleccionada, nunca a todas las filas.
 - Al cargar datos mostrar un loading real; no mostrar “no hay registros” hasta recibir respuesta.
 - Al abrir un registro desde una tarjeta, notificación o listado, abrir el detalle en modal sin cambiar la sección que queda detrás.
+- La impresión o descarga PDF de cualquier nota de carga o documento debe mostrar el contenido del documento activo, no la pantalla vacía ni la interfaz del CRM. La prueba debe abrir la modal, activar impresión, comprobar que el documento sigue visible y validar que el PDF generado no está vacío.
 
 ## Pedidos, almacén y stock
 
@@ -58,6 +59,7 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 - En una nota de carga la ubicación de picking es editable para corregir errores del almacén; el cambio se valida con formato letra-número, se guarda en la ficha del producto y deja historial con usuario, fecha y origen “Nota de carga”. Debe mostrarse como columna independiente y sin badges decorativos que oculten el dato.
 - Los cambios operativos editables en una nota de carga deben agruparse en un único botón rojo “Guardar cambios” abajo a la derecha, con estado visible de “Guardando…”; no depender de guardar por fila ni únicamente al perder el foco.
 - Las direcciones de clientes y ubicaciones de entrega deben abrir Google Maps: con coordenadas se ofrece mapa y navegación; sin coordenadas se busca usando dirección completa, ciudad y nombre disponible, nunca una consulta genérica como “España”. En móvil y tablet el enlace debe poder abrir la aplicación de mapas del dispositivo.
+- En la nota de carga la dirección y ciudad de entrega deben poder corregirse antes del reparto. Guardar debe actualizar el envío, el pedido y la ubicación de entrega vinculada; la ficha maestra del cliente solo se actualiza con una casilla de confirmación explícita. Tras guardar, la dirección visible, el enlace de Google Maps y el documento imprimible deben usar el dato nuevo, y el cambio debe quedar auditado con usuario y fecha.
 
 ## Coherencia de datos
 

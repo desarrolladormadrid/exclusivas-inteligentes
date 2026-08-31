@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.41";
+const APP_VERSION = "2.0.42";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -2006,6 +2006,12 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [preparationAnnotationSaving, setPreparationAnnotationSaving] = useState(false);
   const [preparationAnnotationMessage, setPreparationAnnotationMessage] = useState("");
   const [preparationAnnotationError, setPreparationAnnotationError] = useState("");
+  const [preparationAddressDraft, setPreparationAddressDraft] = useState("");
+  const [preparationCityDraft, setPreparationCityDraft] = useState("");
+  const [preparationAddressSaving, setPreparationAddressSaving] = useState(false);
+  const [preparationAddressMessage, setPreparationAddressMessage] = useState("");
+  const [preparationAddressError, setPreparationAddressError] = useState("");
+  const [preparationUpdateClient, setPreparationUpdateClient] = useState(false);
   const [bulkIncidentOpen, setBulkIncidentOpen] = useState(false);
   const [bulkIncidentText, setBulkIncidentText] = useState("");
   const [bulkIncidentSaving, setBulkIncidentSaving] = useState(false);
@@ -3073,6 +3079,13 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       setPreparationAnnotation("");
       setPreparationAnnotationMessage("");
       setPreparationAnnotationError("");
+      const rowLocation = (lookups.collection_points || []).find((item: any) => Number(item.id) === Number(row.collection_point_id));
+      const rowClient = (lookups.clients || []).find((item: any) => Number(item.id) === Number(row.client_id));
+      setPreparationAddressDraft(String(row.address || rowLocation?.address || rowClient?.address || ""));
+      setPreparationCityDraft(String(row.delivery_city || rowLocation?.city || rowClient?.city || ""));
+      setPreparationAddressMessage("");
+      setPreparationAddressError("");
+      setPreparationUpdateClient(false);
     }
     setPreviewLoading(true);
     setPreviewClient(null);
@@ -3229,6 +3242,46 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     else setProductOptions((current) => current.map((product) => { const saved = results.find((result) => Number(result.product.id) === Number(product.id)); return saved ? { ...product, warehouse_location: saved.value } : product; }));
     setLocationSavingId(null);
   }
+  async function savePreparationDeliveryAddress() {
+    if (!preview?.id || !isLoadPreparation) return;
+    const address = preparationAddressDraft.trim();
+    const city = preparationCityDraft.trim();
+    if (!address) {
+      setPreparationAddressError("La dirección de entrega es obligatoria.");
+      setPreparationAddressMessage("");
+      return;
+    }
+    setPreparationAddressSaving(true);
+    setPreparationAddressError("");
+    setPreparationAddressMessage("");
+    try {
+      const response = await fetch(`/api/shipments/${preview.id}`, {
+        method: "PUT",
+        headers: actorHeaders,
+        body: JSON.stringify({ address, delivery_city: city, update_client_address: preparationUpdateClient ? 1 : 0 }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "No se pudo guardar la dirección de entrega.");
+      setPreview((current: any) => current ? { ...current, address, delivery_city: city } : current);
+      setRows((current) => current.map((item) => item.id === preview.id ? { ...item, address, delivery_city: city } : item));
+      if (preview.collection_point_id) {
+        setLookups((current: any) => ({
+          ...current,
+          collection_points: (current.collection_points || []).map((point: any) => Number(point.id) === Number(preview.collection_point_id) ? { ...point, address, city } : point),
+        }));
+      }
+      if (preparationUpdateClient) {
+        setPreviewClient((current: any) => current ? { ...current, address, city } : current);
+      }
+      setPreparationAddressMessage(preparationUpdateClient
+        ? "Dirección guardada en el pedido, la nota de carga y la ficha del cliente."
+        : "Dirección guardada en el pedido y la nota de carga.");
+    } catch (error: any) {
+      setPreparationAddressError(error?.message || "No se pudo guardar la dirección de entrega.");
+    } finally {
+      setPreparationAddressSaving(false);
+    }
+  }
   async function markPreparationLine(line: any, prepared: boolean) {
     const quantity = prepared ? Math.max(0, Number(line.prepared_quantity ?? line.quantity ?? 0)) : 0;
     const requested = Number(line.quantity || 0);
@@ -3258,6 +3311,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         preparation_date: row.preparation_date || null,
         expected_delivery_at: row.expected_delivery_at || null,
         address: row.address || client?.address || "",
+        delivery_city: row.delivery_city || client?.city || "",
         packages: row.packages || 1,
         urgent: Number(row.urgent || 0),
         notes: row.notes || "Preparación iniciada desde el pedido.",
@@ -3546,8 +3600,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const previewLocation = preview ? (lookups.collection_points || []).find((item: any) => Number(item.id) === Number(preview.collection_point_id)) : null;
   const previewLat = Number(previewLocation?.latitude);
   const previewLon = Number(previewLocation?.longitude);
-  const previewAddress = previewLocation?.address || previewClient?.address || preview?.address || "";
-  const previewCity = previewLocation?.city || previewClient?.city || preview?.city || "";
+  const previewAddress = preview?.address || previewLocation?.address || previewClient?.address || "";
+  const previewCity = preview?.delivery_city || previewLocation?.city || previewClient?.city || preview?.city || "";
   const previewMapQuery = [previewAddress, previewCity, previewLocation?.name, previewClient?.name, "España"].filter(Boolean).join(", ");
   const incompletePreparationLines = previewLines.filter((line: any) => Number(line.prepared_quantity || 0) < Number(line.quantity || 0));
   const actionableIncompletePreparationLines = incompletePreparationLines.filter((line: any) => line.preparation_status !== "Incidencia" && !String(line.incident_resolution || "").trim());
@@ -4407,6 +4461,17 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               </p>
             </div>
             {(previewLocation || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewAddress || "Dirección no indicada"}</span>{previewLocation?.geocoding_status === "Geolocalizada" ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.google.com/maps/search/?api=1&query=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a><a className="button secondary" href={`https://www.google.com/maps/dir/?api=1&destination=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Navegar con Google Maps</a></> : <a className="button secondary icon-action map-action" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(previewMapQuery)}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en Google Maps" title="Buscar dirección en Google Maps"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</section>}
+            {isLoadPreparation && <section className="preparation-delivery-panel" aria-label="Editar dirección de entrega">
+              <div className="preparation-delivery-head"><div><b>Dirección de entrega</b><small>Se guarda en este pedido y en su nota de carga.</small></div></div>
+              <div className="preparation-delivery-fields">
+                <label>Dirección de entrega<input aria-label="Dirección de entrega" value={preparationAddressDraft} onChange={(event) => { setPreparationAddressDraft(event.target.value); setPreparationAddressError(""); setPreparationAddressMessage(""); }} disabled={preparationAddressSaving} /></label>
+                <label>Ciudad<input aria-label="Ciudad de entrega" value={preparationCityDraft} onChange={(event) => { setPreparationCityDraft(event.target.value); setPreparationAddressError(""); setPreparationAddressMessage(""); }} disabled={preparationAddressSaving} /></label>
+              </div>
+              <label className="preparation-update-client"><input type="checkbox" checked={preparationUpdateClient} onChange={(event) => setPreparationUpdateClient(event.target.checked)} disabled={preparationAddressSaving} />Actualizar también la ficha del cliente</label>
+              {preparationAddressError && <p className="preparation-address-error" role="alert">{preparationAddressError}</p>}
+              {preparationAddressMessage && <p className="preparation-address-success" role="status">{preparationAddressMessage}</p>}
+              <div className="preparation-delivery-actions"><button type="button" className="button primary" onClick={() => void savePreparationDeliveryAddress()} disabled={preparationAddressSaving}>{preparationAddressSaving ? "Guardando…" : "Guardar dirección"}</button></div>
+            </section>}
             {isLoadPreparation && (!["Preparado", "Preparado con incidencia"].includes(String(preview.status || "")) && (!String(preview.prepared_by || "").trim() || String(preview.status || "") !== "Preparando")) && (
               <div className="preparation-start-banner">
                 <div><b>{String(preview.status || "") === "Preparando" ? "Preparación sin responsable asignado" : "Pedido pendiente de preparar"}</b><small>Al iniciar quedará asignado a {user?.username || "tu usuario"} con fecha y hora.</small></div>
