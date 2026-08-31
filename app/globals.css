@@ -3282,6 +3282,38 @@ footer span {
   .load-preparation-manager .prep-product-cell b { overflow-wrap: anywhere; }
 }
 
+/* Impresión de documentos: la aplicación queda oculta, pero la modal activa
+   debe convertirse en una hoja normal para impresora o PDF. */
+@media print {
+  body * { visibility: hidden !important; }
+  .document-preview-overlay,
+  .document-preview-overlay * { visibility: visible !important; }
+  .document-preview-overlay {
+    position: absolute;
+    inset: 0;
+    display: block;
+    padding: 0;
+    background: #fff;
+  }
+  .document-preview-overlay .document-preview {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    min-height: 0;
+    overflow: visible;
+    padding: 12mm;
+    box-shadow: none;
+  }
+  .document-preview-overlay .preview-close,
+  .document-preview-overlay .preparation-annotation-actions,
+  .document-preview-overlay .prep-location-save-all,
+  .document-preview-overlay .prep-bulk-incident,
+  .document-preview-overlay .add-line,
+  .document-preview-overlay .preview-summary,
+  .document-preview-overlay .document-preview > .button { display: none !important; }
+  .document-preview-overlay .preview-lines { overflow: visible; }
+}
+
 /* Preparación: las comandas son la zona prioritaria y el encabezado no repite datos. */
 .prep-command-board { margin: 0; border-radius: 0; }
 .prep-command-toolbar { min-height: 44px; padding: 6px 10px; gap: 12px; }

@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.39";
+const APP_VERSION = "2.0.40";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -4357,7 +4357,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         />
       )}
       {preview && (
-        <div className="preview-overlay" onClick={() => setPreview(null)}>
+        <div className="preview-overlay document-preview-overlay" onClick={() => setPreview(null)}>
           <div
             className="document-preview"
             onClick={(e) => e.stopPropagation()}
