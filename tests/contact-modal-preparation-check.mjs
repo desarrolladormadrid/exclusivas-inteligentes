@@ -114,6 +114,19 @@ try {
   if (!(await loadNote.getByRole("button", { name: "Guardar anotación", exact: true }).count()) || !(await loadNote.getByRole("button", { name: "Generar incidencia", exact: true }).count())) throw new Error("La nota de carga no muestra las acciones de anotación e incidencia");
   await loadNote.locator(".preview-loading-state").waitFor({ state: "detached", timeout: 30000 }).catch(() => undefined);
   await page.screenshot({ path: path.join(screenshotDir, `preparation-responsible-${screenshotPrefix}.png`), fullPage: false });
+  await page.emulateMedia({ media: "print" });
+  const printState = await page.locator(".document-preview-overlay").evaluate((overlay) => ({
+    display: getComputedStyle(overlay).display,
+    visibility: getComputedStyle(overlay).visibility,
+    documentVisibility: getComputedStyle(overlay.querySelector(".document-preview")).visibility,
+  }));
+  if (printState.display === "none" || printState.visibility === "hidden" || printState.documentVisibility === "hidden") throw new Error("La nota de carga queda oculta al imprimir");
+  const printPdfPath = path.join(screenshotDir, `preparation-load-note-print-${screenshotPrefix}.pdf`);
+  await page.pdf({ path: printPdfPath, format: "A4", printBackground: true, preferCSSPageSize: true });
+  const printPdf = await fs.stat(printPdfPath);
+  if (printPdf.size < 1000) throw new Error("El PDF de la nota de carga se ha generado vacío");
+  await page.emulateMedia({ media: "screen" });
+  console.log("PASS Nota de carga: impresión y PDF muestran la modal");
   const measureLoadNote = async () => loadNote.evaluate((element) => {
     const table = element.querySelector(".preview-lines");
     const rect = element.getBoundingClientRect();
@@ -138,24 +151,6 @@ try {
   await loadNote.locator(".preview-close").click();
   await page.setViewportSize({ width: 1440, height: 900 });
   console.log("PASS Nota de carga: modal responsive sin scroll horizontal en móvil");
-
-  await page.locator(".prep-order-card").first().click();
-  await page.locator(".document-preview").waitFor({ state: "visible", timeout: 15000 });
-  await page.locator(".document-preview .preview-loading-state").waitFor({ state: "detached", timeout: 30000 }).catch(() => undefined);
-  await page.emulateMedia({ media: "print" });
-  const printState = await page.locator(".document-preview-overlay").evaluate((overlay) => ({
-    display: getComputedStyle(overlay).display,
-    visibility: getComputedStyle(overlay).visibility,
-    documentVisibility: getComputedStyle(overlay.querySelector(".document-preview")).visibility,
-  }));
-  if (printState.display === "none" || printState.visibility === "hidden" || printState.documentVisibility === "hidden") throw new Error("La nota de carga queda oculta al imprimir");
-  const printPdfPath = path.join(screenshotDir, `preparation-load-note-print-${screenshotPrefix}.pdf`);
-  await page.pdf({ path: printPdfPath, format: "A4", printBackground: true, preferCSSPageSize: true });
-  const printPdf = await fs.stat(printPdfPath);
-  if (printPdf.size < 1000) throw new Error("El PDF de la nota de carga se ha generado vacío");
-  await page.emulateMedia({ media: "screen" });
-  await page.locator(".document-preview .preview-close").click();
-  console.log("PASS Nota de carga: impresión y PDF muestran la modal");
 
   if (errors.length) throw new Error(`Errores de consola: ${errors.join(" | ")}`);
   console.log("PASS browser health: clean");
