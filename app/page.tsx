@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.35";
+const APP_VERSION = "2.0.36";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -3226,10 +3226,10 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     await updatePreparationLine(line, { prepared: prepared && quantity >= requested ? 1 : 0, prepared_quantity: quantity, preparation_status: prepared && quantity >= requested ? "Preparado" : prepared && quantity > 0 ? "Parcial" : "Pendiente" });
   }
   async function startPreparation() {
-    if (!preview?.id || !isLoadPreparation || ["Preparando", "Preparado", "Preparado con incidencia"].includes(String(preview.status || ""))) return;
+    if (!preview?.id || !isLoadPreparation || ["Preparado", "Preparado con incidencia"].includes(String(preview.status || "")) || (String(preview.status || "") === "Preparando" && String(preview.prepared_by || "").trim())) return;
     const now = new Date().toISOString();
     const startedBy = user?.username || "Usuario local";
-    const changes = { status: "Preparando", preparation_started_at: now, preparation_started_by: startedBy };
+    const changes = { status: "Preparando", prepared_by: startedBy, preparation_started_at: now, preparation_started_by: startedBy };
     const response = await fetch(`/api/shipments/${preview.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...preview, ...changes }) });
     if (!response.ok) return setError("No se pudo iniciar la preparación. Revisa la conexión e inténtalo de nuevo.");
     setPreview((current: any) => current ? { ...current, ...changes } : current);
@@ -4357,13 +4357,14 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                   new Date().toLocaleDateString("es-ES")}
                 <br />
                 <b>Estado:</b> {preview.status}
+                {isLoadPreparation && <><br /><b>Preparado por:</b> {preview.prepared_by || "Pendiente de asignar"}</>}
               </p>
             </div>
             {(previewLocation || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewLocation?.address || previewClient?.address || "Dirección no indicada"}</span>{previewLocation?.geocoding_status === "Geolocalizada" ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.openstreetmap.org/?mlat=${previewLat}&mlon=${previewLon}#map=16/${previewLat}/${previewLon}`} target="_blank" rel="noreferrer">Abrir mapa</a><a className="button secondary" href={`https://www.openstreetmap.org/directions?from=&to=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Ver ruta</a></> : <a className="button secondary icon-action map-action" href={`https://www.openstreetmap.org/search?query=${encodeURIComponent([previewLocation?.address, previewLocation?.city, "España"].filter(Boolean).join(", "))}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en el mapa" title="Buscar dirección en el mapa"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</section>}
-            {isLoadPreparation && !["Preparando", "Preparado", "Preparado con incidencia"].includes(String(preview.status || "")) && (
+            {isLoadPreparation && (!["Preparado", "Preparado con incidencia"].includes(String(preview.status || "")) && (!String(preview.prepared_by || "").trim() || String(preview.status || "") !== "Preparando")) && (
               <div className="preparation-start-banner">
-                <div><b>Pedido pendiente de preparar</b><small>Al iniciar quedará asignado a {user?.username || "tu usuario"} con fecha y hora.</small></div>
-                <button type="button" className="button primary" onClick={() => void startPreparation()}>Empezar preparación</button>
+                <div><b>{String(preview.status || "") === "Preparando" ? "Preparación sin responsable asignado" : "Pedido pendiente de preparar"}</b><small>Al iniciar quedará asignado a {user?.username || "tu usuario"} con fecha y hora.</small></div>
+                <button type="button" className="button primary" onClick={() => void startPreparation()}>{String(preview.status || "") === "Preparando" ? "Asignarme la preparación" : "Empezar preparación"}</button>
               </div>
             )}
             {isLoadPreparation && (

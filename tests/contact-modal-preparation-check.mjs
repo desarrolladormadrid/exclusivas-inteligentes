@@ -106,6 +106,7 @@ try {
   await page.locator(".prep-order-card").first().click();
   const loadNote = page.locator(".document-preview");
   await loadNote.waitFor({ state: "visible", timeout: 15000 });
+  if (!(await loadNote.getByText("Preparado por:", { exact: false }).count())) throw new Error("La nota de carga no muestra el responsable de preparación");
   await page.setViewportSize({ width: 441, height: 820 });
   await page.waitForTimeout(250);
   const loadNoteMetrics = await loadNote.evaluate((element) => {

@@ -1381,6 +1381,10 @@ export async function crmApiHandler(req, res) {
         db.prepare(
           `UPDATE ${t} SET ${keys.map((k) => k + "=?").join(",")} WHERE id=?`,
         ).run(...keys.map((k) => d[k]), p[2]);
+        if (t === "shipments" && String(d.prepared_by || "").trim()) {
+          const shipment = db.prepare("SELECT order_id FROM shipments WHERE id=?").get(Number(p[2]));
+          if (shipment?.order_id) db.prepare("UPDATE orders SET prepared_by=?,updated_at=? WHERE id=?").run(String(d.prepared_by).trim(), d.updated_at, Number(shipment.order_id));
+        }
         if (t === "products" && (d.cost_price !== undefined || d.unit_price !== undefined)) {
           const now = new Date().toISOString();
           db.prepare("INSERT INTO product_price_history(product_id,supplier_id,price_type,amount,valid_from,source,notes,created_at) VALUES(?,?,?,?,?,?,?,?)").run(Number(p[2]), d.primary_supplier_id || d.supplier_id || null, "Coste", Number(d.real_cost || d.cost_price || 0), now, actor, "Cambio de precio del producto", now);
