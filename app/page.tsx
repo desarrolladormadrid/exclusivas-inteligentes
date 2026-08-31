@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.36";
+const APP_VERSION = "2.0.37";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -2002,6 +2002,10 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [incidentLineId, setIncidentLineId] = useState<number | null>(null);
   const [incidentText, setIncidentText] = useState("");
   const [incidentResolution, setIncidentResolution] = useState("partial");
+  const [preparationAnnotation, setPreparationAnnotation] = useState("");
+  const [preparationAnnotationSaving, setPreparationAnnotationSaving] = useState(false);
+  const [preparationAnnotationMessage, setPreparationAnnotationMessage] = useState("");
+  const [preparationAnnotationError, setPreparationAnnotationError] = useState("");
   const [bulkIncidentOpen, setBulkIncidentOpen] = useState(false);
   const [bulkIncidentText, setBulkIncidentText] = useState("");
   const [bulkIncidentSaving, setBulkIncidentSaving] = useState(false);
@@ -3065,6 +3069,11 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   }
   async function openPreview(row: any) {
     setPreview(row);
+    if (active === "Preparación de pedidos") {
+      setPreparationAnnotation("");
+      setPreparationAnnotationMessage("");
+      setPreparationAnnotationError("");
+    }
     setPreviewLoading(true);
     setPreviewClient(null);
     setPreviewInvoice(null);
@@ -3269,6 +3278,40 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     setIncidentLineId(null);
     setIncidentText("");
     setIncidentResolution("partial");
+  }
+  async function savePreparationAnnotation(asIncident: boolean) {
+    const text = preparationAnnotation.trim();
+    if (!preview?.id || !text) {
+      setPreparationAnnotationError("Escribe una anotación antes de guardarla.");
+      return;
+    }
+    setPreparationAnnotationSaving(true);
+    setPreparationAnnotationError("");
+    setPreparationAnnotationMessage("");
+    const actor = user?.username || "Usuario local";
+    const nextStatus = asIncident ? "Preparado con incidencia" : String(preview.status || "Preparando");
+    const title = `${asIncident ? "Incidencia" : "Anotación"} en preparación · ${preview.code || "Nota de carga"}`;
+    try {
+      const noteResponse = await fetch("/api/notes", { method: "POST", headers: actorHeaders, body: JSON.stringify({ title, content: `${text}\n\nResponsable: ${actor}\nNota de carga: ${preview.code || preview.id}`, priority: asIncident ? "Urgente" : "Normal", module: "Preparación de pedidos", important: asIncident ? 1 : 0, completed: 0, record_id: preview.order_id || preview.id, created_by: actor }) });
+      const noteData = await noteResponse.json().catch(() => ({}));
+      if (!noteResponse.ok) throw new Error(noteData.error || "No se pudo guardar la anotación.");
+      if (asIncident) {
+        const incidentSummary = [String(preview.incidents || "").trim(), `${actor}: ${text}`].filter(Boolean).join("\n");
+        const shipmentResponse = await fetch(`/api/shipments/${preview.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...preview, status: nextStatus, incidents: incidentSummary, prepared_by: preview.prepared_by || actor }) });
+        const shipmentData = await shipmentResponse.json().catch(() => ({}));
+        if (!shipmentResponse.ok) throw new Error(shipmentData.error || "La incidencia se guardó, pero no se pudo actualizar la nota de carga.");
+      }
+      setPreparationAnnotationMessage(asIncident ? "Incidencia registrada y vinculada a la nota de carga." : "Anotación guardada en el CRM.");
+      setPreparationAnnotation("");
+      if (asIncident) {
+        setPreview((current: any) => current ? { ...current, status: nextStatus, incidents: [String(current.incidents || "").trim(), `${actor}: ${text}`].filter(Boolean).join("\n"), prepared_by: current.prepared_by || actor } : current);
+        setRows((current) => current.map((item) => item.id === preview.id ? { ...item, status: nextStatus, prepared_by: item.prepared_by || actor } : item));
+      }
+    } catch (error: any) {
+      setPreparationAnnotationError(error?.message || "No se pudo guardar la anotación.");
+    } finally {
+      setPreparationAnnotationSaving(false);
+    }
   }
   async function createBulkPreparationIncident(lines: any[]) {
     const actionableLines = lines.filter((line) => line.preparation_status !== "Incidencia" && !String(line.incident_resolution || "").trim());
@@ -4374,6 +4417,13 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                 <p>{preview.notes || "Sin indicaciones adicionales."}</p>
               </div>
             )}
+            {isLoadPreparation && <section className="preparation-annotation-panel" aria-label="Anotaciones e incidencias de preparación">
+              <div className="preparation-annotation-head"><div><b>Anotaciones de almacén</b><small>Registra cualquier observación sobre este pedido durante la preparación.</small></div></div>
+              <textarea aria-label="Anotación de preparación" value={preparationAnnotation} onChange={(event) => { setPreparationAnnotation(event.target.value); setPreparationAnnotationError(""); setPreparationAnnotationMessage(""); }} placeholder="Ej.: una caja llega rota, falta una referencia o hay que avisar al comercial…" rows={3} disabled={preparationAnnotationSaving} />
+              {preparationAnnotationError && <p className="preparation-annotation-error" role="alert">{preparationAnnotationError}</p>}
+              {preparationAnnotationMessage && <p className="preparation-annotation-success" role="status">{preparationAnnotationMessage}</p>}
+              <div className="preparation-annotation-actions"><button type="button" className="button secondary" disabled={preparationAnnotationSaving || !preparationAnnotation.trim()} onClick={() => void savePreparationAnnotation(false)}>Guardar anotación</button><button type="button" className="button danger" disabled={preparationAnnotationSaving || !preparationAnnotation.trim()} onClick={() => void savePreparationAnnotation(true)}>{preparationAnnotationSaving ? "Guardando…" : "Generar incidencia"}</button></div>
+            </section>}
             {active === "Cobros" && (
               <section className="payment-preview-details" aria-label="Origen del cobro">
                 <div><span>Importe cobrado</span><strong>{Number(preview.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong></div>

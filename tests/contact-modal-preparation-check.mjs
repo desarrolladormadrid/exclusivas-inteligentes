@@ -107,6 +107,8 @@ try {
   const loadNote = page.locator(".document-preview");
   await loadNote.waitFor({ state: "visible", timeout: 15000 });
   if (!(await loadNote.getByText("Preparado por:", { exact: false }).count())) throw new Error("La nota de carga no muestra el responsable de preparación");
+  if (!(await loadNote.getByRole("textbox", { name: "Anotación de preparación", exact: true }).count())) throw new Error("La nota de carga no muestra el campo de anotaciones");
+  if (!(await loadNote.getByRole("button", { name: "Guardar anotación", exact: true }).count()) || !(await loadNote.getByRole("button", { name: "Generar incidencia", exact: true }).count())) throw new Error("La nota de carga no muestra las acciones de anotación e incidencia");
   await page.screenshot({ path: path.join(screenshotDir, `preparation-responsible-${screenshotPrefix}.png`), fullPage: false });
   await page.setViewportSize({ width: 441, height: 820 });
   await page.waitForTimeout(250);
