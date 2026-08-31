@@ -57,6 +57,7 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 - Las ubicaciones de producto siguen la nomenclatura letra-número, por ejemplo `B-126`, y las notas de carga se ordenan por ubicación.
 - En una nota de carga la ubicación de picking es editable para corregir errores del almacén; el cambio se valida con formato letra-número, se guarda en la ficha del producto y deja historial con usuario, fecha y origen “Nota de carga”. Debe mostrarse como columna independiente y sin badges decorativos que oculten el dato.
 - Los cambios operativos editables en una nota de carga deben agruparse en un único botón rojo “Guardar cambios” abajo a la derecha, con estado visible de “Guardando…”; no depender de guardar por fila ni únicamente al perder el foco.
+- Las direcciones de clientes y ubicaciones de entrega deben abrir Google Maps: con coordenadas se ofrece mapa y navegación; sin coordenadas se busca usando dirección completa, ciudad y nombre disponible, nunca una consulta genérica como “España”. En móvil y tablet el enlace debe poder abrir la aplicación de mapas del dispositivo.
 
 ## Coherencia de datos
 
@@ -113,6 +114,7 @@ Antes de dar por terminada una sección o una mejora, revisar también estos pun
 - Revisar que los nombres de títulos, botones, estados, columnas y campos describen exactamente la acción o el dato real; evitar textos genéricos, ambiguos o redundantes.
 - Validar la semántica de los datos: unidades, cantidades, importes, fechas, estados, stock, reservas e incidencias deben ser comprensibles y coherentes entre listados, detalles y panel de inicio.
 - En cada listado con relaciones, revisar explícitamente que las columnas de nombres no muestran IDs crudos. Comprobar al menos proveedor principal en Productos y cliente/proveedor en documentos, incluyendo registros con relación válida y sin relación.
+- Probar los enlaces de mapa desde el detalle de un pedido y una nota de carga, tanto con coordenadas como sin ellas: comprobar que el `href` apunta a Google Maps y contiene las coordenadas o la dirección completa visible, y que no se abre un mapa genérico.
 - En Pedidos debe existir un control visible y sencillo de facturación con al menos los estados “Sin facturar” y “Facturados”. La prevención de duplicados debe apoyarse en la relación persistente pedido–factura, también cuando la factura agrupa varios pedidos del mismo cliente.
 - La revisión mensual debe poder partir del listado de Pedidos filtrando por “Sin facturar”; no se considera suficiente bloquear duplicados si no se puede localizar rápidamente lo pendiente de facturar.
 - Buscar valores imposibles o engañosos antes de mostrar la interfaz, como `NaN`, `[object Object]`, ceros por defecto que no significan nada, fechas en formato incorrecto o registros vacíos presentados como resultado definitivo.

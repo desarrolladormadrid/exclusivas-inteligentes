@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.40";
+const APP_VERSION = "2.0.41";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -3542,10 +3542,13 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   ]);
   const isDateField = (field: string) => dateFields.has(field) || field.endsWith("_date") || field.endsWith("_at");
   const isLoadPreparation = active === "Preparación de pedidos";
-   const usesRecordModal = ["Clientes", "Proveedores", "Almacenes", "Lugares de recogida", "Productos"].includes(active);
+  const usesRecordModal = ["Clientes", "Proveedores", "Almacenes", "Lugares de recogida", "Productos"].includes(active);
   const previewLocation = preview ? (lookups.collection_points || []).find((item: any) => Number(item.id) === Number(preview.collection_point_id)) : null;
   const previewLat = Number(previewLocation?.latitude);
   const previewLon = Number(previewLocation?.longitude);
+  const previewAddress = previewLocation?.address || previewClient?.address || preview?.address || "";
+  const previewCity = previewLocation?.city || previewClient?.city || preview?.city || "";
+  const previewMapQuery = [previewAddress, previewCity, previewLocation?.name, previewClient?.name, "España"].filter(Boolean).join(", ");
   const incompletePreparationLines = previewLines.filter((line: any) => Number(line.prepared_quantity || 0) < Number(line.quantity || 0));
   const actionableIncompletePreparationLines = incompletePreparationLines.filter((line: any) => line.preparation_status !== "Incidencia" && !String(line.incident_resolution || "").trim());
   const isProducts = active === "Productos";
@@ -4403,7 +4406,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                 {isLoadPreparation && <><br /><b>Preparado por:</b> {preview.prepared_by || "Pendiente de asignar"}</>}
               </p>
             </div>
-            {(previewLocation || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewLocation?.address || previewClient?.address || "Dirección no indicada"}</span>{previewLocation?.geocoding_status === "Geolocalizada" ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.openstreetmap.org/?mlat=${previewLat}&mlon=${previewLon}#map=16/${previewLat}/${previewLon}`} target="_blank" rel="noreferrer">Abrir mapa</a><a className="button secondary" href={`https://www.openstreetmap.org/directions?from=&to=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Ver ruta</a></> : <a className="button secondary icon-action map-action" href={`https://www.openstreetmap.org/search?query=${encodeURIComponent([previewLocation?.address, previewLocation?.city, "España"].filter(Boolean).join(", "))}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en el mapa" title="Buscar dirección en el mapa"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</section>}
+            {(previewLocation || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewAddress || "Dirección no indicada"}</span>{previewLocation?.geocoding_status === "Geolocalizada" ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.google.com/maps/search/?api=1&query=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a><a className="button secondary" href={`https://www.google.com/maps/dir/?api=1&destination=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Navegar con Google Maps</a></> : <a className="button secondary icon-action map-action" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(previewMapQuery)}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en Google Maps" title="Buscar dirección en Google Maps"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</section>}
             {isLoadPreparation && (!["Preparado", "Preparado con incidencia"].includes(String(preview.status || "")) && (!String(preview.prepared_by || "").trim() || String(preview.status || "") !== "Preparando")) && (
               <div className="preparation-start-banner">
                 <div><b>{String(preview.status || "") === "Preparando" ? "Preparación sin responsable asignado" : "Pedido pendiente de preparar"}</b><small>Al iniciar quedará asignado a {user?.username || "tu usuario"} con fecha y hora.</small></div>

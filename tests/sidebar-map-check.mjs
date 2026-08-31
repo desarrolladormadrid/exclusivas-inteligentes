@@ -77,7 +77,8 @@ try {
     await page.waitForTimeout(700);
     await page.getByText("PW-TEST-ORDER-20260827-01", { exact: true }).first().click();
     await mapAction.waitFor({ state: "visible", timeout: 15000 });
-    if (await mapAction.getAttribute("aria-label") !== "Buscar dirección en el mapa") throw new Error("El icono de mapa no tiene la etiqueta accesible esperada");
+    if (await mapAction.getAttribute("aria-label") !== "Buscar dirección en Google Maps") throw new Error("El icono de mapa no tiene la etiqueta accesible esperada");
+    if (!(await mapAction.getAttribute("href"))?.startsWith("https://www.google.com/maps/")) throw new Error("El icono de mapa no abre Google Maps");
     if (!(await mapAction.locator(".toolbar-action-icon").count())) throw new Error("Falta el icono de mapa en el detalle del pedido");
     await page.screenshot({ path: path.join(screenshotDir, "sidebar-map-order-desktop.png"), fullPage: false });
   }
