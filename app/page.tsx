@@ -625,6 +625,7 @@ const cfg: any = {
       "amount",
       "status",
       "billing_status",
+      "shipping_status",
       "delivery_date",
       "preparation_date",
       "shipping_date",
@@ -646,6 +647,7 @@ const cfg: any = {
       "Importe",
       "Estado",
       "Facturación",
+      "Envío",
       "Fecha de entrega",
       "Día de preparación",
       "Día de envío",
@@ -1907,6 +1909,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [billingSaving, setBillingSaving] = useState(false);
   const [billingError, setBillingError] = useState("");
   const [billingFilter, setBillingFilter] = useState("todos");
+  const [shippingFilter, setShippingFilter] = useState("todos");
   const [previewLines, setPreviewLines] = useState<any[]>([]);
   const [incidentLineId, setIncidentLineId] = useState<number | null>(null);
   const [incidentText, setIncidentText] = useState("");
@@ -1934,7 +1937,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [showDeleted, setShowDeleted] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [visibleFields, setVisibleFields] = useState<string[]>(c.fields);
-  const orderListFields = ["code", "client_id", "status", "billing_status", "preparation_date", "delivery_date"];
+  const orderListFields = ["code", "client_id", "status", "billing_status", "shipping_status", "preparation_date", "delivery_date"];
   const stockListFields = ["product_id", "unit", "warehouse_name", "stock", "stock_reserved", "available_stock", "min_stock", "stock_status"];
   useEffect(() => {
     if (inlineEditing === null) return;
@@ -2126,7 +2129,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       "Lugares de recogida": ["clients", "collection_points"],
       Entradas: ["products", "warehouses", "inventory_movements"],
       Salidas: ["clients", "orders", "collection_points", "shipments"],
-      Pedidos: ["clients", "products", "collection_points", "orders", "invoices"],
+      Pedidos: ["clients", "products", "collection_points", "shipments", "orders", "invoices"],
       Presupuestos: ["clients", "products", "quotes"],
       Albaranes: ["clients", "orders", "products", "delivery_notes"],
       Facturas: ["clients", "orders", "products", "invoices"],
@@ -2530,6 +2533,13 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   function getOrderShipment(row: any) {
     return (lookups.shipments || []).find((item: any) => Number(item.order_id) === Number(row.id));
   }
+  function getOrderShippingStatus(row: any) {
+    const shipmentStatus = String(getOrderShipment(row)?.status || "").trim();
+    if (["Enviado", "En reparto", "Entregado"].includes(shipmentStatus)) return shipmentStatus;
+    if (shipmentStatus === "Preparado" || String(row.status || "") === "Preparado") return "Preparado";
+    if (shipmentStatus === "Cancelado" || String(row.status || "") === "Cancelado") return "Cancelado";
+    return "Pendiente de enviar";
+  }
   async function openOrderLoadNote(row: any) {
     const shipment = getOrderShipment(row);
     if (shipment) {
@@ -2895,7 +2905,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       "\ufeff" +
       head.join(";") +
       "\n" +
-      rows.map((r) => head.map((k) => esc(r[k])).join(";")).join("\n");
+      rows.map((r) => head.map((k) => esc(k === "shipping_status" ? getOrderShippingStatus(r) : r[k])).join(";")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(
       new Blob([csv], { type: "text/csv;charset=utf-8" }),
@@ -3447,7 +3457,10 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     const currentBillingStatus = String(row.billing_status || (row.status === "Facturado" ? "Facturado" : "Sin facturar"));
     const matchesBilling = active !== "Pedidos" || billingFilter === "todos"
       || (billingFilter === "pendientes" ? currentBillingStatus !== "Facturado" : currentBillingStatus === "Facturado");
-    if (!isProducts && !isLoadPreparation) return matchesText && matchesBilling;
+    const currentShippingStatus = active === "Pedidos" ? getOrderShippingStatus(row) : "";
+    const matchesShipping = active !== "Pedidos" || shippingFilter === "todos"
+      || (shippingFilter === "pendientes" ? ["Pendiente de enviar", "Preparado"].includes(currentShippingStatus) : ["Enviado", "En reparto", "Entregado"].includes(currentShippingStatus));
+    if (!isProducts && !isLoadPreparation) return matchesText && matchesBilling && matchesShipping;
     if (isLoadPreparation) return matchesText && (!preparationDateFilter || String(row.preparation_date || "").slice(0, 10) === preparationDateFilter);
     const available = Number(row.stock || 0) - Number(row.stock_reserved || 0);
     const matchesCategory = !productFilters.category || row.category === productFilters.category;
@@ -3789,7 +3802,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             <details className="order-general-accordion" open>
               <summary><b>Datos generales del pedido</b><span><em className="order-created-date">Fecha del pedido: {formatSpanishDateValue(String(form.created_at || tabletTodayInput()).slice(0, 10), false)}</em> · {orderGeneralComplete ? <em className="accordion-complete" title="Campos obligatorios completos">✓ Completo</em> : <em className="accordion-pending">Pendiente de completar</em>} · Mostrar más/menos</span></summary>
               <div className="order-general-fields">
-                {c.fields.filter((f: string) => !["product_id", "quantity", "unit_price", "discount", "amount", "billing_status", "prepared_by", "shipped_by", "delivered_by"].includes(f)).map((f: string) => renderFormField(f, c.fields.indexOf(f)))}
+                {c.fields.filter((f: string) => !["product_id", "quantity", "unit_price", "discount", "amount", "billing_status", "shipping_status", "prepared_by", "shipped_by", "delivered_by"].includes(f)).map((f: string) => renderFormField(f, c.fields.indexOf(f)))}
               </div>
             </details>
             </>
@@ -3909,6 +3922,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             {loading ? "Cargando registros…" : `${filteredRows.length} registros`}
           </span>
           {active === "Pedidos" && <select className="billing-filter-select" value={billingFilter} onChange={(event) => setBillingFilter(event.target.value)} aria-label="Filtrar pedidos por facturación"><option value="todos">Facturación: todos</option><option value="pendientes">Sin facturar</option><option value="facturados">Facturados</option></select>}
+          {active === "Pedidos" && <select className="billing-filter-select" value={shippingFilter} onChange={(event) => setShippingFilter(event.target.value)} aria-label="Filtrar pedidos por envío"><option value="todos">Envío: todos</option><option value="pendientes">Pendientes de enviar</option><option value="enviados">Enviados o entregados</option></select>}
           {isLoadPreparation && <div className="prep-date-filter" aria-label="Filtrar preparación por fecha"><label>Preparar el día <input type="date" value={preparationDateFilter} onChange={(event) => setPreparationDateFilter(event.target.value)} /></label><button type="button" className="button secondary" onClick={() => setPreparationDateFilter(tabletTodayInput())}>Hoy</button><button type="button" className="button secondary" onClick={() => setPreparationDateFilter(tabletDateOffset(1))}>Mañana</button><button type="button" className="button secondary" onClick={() => setPreparationDateFilter("")}>Todos</button></div>}
           {isLoadPreparation && <div className="prep-summary"><b>{filteredRows.length} pedidos a preparar</b><span>{preparationUrgentCount} urgentes</span><span>{preparationIncidentCount} con incidencia</span></div>}
           {active === "Stock" && (
@@ -4022,8 +4036,10 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                         {inlineEditing === (r.id ?? r.product_id) ? (
                           renderInlineEditor(f, r)
                         ) : (
-                          f === "billing_status"
+                            f === "billing_status"
                             ? <span className={`billing-status billing-status-${String(r.billing_status || "Sin facturar").toLowerCase().replaceAll(" ", "-")}`}>{r.billing_status || "Sin facturar"}</span>
+                            : f === "shipping_status"
+                            ? <span className={`shipping-status shipping-status-${getOrderShippingStatus(r).toLowerCase().replaceAll(" ", "-")}`}>{getOrderShippingStatus(r)}</span>
                             : f === "client_id" && r.client_name
                             ? `${r.client_name}${r.client_city ? ` · ${r.client_city}` : ""}`
                             : (f === "address" || f === "origin_address") && (r[f] === "[object Object]" || (r[f] && typeof r[f] === "object"))

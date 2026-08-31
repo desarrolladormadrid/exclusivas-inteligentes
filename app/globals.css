@@ -2591,6 +2591,12 @@ footer span {
 .billing-status { display: inline-flex; align-items: center; min-height: 22px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .billing-status-sin-facturar { background: #fff1d6; color: #995600; }
 .billing-status-facturado { background: #e3f5eb; color: #087846; }
+.shipping-status { display: inline-flex; align-items: center; min-height: 22px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.shipping-status-pendiente-de-enviar { background: #fff1d6; color: #995600; }
+.shipping-status-preparado { background: #e8eef2; color: #48616d; }
+.shipping-status-enviado, .shipping-status-en-reparto { background: #e4effb; color: #175a87; }
+.shipping-status-entregado { background: #e3f5eb; color: #087846; }
+.shipping-status-cancelado { background: #fbe4e4; color: #a52323; }
 .deleted-row td { background: #fff5f5; color: #9a7777 !important; text-decoration: line-through; }.deleted-row td:last-child { text-decoration: none; }.deleted-row .row-action { text-decoration: none; }
 .product-filters select { height: 29px; padding: 0 7px; border: 1px solid #cbd7dc; background: #fff; color: #526670; font: inherit; font-size: 10px; }
 .product-filters .button { height: 29px; padding: 0 9px; font-size: 10px; }
