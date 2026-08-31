@@ -109,17 +109,27 @@ try {
   if (!(await loadNote.getByText("Preparado por:", { exact: false }).count())) throw new Error("La nota de carga no muestra el responsable de preparación");
   if (!(await loadNote.getByRole("textbox", { name: "Anotación de preparación", exact: true }).count())) throw new Error("La nota de carga no muestra el campo de anotaciones");
   if (!(await loadNote.getByRole("button", { name: "Guardar anotación", exact: true }).count()) || !(await loadNote.getByRole("button", { name: "Generar incidencia", exact: true }).count())) throw new Error("La nota de carga no muestra las acciones de anotación e incidencia");
+  await loadNote.locator(".preview-loading-state").waitFor({ state: "detached", timeout: 30000 }).catch(() => undefined);
   await page.screenshot({ path: path.join(screenshotDir, `preparation-responsible-${screenshotPrefix}.png`), fullPage: false });
-  await page.setViewportSize({ width: 441, height: 820 });
-  await page.waitForTimeout(250);
-  const loadNoteMetrics = await loadNote.evaluate((element) => {
+  const measureLoadNote = async () => loadNote.evaluate((element) => {
     const table = element.querySelector(".preview-lines");
+    const rect = element.getBoundingClientRect();
     return {
       modalOverflow: element.scrollWidth > element.clientWidth + 1,
+      modalInsideViewport: rect.left >= -1 && rect.right <= innerWidth + 1,
       tableOverflow: table ? table.scrollWidth > table.clientWidth + 1 : false,
       tableDisplay: table ? getComputedStyle(table).display : "",
     };
   });
+  await page.setViewportSize({ width: 762, height: 665 });
+  await page.waitForTimeout(250);
+  const loadNoteTabletMetrics = await measureLoadNote();
+  if (loadNoteTabletMetrics.modalOverflow || loadNoteTabletMetrics.tableOverflow || !loadNoteTabletMetrics.modalInsideViewport || loadNoteTabletMetrics.tableDisplay !== "block") throw new Error("La nota de carga mantiene scroll horizontal o se sale del viewport en tablet");
+  await page.screenshot({ path: path.join(screenshotDir, `preparation-load-note-tablet-${screenshotPrefix}.png`), fullPage: false });
+  console.log("PASS Nota de carga: modal adaptable sin scroll horizontal en tablet");
+  await page.setViewportSize({ width: 441, height: 820 });
+  await page.waitForTimeout(250);
+  const loadNoteMetrics = await measureLoadNote();
   if (loadNoteMetrics.modalOverflow || loadNoteMetrics.tableOverflow || loadNoteMetrics.tableDisplay !== "block") throw new Error("La nota de carga mantiene scroll horizontal o no adopta el formato responsive");
   await page.screenshot({ path: path.join(screenshotDir, `preparation-load-note-mobile-${screenshotPrefix}.png`), fullPage: false });
   await loadNote.locator(".preview-close").click();

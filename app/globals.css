@@ -3207,23 +3207,28 @@ footer span {
 .quote-lines-total { padding-bottom: 2px; }
 .quote-lines-total { width: 100%; min-width: 0; box-sizing: border-box; }
 
-/* Nota de carga: seis columnas necesitan un ancho mínimo. Si la ventana es
-   más estrecha, la tabla se desplaza dentro de la modal; nunca se comprimen
-   las celdas hasta solaparse ni se recortan las acciones. */
-.load-preparation-manager .document-preview { overflow-x: auto; }
-.load-preparation-manager .preview-lines { min-width: 900px; table-layout: fixed; }
+/* Nota de carga: la modal y su tabla nunca deben crecer más que el viewport.
+   En escritorio usamos una tabla flexible y en tablet/móvil tarjetas para
+   evitar el scroll horizontal y los recortes de contenido. */
+.load-preparation-manager .document-preview {
+  width: min(1000px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  min-width: 0;
+  overflow-x: hidden;
+}
+.load-preparation-manager .preview-lines { min-width: 0; width: 100%; table-layout: fixed; }
 .load-preparation-manager .preview-lines th:nth-child(1),
-.load-preparation-manager .preview-lines td:nth-child(1) { width: 175px; }
+.load-preparation-manager .preview-lines td:nth-child(1) { width: 16%; }
 .load-preparation-manager .preview-lines th:nth-child(2),
-.load-preparation-manager .preview-lines td:nth-child(2) { width: 220px; }
+.load-preparation-manager .preview-lines td:nth-child(2) { width: 22%; }
 .load-preparation-manager .preview-lines th:nth-child(3),
-.load-preparation-manager .preview-lines td:nth-child(3) { width: 125px; }
+.load-preparation-manager .preview-lines td:nth-child(3) { width: 14%; }
 .load-preparation-manager .preview-lines th:nth-child(4),
-.load-preparation-manager .preview-lines td:nth-child(4) { width: 140px; }
+.load-preparation-manager .preview-lines td:nth-child(4) { width: 16%; }
 .load-preparation-manager .preview-lines th:nth-child(5),
-.load-preparation-manager .preview-lines td:nth-child(5) { width: 100px; }
+.load-preparation-manager .preview-lines td:nth-child(5) { width: 14%; }
 .load-preparation-manager .preview-lines th:nth-child(6),
-.load-preparation-manager .preview-lines td:nth-child(6) { width: 150px; }
+.load-preparation-manager .preview-lines td:nth-child(6) { width: 18%; }
 .load-preparation-manager .preview-lines td { vertical-align: middle; }
 .load-preparation-manager .prep-product-cell,
 .load-preparation-manager .prep-location-field { min-width: 0; }
@@ -3234,8 +3239,12 @@ footer span {
 
 /* En tablet y móvil la nota de carga pasa a tarjetas: las seis columnas de
    escritorio no deben provocar scroll horizontal ni dejar contenido oculto. */
-@media (max-width: 900px) {
-  .load-preparation-manager .document-preview { overflow-x: hidden; }
+@media (max-width: 1100px) {
+  .load-preparation-manager .document-preview {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    padding: 20px;
+  }
   .load-preparation-manager .preview-lines {
     display: block;
     width: 100%;
