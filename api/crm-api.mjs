@@ -22,6 +22,9 @@ const db = remoteMode
 if (!remoteMode) db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-64000; PRAGMA foreign_keys=ON;");
 db.exec(`CREATE TABLE IF NOT EXISTS purchase_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,supplier_id INTEGER,status TEXT DEFAULT 'Borrador',order_date TEXT DEFAULT CURRENT_DATE,expected_date TEXT,amount REAL DEFAULT 0,notes TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS purchase_order_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,purchase_order_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_cost REAL DEFAULT 0,amount REAL DEFAULT 0);`);
+db.exec(`CREATE TABLE IF NOT EXISTS goods_receipts(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,supplier_id INTEGER NOT NULL,purchase_order_id INTEGER,warehouse_id INTEGER,receipt_date TEXT NOT NULL,status TEXT DEFAULT 'Borrador',notes TEXT,created_by TEXT,received_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT);`);
+db.exec(`CREATE TABLE IF NOT EXISTS goods_receipt_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,receipt_id INTEGER NOT NULL,product_id INTEGER NOT NULL,product_name_snapshot TEXT,expected_quantity REAL DEFAULT 0,received_quantity REAL DEFAULT 0,unit_cost REAL DEFAULT 0,status TEXT DEFAULT 'Correcta',notes TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT);`);
+db.exec(`CREATE TABLE IF NOT EXISTS goods_receipt_incidents(id INTEGER PRIMARY KEY AUTOINCREMENT,receipt_id INTEGER NOT NULL,receipt_line_id INTEGER,supplier_id INTEGER,type TEXT DEFAULT 'Diferencia',description TEXT NOT NULL,expected_quantity REAL,received_quantity REAL,status TEXT DEFAULT 'Pendiente',attachment_name TEXT,attachment_mime TEXT,attachment_data TEXT,created_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS notes(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,content TEXT NOT NULL,priority TEXT DEFAULT 'Normal',module TEXT DEFAULT 'General',record_id INTEGER,important INTEGER DEFAULT 0,completed INTEGER DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
 for (const column of ["status TEXT DEFAULT 'Pendiente'", "resolution TEXT", "resolved_at TEXT", "resolved_by TEXT", "created_by TEXT"]) {
   try { db.exec(`ALTER TABLE notes ADD COLUMN ${column}`); } catch {}
@@ -71,6 +74,7 @@ try { db.exec("ALTER TABLE shipments ADD COLUMN urgent INTEGER DEFAULT 0"); } ca
 db.exec(
   `CREATE TABLE IF NOT EXISTS inventory_movements(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,warehouse_id INTEGER, movement_type TEXT NOT NULL, quantity REAL DEFAULT 0, reference TEXT, movement_date TEXT DEFAULT CURRENT_DATE, notes TEXT);`,
 );
+try { db.exec("ALTER TABLE inventory_movements ADD COLUMN receipt_id INTEGER"); } catch {}
 for (const [table, columns] of [
   ["products", ["photo_name TEXT", "photo_mime TEXT", "photo_data TEXT", "description TEXT", "category_code TEXT", "warehouse_id INTEGER", "preorder INTEGER DEFAULT 1", "product_tracking_code TEXT DEFAULT 'Sin seguimiento'", "inventory_valuation_method TEXT DEFAULT 'FIFO'", "last_direct_cost REAL DEFAULT 0", "accounting_product_group TEXT DEFAULT 'Mercaderías'", "accounting_vat_group TEXT DEFAULT '21%'", "inventory_register_group TEXT DEFAULT 'Mercaderías'", "created_at TEXT", "created_by TEXT", "family TEXT", "subfamily TEXT", "purchase_format TEXT", "sale_format TEXT", "cases_per_pallet REAL DEFAULT 0", "units_per_pallet REAL DEFAULT 0", "weight_kg REAL DEFAULT 0", "volume_m3 REAL DEFAULT 0", "warehouse_location TEXT", "picking_order INTEGER DEFAULT 0", "product_status TEXT DEFAULT 'Activo'", "primary_supplier_id INTEGER", "fixed_supplier INTEGER DEFAULT 0", "target_margin_percent REAL DEFAULT 0", "min_margin_percent REAL DEFAULT 0", "stock_min REAL DEFAULT 0", "stock_target REAL DEFAULT 0", "stock_safety REAL DEFAULT 0", "lot_tracking INTEGER DEFAULT 0", "expiry_tracking INTEGER DEFAULT 0", "returnable_packaging INTEGER DEFAULT 0", "tax_surcharge_percent REAL DEFAULT 0", "extra_tax_name TEXT", "extra_tax_percent REAL DEFAULT 0", "freight_cost REAL DEFAULT 0", "handling_cost REAL DEFAULT 0", "real_cost REAL DEFAULT 0"]],
   ["suppliers", ["tax_id TEXT", "contact TEXT", "payment_terms TEXT", "minimum_order REAL DEFAULT 0", "transport_cost REAL DEFAULT 0", "lead_time_days INTEGER DEFAULT 0", "reliability_percent REAL DEFAULT 0", "promotions TEXT", "rappel_percent REAL DEFAULT 0", "active INTEGER DEFAULT 1", "external_code TEXT", "source_system TEXT", "source_warehouse_code TEXT", "source_created_at TEXT", "source_closed_at TEXT", "source_balance REAL DEFAULT 0", "source_overdue_balance REAL DEFAULT 0", "source_payments REAL DEFAULT 0"]],
@@ -140,6 +144,9 @@ const tables = new Set([
   "suppliers",
   "purchase_orders",
   "purchase_order_lines",
+  "goods_receipts",
+  "goods_receipt_lines",
+  "goods_receipt_incidents",
   "notes",
   "document_templates",
   "returns",
@@ -210,6 +217,9 @@ for (const [name, table, columns] of [
   ["idx_shipments_status_date", "shipments", "status, expected_delivery_at"],
   ["idx_shipments_order", "shipments", "order_id"],
   ["idx_inventory_product_date", "inventory_movements", "product_id, movement_date"],
+  ["idx_goods_receipts_supplier_date", "goods_receipts", "supplier_id, receipt_date"],
+  ["idx_goods_receipt_lines_receipt", "goods_receipt_lines", "receipt_id, product_id"],
+  ["idx_goods_receipt_incidents_receipt", "goods_receipt_incidents", "receipt_id, status"],
   ["idx_expenses_date_client", "expenses", "expense_date, client_id"],
   ["idx_notes_pending", "notes", "important, completed, created_at"],
   ["idx_audit_actor_date", "audit_logs", "actor, created_at"],
@@ -306,6 +316,9 @@ const lookupFields = {
   shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "carrier", "packages", "incidents", "notes"],
   invoices: ["id", "code", "order_id", "client_id", "amount", "status", "created_at", "issue_date", "due_date"],
   purchase_orders: ["id", "code", "supplier_id", "status", "order_date", "expected_date", "amount", "validation_status"],
+  goods_receipts: ["id", "code", "supplier_id", "purchase_order_id", "warehouse_id", "receipt_date", "status", "line_count", "incident_count", "received_by", "notes"],
+  goods_receipt_lines: ["id", "receipt_id", "product_id", "product_name_snapshot", "expected_quantity", "received_quantity", "unit_cost", "status", "notes"],
+  goods_receipt_incidents: ["id", "receipt_id", "receipt_line_id", "supplier_id", "type", "description", "expected_quantity", "received_quantity", "status", "attachment_name", "attachment_mime", "created_by", "created_at"],
   payments: ["id", "invoice_id", "amount", "payment_date", "method"],
   inventory_movements: ["id", "product_id", "warehouse_id", "movement_type", "quantity", "reference", "movement_date", "notes"],
   expenses: ["id", "code", "client_id", "expense_date", "category", "vendor", "amount", "vat", "payment_method", "notes", "created_at"],
@@ -556,6 +569,84 @@ export async function crmApiHandler(req, res) {
         db.prepare("UPDATE orders SET amount=?,updated_at=? WHERE id=?").run(Number(total || 0), new Date().toISOString(), Number(order.id));
         recordAudit(actor, "POST", `assistant/adjust-order-line/${line.id}`, "Ajuste de línea", JSON.stringify({ ...preview, confirmed: true }));
         return send(res, 200, { ok: true, preview: { ...preview, final_quantity: next, order_amount: Number(total || 0) } });
+      }
+      if (t === "goods_receipts" && req.method === "GET" && !p[2]) {
+        const rows = db.prepare("SELECT gr.*,s.name supplier_name,w.name warehouse_name,po.code purchase_order_code,(SELECT COUNT(*) FROM goods_receipt_lines gl WHERE gl.receipt_id=gr.id AND CAST(COALESCE(gl.deleted,0) AS INTEGER)=0) line_count,(SELECT COUNT(*) FROM goods_receipt_incidents gi WHERE gi.receipt_id=gr.id AND CAST(COALESCE(gi.deleted,0) AS INTEGER)=0) incident_count FROM goods_receipts gr LEFT JOIN suppliers s ON s.id=gr.supplier_id LEFT JOIN warehouses w ON w.id=gr.warehouse_id LEFT JOIN purchase_orders po ON po.id=gr.purchase_order_id WHERE CAST(COALESCE(gr.deleted,0) AS INTEGER)=0 ORDER BY gr.receipt_date DESC,gr.id DESC LIMIT 500").all();
+        return send(res, 200, rows);
+      }
+      if (t === "goods_receipts" && req.method === "GET" && p[2] === "detail") {
+        const receiptId = Number(p[3]);
+        const receipt = db.prepare("SELECT gr.*,s.name supplier_name,w.name warehouse_name,po.code purchase_order_code FROM goods_receipts gr LEFT JOIN suppliers s ON s.id=gr.supplier_id LEFT JOIN warehouses w ON w.id=gr.warehouse_id LEFT JOIN purchase_orders po ON po.id=gr.purchase_order_id WHERE gr.id=? AND CAST(COALESCE(gr.deleted,0) AS INTEGER)=0").get(receiptId);
+        if (!receipt) return send(res, 404, { error: "Entrada no encontrada" });
+        const lines = db.prepare("SELECT gl.*,p.name product_name,p.sku FROM goods_receipt_lines gl LEFT JOIN products p ON p.id=gl.product_id WHERE gl.receipt_id=? AND CAST(COALESCE(gl.deleted,0) AS INTEGER)=0 ORDER BY gl.id").all(receiptId);
+        const incidents = db.prepare("SELECT id,receipt_id,receipt_line_id,supplier_id,type,description,expected_quantity,received_quantity,status,attachment_name,attachment_mime,attachment_data,created_by,created_at,updated_at FROM goods_receipt_incidents WHERE receipt_id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0 ORDER BY id").all(receiptId);
+        return send(res, 200, { ...receipt, lines, incidents });
+      }
+      if (t === "goods_receipts" && req.method === "POST" && p[2] === "receive") {
+        const d = await read(req);
+        const supplierId = Number(d.supplier_id || 0);
+        const warehouseId = Number(d.warehouse_id || 0);
+        const purchaseOrderId = Number(d.purchase_order_id || 0) || null;
+        const receiptDate = String(d.receipt_date || new Date().toISOString().slice(0, 10)).slice(0, 10);
+        const inputLines = Array.isArray(d.lines) ? d.lines : [];
+        const supplier = supplierId ? db.prepare("SELECT id,name FROM suppliers WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(supplierId) : null;
+        const warehouse = warehouseId ? db.prepare("SELECT id,name FROM warehouses WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(warehouseId) : null;
+        if (!supplier) return send(res, 400, { error: "Selecciona un proveedor para la entrada" });
+        if (!warehouse) return send(res, 400, { error: "Selecciona el almacén de destino" });
+        if (purchaseOrderId && !db.prepare("SELECT id FROM purchase_orders WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(purchaseOrderId)) return send(res, 400, { error: "El pedido de compra no existe" });
+        if (!inputLines.length) return send(res, 400, { error: "Añade al menos un producto a la entrada" });
+        const now = new Date().toISOString();
+        const lines = [];
+        for (const input of inputLines) {
+          const productId = Number(input.product_id || 0);
+          const product = productId ? db.prepare("SELECT id,name,sku,stock FROM products WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(productId) : null;
+          const expected = Number(input.expected_quantity || 0);
+          const received = Number(input.received_quantity || 0);
+          if (!product) return send(res, 400, { error: "Uno de los productos no existe" });
+          if (!Number.isFinite(expected) || expected < 0 || !Number.isFinite(received) || received < 0) return send(res, 400, { error: `Cantidad no válida para ${product.name}` });
+          if (received === 0 && !String(input.notes || input.incident_description || "").trim() && !input.attachment_data) continue;
+          const requestedStatus = ["Correcta", "Diferencia", "Producto equivocado", "Dañado"].includes(String(input.status)) ? String(input.status) : "Correcta";
+          const status = requestedStatus === "Correcta" && expected !== received ? "Diferencia" : requestedStatus;
+          lines.push({ productId, product, expected, received, unitCost: Math.max(0, Number(input.unit_cost || 0)), status, notes: String(input.notes || "").trim(), incidentDescription: String(input.incident_description || "").trim(), attachmentName: String(input.attachment_name || "").trim(), attachmentMime: String(input.attachment_mime || "").trim(), attachmentData: String(input.attachment_data || "") });
+        }
+        if (!lines.length) return send(res, 400, { error: "Las líneas deben tener alguna cantidad recibida o una incidencia" });
+        const hasIncident = lines.some((line) => line.status !== "Correcta" || line.incidentDescription || line.attachmentData || (line.expected !== line.received));
+        const code = String(d.code || `ENT-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`);
+        const status = hasIncident ? "Con incidencia" : "Recepcionada";
+        if (!remoteMode) db.exec("BEGIN");
+        try {
+          const created = db.prepare("INSERT INTO goods_receipts(code,supplier_id,purchase_order_id,warehouse_id,receipt_date,status,notes,created_by,received_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(code, supplierId, purchaseOrderId, warehouseId, receiptDate, status, String(d.notes || "").trim(), actor, String(d.received_by || actor), now, now);
+          const receiptId = Number(created.lastInsertRowid);
+          const insertLine = db.prepare("INSERT INTO goods_receipt_lines(receipt_id,product_id,product_name_snapshot,expected_quantity,received_quantity,unit_cost,status,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)");
+          const insertMovement = db.prepare("INSERT INTO inventory_movements(product_id,warehouse_id,movement_type,quantity,reference,movement_date,notes,receipt_id,created_by) VALUES(?,?,?,?,?,?,?,?,?)");
+          const insertIncident = db.prepare("INSERT INTO goods_receipt_incidents(receipt_id,receipt_line_id,supplier_id,type,description,expected_quantity,received_quantity,status,attachment_name,attachment_mime,attachment_data,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+          const incidents = [];
+          for (const line of lines) {
+            const lineResult = insertLine.run(receiptId, line.productId, line.product.name, line.expected, line.received, line.unitCost, line.status, line.notes, now, now);
+            const lineId = Number(lineResult.lastInsertRowid);
+            if (line.received > 0) {
+              insertMovement.run(line.productId, warehouseId, "Entrada", line.received, code, receiptDate, `Recepción ${code} · ${line.product.name}`, receiptId, actor);
+              db.prepare("UPDATE products SET stock=COALESCE(stock,0)+?,cost_price=CASE WHEN ? > 0 THEN ? ELSE cost_price END,real_cost=CASE WHEN ? > 0 THEN ? ELSE real_cost END,updated_at=? WHERE id=?").run(line.received, line.unitCost, line.unitCost, line.unitCost, line.unitCost, now, line.productId);
+            }
+            const incident = line.status !== "Correcta" || line.incidentDescription || line.attachmentData || line.expected !== line.received;
+            if (incident) {
+              const description = line.incidentDescription || (line.status === "Dañado" ? "Producto recibido dañado." : line.status === "Producto equivocado" ? "Producto recibido no corresponde con la referencia esperada." : `Diferencia de unidades: esperadas ${line.expected}, recibidas ${line.received}.`);
+              const incidentResult = insertIncident.run(receiptId, lineId, supplierId, line.status, description, line.expected, line.received, "Pendiente", line.attachmentName || null, line.attachmentMime || null, line.attachmentData || null, actor, now, now);
+              incidents.push({ id: Number(incidentResult.lastInsertRowid), product_name: line.product.name, description });
+            }
+          }
+          if (purchaseOrderId) db.prepare("UPDATE purchase_orders SET status=?,updated_at=? WHERE id=?").run(hasIncident ? "Recibida con incidencia" : "Recibida", now, purchaseOrderId);
+          if (incidents.length) db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,completed,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)").run(`Incidencia en entrada · ${code}`, `La entrada ${code} del proveedor ${supplier.name} tiene ${incidents.length} incidencia${incidents.length === 1 ? "" : "s"}. Revisa las diferencias, productos equivocados o daños y sus fotografías desde Entradas.`, "Alta", "Entradas", receiptId, 1, 0, actor, now, now);
+          recordAudit(actor, "POST", `goods_receipts/${receiptId}`, "Recepción de mercancía", JSON.stringify({ receipt_id: receiptId, code, supplier_id: supplierId, warehouse_id: warehouseId, purchase_order_id: purchaseOrderId, lines: lines.length, incidents: incidents.length }));
+          if (!remoteMode) db.exec("COMMIT");
+          invalidateRelatedReadCaches("goods_receipts");
+          invalidateRelatedReadCaches("inventory_movements");
+          invalidateReadCache("products");
+          return send(res, 201, { id: receiptId, code, supplier_id: supplierId, supplier_name: supplier.name, warehouse_id: warehouseId, status, line_count: lines.length, incident_count: incidents.length, received_by: String(d.received_by || actor), receipt_date: receiptDate, notes: String(d.notes || "").trim() });
+        } catch (error) {
+          if (!remoteMode) { try { db.exec("ROLLBACK"); } catch {} }
+          return send(res, 500, { error: error?.message || "No se pudo registrar la entrada" });
+        }
       }
       if (t === "audit_logs" && req.method === "GET") {
         const url = new URL(req.url, "http://local");

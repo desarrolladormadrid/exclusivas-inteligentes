@@ -10,6 +10,15 @@ if (!env.TURSO_DATABASE_URL || !env.TURSO_AUTH_TOKEN) throw new Error("Faltan la
 
 const client = createClient({ url: env.TURSO_DATABASE_URL, authToken: env.TURSO_AUTH_TOKEN });
 const migrationsByTable = {
+  goods_receipts: [
+    ["table", "CREATE TABLE IF NOT EXISTS goods_receipts(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,supplier_id INTEGER NOT NULL,purchase_order_id INTEGER,warehouse_id INTEGER,receipt_date TEXT NOT NULL,status TEXT DEFAULT 'Borrador',notes TEXT,created_by TEXT,received_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT)"],
+  ],
+  goods_receipt_lines: [
+    ["table", "CREATE TABLE IF NOT EXISTS goods_receipt_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,receipt_id INTEGER NOT NULL,product_id INTEGER NOT NULL,product_name_snapshot TEXT,expected_quantity REAL DEFAULT 0,received_quantity REAL DEFAULT 0,unit_cost REAL DEFAULT 0,status TEXT DEFAULT 'Correcta',notes TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT)"],
+  ],
+  goods_receipt_incidents: [
+    ["table", "CREATE TABLE IF NOT EXISTS goods_receipt_incidents(id INTEGER PRIMARY KEY AUTOINCREMENT,receipt_id INTEGER NOT NULL,receipt_line_id INTEGER,supplier_id INTEGER,type TEXT DEFAULT 'Diferencia',description TEXT NOT NULL,expected_quantity REAL,received_quantity REAL,status TEXT DEFAULT 'Pendiente',attachment_name TEXT,attachment_mime TEXT,attachment_data TEXT,created_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT)"],
+  ],
   ocr_documents: [
     ["table", "CREATE TABLE IF NOT EXISTS ocr_documents(id INTEGER PRIMARY KEY AUTOINCREMENT,file_name TEXT NOT NULL,mime_type TEXT,file_size INTEGER DEFAULT 0,document_type TEXT DEFAULT 'Otro',detected_email TEXT,detected_total TEXT,extracted_text TEXT,status TEXT DEFAULT 'Pendiente',created_by TEXT DEFAULT 'Usuario local',created_at TEXT,updated_at TEXT)"],
     ["deleted", "ALTER TABLE ocr_documents ADD COLUMN deleted TEXT DEFAULT '0'"],
@@ -38,6 +47,7 @@ const migrationsByTable = {
     ["resolution", "ALTER TABLE notes ADD COLUMN resolution TEXT"],
     ["resolved_at", "ALTER TABLE notes ADD COLUMN resolved_at TEXT"],
     ["resolved_by", "ALTER TABLE notes ADD COLUMN resolved_by TEXT"],
+    ["created_by", "ALTER TABLE notes ADD COLUMN created_by TEXT"],
   ],
   orders: [
     ["source_order_id", "ALTER TABLE orders ADD COLUMN source_order_id INTEGER"],
@@ -84,6 +94,7 @@ const migrationsByTable = {
   ],
   inventory_movements: [
     ["created_by", "ALTER TABLE inventory_movements ADD COLUMN created_by TEXT"],
+    ["receipt_id", "ALTER TABLE inventory_movements ADD COLUMN receipt_id INTEGER"],
   ],
   shipments: [
     ["collection_point_id", "ALTER TABLE shipments ADD COLUMN collection_point_id INTEGER"],

@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.33";
+const APP_VERSION = "2.0.34";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -556,27 +556,31 @@ const cfg: any = {
     ],
   },
   Entradas: {
-    api: "inventory_movements",
-    title: "Entradas y movimientos de almacén",
+    api: "goods_receipts",
+    title: "Entradas de mercancía",
     fields: [
-      "product_id",
+      "code",
+      "supplier_id",
+      "purchase_order_id",
       "warehouse_id",
-      "movement_type",
-      "quantity",
-      "movement_date",
-      "created_by",
+      "receipt_date",
+      "status",
+      "line_count",
+      "incident_count",
+      "received_by",
       "notes",
-      "reference",
     ],
     labels: [
-      "Producto",
+      "Código",
+      "Proveedor",
+      "Pedido de compra",
       "Almacén",
-      "Tipo de movimiento",
-      "Cantidad",
-      "Fecha y hora de recepción",
+      "Fecha de recepción",
+      "Estado",
+      "Líneas",
+      "Incidencias",
       "Recepcionado por",
-      "Motivo",
-      "Referencia",
+      "Notas",
     ],
   },
   Salidas: {
@@ -1857,6 +1861,89 @@ function BusinessRelatedPanels({ active, rows, lookups, onNavigate }: { active: 
   </section>;
 }
 
+function GoodsReceiptForm({ lookups, actor, onCreated }: { lookups: any; actor: string; onCreated: (receipt: any) => void }) {
+  const [header, setHeader] = useState({ code: `ENT-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`, supplier_id: "", purchase_order_id: "", warehouse_id: "", receipt_date: tabletTodayInput(), notes: "" });
+  const [productSearch, setProductSearch] = useState("");
+  const [lines, setLines] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [newProductOpen, setNewProductOpen] = useState(false);
+  const [newProduct, setNewProduct] = useState({ name: "", sku: "", unit: "unidad", cost_price: "0" });
+  const [newProductSaving, setNewProductSaving] = useState(false);
+  const products = lookups.products || [];
+  const suppliers = lookups.suppliers || [];
+  const warehouses = lookups.warehouses || [];
+  const purchaseOrders = (lookups.purchase_orders || []).filter((item: any) => !header.supplier_id || Number(item.supplier_id) === Number(header.supplier_id));
+  const matchingProducts = productSearch.trim()
+    ? products.filter((item: any) => `${item.name || ""} ${item.sku || ""} ${item.brand || ""} ${item.category || ""}`.toLowerCase().includes(productSearch.trim().toLowerCase())).slice(0, 8)
+    : [];
+  function addProduct(product: any) {
+    if (!product || lines.some((line) => Number(line.product_id) === Number(product.id))) return;
+    setLines((current) => [...current, { product_id: String(product.id), product_name: product.name, sku: product.sku || "", expected_quantity: "0", received_quantity: "1", unit_cost: String(Number(product.cost_price || 0)), status: "Correcta", notes: "", incident_description: "", attachment_name: "", attachment_mime: "", attachment_data: "" }]);
+    setProductSearch("");
+    setMessage("");
+  }
+  function updateLine(index: number, field: string, value: any) {
+    setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, [field]: value } : line));
+  }
+  function attachLinePhoto(index: number, file: File) {
+    if (file.size > 4 * 1024 * 1024) { setMessage("La foto de la incidencia no puede superar 4 MB."); return; }
+    const reader = new FileReader();
+    reader.onload = () => updateLine(index, "attachment_data", String(reader.result || ""));
+    reader.readAsDataURL(file);
+    updateLine(index, "attachment_name", file.name);
+    updateLine(index, "attachment_mime", file.type || "image/jpeg");
+    setMessage("");
+  }
+  async function createProduct() {
+    if (!newProduct.name.trim()) return;
+    setNewProductSaving(true);
+    try {
+      const response = await fetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify({ ...newProduct, active: 1, product_status: "Activo", supplier_id: header.supplier_id || null, unit_price: 0 }) });
+      const created = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(created.error || "No se pudo crear el producto");
+      addProduct(created);
+      setNewProduct({ name: "", sku: "", unit: "unidad", cost_price: "0" });
+      setNewProductOpen(false);
+    } catch (error: any) { setMessage(error.message || "No se pudo crear el producto"); }
+    finally { setNewProductSaving(false); }
+  }
+  async function receive(event: any) {
+    event.preventDefault();
+    if (!header.supplier_id || !header.warehouse_id) { setMessage("Selecciona el proveedor y el almacén de destino."); return; }
+    if (!lines.length) { setMessage("Busca y añade al menos un producto."); return; }
+    setSaving(true); setMessage("");
+    try {
+      const response = await fetch("/api/goods_receipts/receive", { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify({ ...header, supplier_id: Number(header.supplier_id), purchase_order_id: header.purchase_order_id ? Number(header.purchase_order_id) : null, warehouse_id: Number(header.warehouse_id), lines: lines.map((line) => ({ ...line, product_id: Number(line.product_id), expected_quantity: Number(line.expected_quantity || 0), received_quantity: Number(line.received_quantity || 0), unit_cost: Number(line.unit_cost || 0) })) }) });
+      const created = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(created.error || "No se pudo registrar la entrada");
+      onCreated(created);
+      setHeader({ code: `ENT-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`, supplier_id: "", purchase_order_id: "", warehouse_id: "", receipt_date: tabletTodayInput(), notes: "" });
+      setLines([]); setProductSearch("");
+    } catch (error: any) { setMessage(error.message || "No se pudo registrar la entrada"); }
+    finally { setSaving(false); }
+  }
+  return <div className="goods-receipt-editor">
+    <div className="goods-receipt-intro"><div><b>Recepción de mercancía</b><small>Registra varias referencias, compara lo esperado con lo recibido y deja constancia de cualquier problema.</small></div><span>{lines.length} líneas</span></div>
+    <div className="goods-receipt-header-grid">
+      <label>Código de entrada<input value={header.code} onChange={(event) => setHeader({ ...header, code: event.target.value })} /></label>
+      <label>Proveedor *<select required value={header.supplier_id} onChange={(event) => setHeader({ ...header, supplier_id: event.target.value, purchase_order_id: "" })}><option value="">Seleccionar proveedor…</option>{suppliers.map((item: any) => <option key={item.id} value={item.id}>{item.name}{item.external_code ? ` · ${item.external_code}` : ""}</option>)}</select></label>
+      <label>Pedido de compra relacionado<select value={header.purchase_order_id} onChange={(event) => setHeader({ ...header, purchase_order_id: event.target.value })}><option value="">Sin pedido de compra</option>{purchaseOrders.map((item: any) => <option key={item.id} value={item.id}>{item.code} · {item.status}</option>)}</select></label>
+      <label>Almacén de destino *<select required value={header.warehouse_id} onChange={(event) => setHeader({ ...header, warehouse_id: event.target.value })}><option value="">Seleccionar almacén…</option>{warehouses.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label>Fecha de recepción *<input required type="date" value={header.receipt_date} onChange={(event) => setHeader({ ...header, receipt_date: event.target.value })} /></label>
+      <label>Recepcionado por<input value={actor} readOnly /></label>
+      <label className="goods-receipt-wide">Notas generales<textarea value={header.notes} onChange={(event) => setHeader({ ...header, notes: event.target.value })} placeholder="Observaciones de la recepción…" /></label>
+    </div>
+    <section className="goods-receipt-lines"><div className="goods-receipt-lines-head"><div><b>Productos recibidos</b><small>Busca por nombre, SKU, marca o categoría y añade las líneas que correspondan.</small></div><span>{lines.length} añadidas</span></div>
+      <div className="goods-receipt-product-picker"><input aria-label="Buscar producto para la entrada" autoComplete="off" placeholder="Buscar producto por nombre o referencia…" value={productSearch} onChange={(event) => setProductSearch(event.target.value)} />{productSearch.trim() && <div className="goods-receipt-suggestions">{matchingProducts.map((item: any) => <button type="button" key={item.id} onClick={() => addProduct(item)}><b>{item.name}</b><small>{[item.sku, item.unit, item.category].filter(Boolean).join(" · ") || "Sin referencia"}</small></button>)}{!matchingProducts.length && <span>No hay productos. <button type="button" className="link-button" onClick={() => setNewProductOpen(true)}>Dar de alta producto</button></span>}</div>}</div>
+      {newProductOpen && <div className="goods-receipt-new-product"><b>Alta rápida de producto</b><input autoFocus placeholder="Nombre del producto *" value={newProduct.name} onChange={(event) => setNewProduct({ ...newProduct, name: event.target.value })} /><input placeholder="SKU o referencia" value={newProduct.sku} onChange={(event) => setNewProduct({ ...newProduct, sku: event.target.value })} /><select value={newProduct.unit} onChange={(event) => setNewProduct({ ...newProduct, unit: event.target.value })}><option value="unidad">Unidad</option><option value="caja">Caja</option><option value="botella">Botella</option><option value="kg">Kg</option></select><input type="number" min="0" step="any" placeholder="Coste unitario" value={newProduct.cost_price} onChange={(event) => setNewProduct({ ...newProduct, cost_price: event.target.value })} /><button type="button" className="button primary" disabled={newProductSaving} onClick={() => void createProduct()}>{newProductSaving ? "Guardando…" : "Crear y añadir"}</button><button type="button" className="button secondary" onClick={() => setNewProductOpen(false)}>Cancelar</button></div>}
+      {lines.length ? <div className="goods-receipt-line-list">{lines.map((line, index) => <article key={`${line.product_id}-${index}`} className="goods-receipt-line"><div className="goods-receipt-line-product"><b>{line.product_name}</b><small>{line.sku || "Sin referencia"}</small><button type="button" className="link-button" onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}>Quitar</button></div><label>Esperadas<input type="number" min="0" step="any" value={line.expected_quantity} onChange={(event) => updateLine(index, "expected_quantity", event.target.value)} /></label><label>Recibidas<input type="number" min="0" step="any" value={line.received_quantity} onChange={(event) => updateLine(index, "received_quantity", event.target.value)} /></label><label>Coste unitario<input type="number" min="0" step="any" value={line.unit_cost} onChange={(event) => updateLine(index, "unit_cost", event.target.value)} /></label><label>Resultado<select value={line.status} onChange={(event) => updateLine(index, "status", event.target.value)}><option>Correcta</option><option>Diferencia</option><option>Producto equivocado</option><option>Dañado</option></select></label><label className="goods-receipt-line-wide">Observación o incidencia<textarea value={line.incident_description} onChange={(event) => updateLine(index, "incident_description", event.target.value)} placeholder="Ej. 2 cajas rotas o referencia incorrecta…" /></label><label className="goods-receipt-photo">Foto de la incidencia<input type="file" accept="image/*" capture="environment" onChange={(event) => { const file = event.target.files?.[0]; if (file) attachLinePhoto(index, file); }} /><small>{line.attachment_name ? `Adjunta: ${line.attachment_name}` : "Opcional"}</small></label></article>)}</div> : <p className="goods-receipt-empty">Todavía no hay líneas. Busca un producto arriba para añadirlo.</p>}
+    </section>
+    {message && <div className="error-message" role="alert">{message}</div>}
+    <div className="goods-receipt-submit"><button type="button" className="button primary" disabled={saving} onClick={(event) => void receive(event)}>{saving ? "Registrando entrada…" : "Registrar entrada y actualizar stock"}</button><small>Las incidencias quedarán como nota pendiente vinculada a esta entrada y al proveedor.</small></div>
+  </div>;
+}
+
 function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFormConsumed }: { active: string; user?: any; onNavigate?: (module: string) => void; assistantFormIntent?: any; onAssistantFormConsumed?: () => void }) {
   const c = cfg[active];
   const actorHeaders = {
@@ -1880,6 +1967,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [inlineDraft, setInlineDraft] = useState<any>({});
   const [search, setSearch] = useState("");
   const [preview, setPreview] = useState<any>(null);
+  const [entryDetail, setEntryDetail] = useState<any>(null);
   const [labelProduct, setLabelProduct] = useState<any>(null);
   const [productDetail, setProductDetail] = useState<any>(null);
   const [batchLabelProducts, setBatchLabelProducts] = useState<any[]>([]);
@@ -2127,7 +2215,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       Almacenes: ["warehouses", "products"],
       "Preparación de pedidos": ["clients", "orders", "products", "collection_points", "shipments"],
       "Lugares de recogida": ["clients", "collection_points"],
-      Entradas: ["products", "warehouses", "inventory_movements"],
+      Entradas: ["products", "warehouses", "suppliers", "purchase_orders"],
       Salidas: ["clients", "orders", "collection_points", "shipments"],
       Pedidos: ["clients", "products", "collection_points", "shipments", "orders", "invoices"],
       Presupuestos: ["clients", "products", "quotes"],
@@ -2570,6 +2658,12 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       ...line,
       product_name: line.product_name || productList.find((product: any) => Number(product.id) === Number(line.product_id))?.name || `Producto #${line.product_id}`,
     })));
+  }
+  async function openEntryDetail(row: any) {
+    const response = await fetch(`/api/goods_receipts/detail/${row.id}`, { headers: actorHeaders });
+    const detail = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(detail.error || "No se pudo cargar el detalle de la entrada");
+    setEntryDetail(detail);
   }
   function editorValue(field: string, value: any) {
     const raw = String(value ?? "");
@@ -3366,7 +3460,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         : field === "warehouse_id" ? lookups.warehouses
           : ["supplier_id", "primary_supplier_id"].includes(field) ? lookups.suppliers
             : field === "collection_point_id" ? lookups.collection_points
-              : field === "order_id" ? lookups.orders
+                 : field === "order_id" ? lookups.orders
+                   : field === "purchase_order_id" ? lookups.purchase_orders
                 : field === "invoice_id" ? lookups.invoices
                 : field === "shipment_id" ? lookups.shipments
                   : [];
@@ -3404,7 +3499,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   ]);
   const isDateField = (field: string) => dateFields.has(field) || field.endsWith("_date") || field.endsWith("_at");
   const isLoadPreparation = active === "Preparación de pedidos";
-  const usesRecordModal = ["Clientes", "Proveedores", "Almacenes", "Lugares de recogida", "Productos"].includes(active);
+   const usesRecordModal = ["Clientes", "Proveedores", "Almacenes", "Lugares de recogida", "Productos"].includes(active);
   const previewLocation = preview ? (lookups.collection_points || []).find((item: any) => Number(item.id) === Number(preview.collection_point_id)) : null;
   const previewLat = Number(previewLocation?.latitude);
   const previewLon = Number(previewLocation?.longitude);
@@ -3684,7 +3779,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               setQuoteLines([]);
               if (active === "Pedidos") setClientSearch("");
               setForm(
-                  (c.movementFilter || active === "Entradas")
+                  (c.movementFilter && active !== "Entradas")
                   ? { movement_type: c.movementFilter || "Entrada", movement_date: tabletTodayInput(), created_by: user?.username || "Usuario local" }
                   : active === "Devoluciones"
                     ? { return_date: tabletTodayInput(), status: "Pendiente", reviewed_by: "", authorized_by: "" }
@@ -3771,7 +3866,16 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
           <span>{formOpen || editing ? "−" : "+"}</span>
         </summary>
         <form className={`record-form${active === "Productos" ? " product-master-form" : ""}`} onSubmit={save}>
-          {active === "Productos" ? (
+          {active === "Entradas" ? (
+            <GoodsReceiptForm
+              lookups={lookups}
+              actor={user?.username || "Usuario local"}
+              onCreated={(created) => {
+                setRows((current) => [created, ...current]);
+                setFormOpen(false);
+              }}
+            />
+          ) : active === "Productos" ? (
             <>
               <div className="product-master-toolbar" aria-label="Acciones de la ficha de producto">
                 <span>Ficha de producto</span>
@@ -3856,10 +3960,10 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               </small>
             </label>
           )}
-          <button className="button primary">
+          {active !== "Entradas" && <button className="button primary">
             {editing ? "Guardar cambios" : formTitle}
-          </button>
-          {editing && (
+          </button>}
+          {editing && active !== "Entradas" && (
             <button
               type="button"
               className="button secondary"
@@ -4029,7 +4133,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             </thead>
             <tbody>
               {sortedRows.map((r) => (
-                  <tr key={r.id ?? r.product_id} data-inline-row={r.id ?? r.product_id} data-row-modal={active === "Presupuestos" || active === "Pedidos" || usesRecordModal ? "true" : undefined} className={`${isProducts && Number(r.stock || 0) - Number(r.stock_reserved || 0) <= Number(r.min_stock || 0) ? "product-row-critical" : ""}${isLoadPreparation && Number(r.urgent) === 1 ? " prep-row-urgent" : ""}${isLoadPreparation && r.status === "Preparado con incidencia" ? " prep-row-incident" : ""}${Number(r.deleted) === 1 ? " deleted-row" : ""}${active === "Pedidos" ? " order-list-row" : ""}`} onClick={(event) => { if (inlineEditing === (r.id ?? r.product_id) || (event.target as HTMLElement).closest("button, input, select, textarea, a")) return; if (active === "Presupuestos" || active === "Pedidos") { if (active === "Pedidos" && isOrderSent(r)) void openPreview(r); else void openRecordModal(r); return; } if (isLoadPreparation) { void openPreparationRow(r); return; } if (usesRecordModal) { void openRecordModal(r); return; } beginInline(r); }}>
+                  <tr key={r.id ?? r.product_id} data-inline-row={r.id ?? r.product_id} data-row-modal={active === "Presupuestos" || active === "Pedidos" || usesRecordModal || active === "Entradas" ? "true" : undefined} className={`${isProducts && Number(r.stock || 0) - Number(r.stock_reserved || 0) <= Number(r.min_stock || 0) ? "product-row-critical" : ""}${isLoadPreparation && Number(r.urgent) === 1 ? " prep-row-urgent" : ""}${isLoadPreparation && r.status === "Preparado con incidencia" ? " prep-row-incident" : ""}${Number(r.deleted) === 1 ? " deleted-row" : ""}${active === "Pedidos" ? " order-list-row" : ""}`} onClick={(event) => { if (inlineEditing === (r.id ?? r.product_id) || (event.target as HTMLElement).closest("button, input, select, textarea, a")) return; if (active === "Entradas") { void openEntryDetail(r); return; } if (active === "Presupuestos" || active === "Pedidos") { if (active === "Pedidos" && isOrderSent(r)) void openPreview(r); else void openRecordModal(r); return; } if (isLoadPreparation) { void openPreparationRow(r); return; } if (usesRecordModal) { void openRecordModal(r); return; } beginInline(r); }}>
                     {isProducts && <td className="product-check-column"><input type="checkbox" checked={selectedProductIds.includes(Number(r.id))} onChange={() => toggleProductSelection(Number(r.id))} aria-label={`Seleccionar ${r.name}`} /></td>}
                     {visibleFields.map((f: string) => (
                       <td key={f} className={`${stockCellClass(r, f)}${active === "Stock" && ["stock", "stock_reserved", "available_stock", "min_stock"].includes(f) && Number(r[f]) < 0 ? " stock-negative" : ""}`}>
@@ -4114,6 +4218,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                             </button>}
                           </>
                         )}
+                        {active === "Entradas" && <button className="row-action primary" onClick={() => void openEntryDetail(r)}>Ver detalle</button>}
                         {inlineEditing === (r.id ?? r.product_id) ? (
                           <>
                             <button
@@ -4132,7 +4237,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                               Cancelar
                             </button>
                           </>
-                        ) : active === "Pedidos" ? null : (
+                        ) : active === "Pedidos" || active === "Entradas" ? null : (
                           <button
                             className="row-action"
                             onClick={() => usesRecordModal ? void openRecordModal(r) : beginInline(r)}
@@ -4185,6 +4290,17 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       )}
       {active === "Productos" && batchLabelProducts.length > 0 && (
         <ProductBatchLabelModal products={batchLabelProducts} onClose={() => setBatchLabelProducts([])} />
+      )}
+      {active === "Entradas" && entryDetail && (
+        <div className="preview-overlay" role="dialog" aria-modal="true" aria-label="Detalle de entrada" onMouseDown={(event) => event.target === event.currentTarget && setEntryDetail(null)}>
+          <section className="preview-card goods-receipt-detail">
+            <header className="preview-header"><div><b>Entrada · {entryDetail.code}</b><small>{entryDetail.supplier_name || "Proveedor sin nombre"} · {formatTableValue("receipt_date", entryDetail.receipt_date)} · {entryDetail.warehouse_name || "Almacén"}</small></div><button type="button" className="preview-close" aria-label="Cerrar" onClick={() => setEntryDetail(null)}>×</button></header>
+            <div className="goods-receipt-detail-meta"><span><b>Estado</b>{entryDetail.status}</span><span><b>Pedido de compra</b>{entryDetail.purchase_order_code || "Sin vincular"}</span><span><b>Recepcionado por</b>{entryDetail.received_by || "—"}</span></div>
+            <div className="goods-receipt-detail-lines">{(entryDetail.lines || []).map((line: any) => <article key={line.id}><div><b>{line.product_name || line.product_name_snapshot}</b><small>{line.sku || "Sin referencia"}</small></div><span>Esperadas <b>{line.expected_quantity}</b></span><span>Recibidas <b>{line.received_quantity}</b></span><strong className={line.status !== "Correcta" ? "goods-receipt-incident-text" : ""}>{line.status}</strong></article>)}</div>
+            {(entryDetail.incidents || []).length > 0 && <section className="goods-receipt-detail-incidents"><b>Incidencias pendientes</b>{entryDetail.incidents.map((incident: any) => <article key={incident.id}><div><strong>{incident.type}</strong><span>{incident.description}</span></div>{incident.attachment_data && <img src={incident.attachment_data} alt={incident.attachment_name || "Foto de incidencia"} />}</article>)}</section>}
+            <footer className="preview-actions"><button type="button" className="button secondary" onClick={() => setEntryDetail(null)}>Cerrar</button></footer>
+          </section>
+        </div>
       )}
       {active === "Documentos" && documentPreview && (
         <DocumentTemplatePreview
