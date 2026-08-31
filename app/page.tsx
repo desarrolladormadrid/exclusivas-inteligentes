@@ -796,7 +796,7 @@ const icon = (m: string) =>
     Documentos: "▤",
   })[m] || "•";
 
-type ToolbarIconName = "download" | "upload" | "template" | "preparation" | "stock" | "order" | "expense" | "map" | "commercial" | "warehouse" | "web";
+type ToolbarIconName = "download" | "upload" | "template" | "preparation" | "stock" | "order" | "expense" | "backup" | "map" | "commercial" | "warehouse" | "web";
 function ToolbarIcon({ name }: { name: ToolbarIconName }) {
   const paths: Record<ToolbarIconName, ReactNode> = {
     download: <><path d="M12 3v11" /><path d="m7.5 10.5 4.5 4.5 4.5-4.5" /><path d="M4 20h16" /></>,
@@ -806,6 +806,7 @@ function ToolbarIcon({ name }: { name: ToolbarIconName }) {
     stock: <><path d="m4 8 8-4 8 4-8 4-8-4Z" /><path d="m4 12 8 4 8-4" /><path d="m4 16 8 4 8-4" /></>,
     order: <><path d="M12 5v14M5 12h14" /></>,
     expense: <><path d="M6 4h9l3 3v13H6z" /><path d="M15 4v4h3M9 12h6M9 15.5h4" /></>,
+    backup: <><path d="M5 5.5h14v4H5z" /><path d="M5 10.5h14v4H5z" /><path d="M5 15.5h14v3H5z" /><path d="M8 7.5h.01M8 12.5h.01M8 17h.01" /></>,
     map: <><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></>,
     commercial: <><path d="M5 8h14v12H5z" /><path d="M8 8V5h8v3M8 12h8M12 12v8" /></>,
     warehouse: <><path d="m3 10 9-6 9 6v10H3z" /><path d="M7 20v-6h10v6M7 10h.01M12 10h.01M17 10h.01" /></>,
@@ -8587,6 +8588,16 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
               <ToolbarIcon name="expense" />
               <span className="icon-action-label">Subir gasto</span>
             </button>
+            <a
+              className="button primary quick-icon-action app-backup-action"
+              href="/api/backup"
+              download
+              aria-label="Descargar copia de seguridad"
+              title="Descargar copia de seguridad"
+            >
+              <ToolbarIcon name="backup" />
+              <span className="icon-action-label">Descargar copia de seguridad</span>
+            </a>
           </div>
           <div className="notification-box">
             <button

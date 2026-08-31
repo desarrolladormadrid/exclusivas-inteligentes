@@ -26,6 +26,8 @@ try {
     if (await action.getAttribute("title") !== label) throw new Error(`Falta el tooltip del acceso rápido: ${label}`);
     if (!(await action.locator(".toolbar-action-icon").count())) throw new Error(`Falta el icono del acceso rápido: ${label}`);
   }
+  const backup = page.locator('.header-quick-actions .quick-icon-action[aria-label="Descargar copia de seguridad"]');
+  if (await backup.count() !== 1 || await backup.getAttribute("href") !== "/api/backup" || !(await backup.locator(".toolbar-action-icon").count())) throw new Error("Falta el acceso rápido para descargar la copia de seguridad");
   await page.screenshot({ path: path.join(screenshotDir, "toolbar-icons-home-desktop.png"), fullPage: false });
   await page.setViewportSize({ width: 768, height: 1024 });
   await page.waitForTimeout(250);
@@ -49,7 +51,7 @@ try {
   await page.waitForTimeout(250);
   await page.screenshot({ path: path.join(screenshotDir, "toolbar-icons-tablet.png"), fullPage: false });
   if (errors.length) throw new Error(`Errores de consola: ${errors.join(" | ")}`);
-  console.log(`PASS toolbar icons: ${await quickActions.count()} accesos rápidos + 3 acciones de gestión · escritorio · tablet · consola limpia`);
+  console.log(`PASS toolbar icons: ${await quickActions.count()} accesos rápidos + copia de seguridad + 3 acciones de gestión · escritorio · tablet · consola limpia`);
 } catch (error) {
   await page.screenshot({ path: path.join(screenshotDir, "toolbar-icons-failed.png"), fullPage: false }).catch(() => undefined);
   console.error(error.message);
