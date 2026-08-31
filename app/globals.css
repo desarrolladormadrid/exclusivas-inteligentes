@@ -3306,6 +3306,9 @@ footer span {
     box-shadow: none;
   }
   .document-preview-overlay .preview-close,
+  .document-preview-overlay .preparation-delivery-panel,
+  .document-preview-overlay .preparation-start-banner,
+  .document-preview-overlay .preparation-annotation-panel,
   .document-preview-overlay .preparation-annotation-actions,
   .document-preview-overlay .prep-location-save-all,
   .document-preview-overlay .prep-bulk-incident,
