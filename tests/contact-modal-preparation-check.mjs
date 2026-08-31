@@ -78,10 +78,25 @@ try {
   const tomorrow = localDateOffset(1);
   const dateInput = page.locator(".prep-command-filters input[type=date]").first();
   if (await dateInput.inputValue() !== tomorrow) throw new Error(`El filtro Mañana no selecciona ${tomorrow}`);
+  if (await tomorrowButton.getAttribute("aria-pressed") !== "true" || await tomorrowButton.getAttribute("class")?.then((value) => !value.includes("primary"))) throw new Error("Mañana no queda marcado como selección activa");
+  if (await page.locator(".prep-command-filters").getByRole("button", { name: "Hoy", exact: true }).getAttribute("aria-pressed") !== "false") throw new Error("Hoy sigue marcado al seleccionar Mañana");
   await page.screenshot({ path: path.join(screenshotDir, `preparation-tomorrow-${screenshotPrefix}.png`), fullPage: false });
   console.log(`PASS Preparación: botón Mañana selecciona ${tomorrow}`);
 
-  await page.getByRole("button", { name: "Todos", exact: true }).click();
+  const allCommandButton = page.locator(".prep-command-filters").getByRole("button", { name: "Todos", exact: true });
+  await allCommandButton.click();
+  if (await allCommandButton.getAttribute("aria-pressed") !== "true" || await allCommandButton.getAttribute("class")?.then((value) => !value.includes("primary"))) throw new Error("Todos no queda marcado como selección activa");
+  const tableFilters = page.locator(".prep-date-filter");
+  if (await tableFilters.count()) {
+    const tableToday = tableFilters.getByRole("button", { name: "Hoy", exact: true });
+    const tableTomorrow = tableFilters.getByRole("button", { name: "Mañana", exact: true });
+    const tableAll = tableFilters.getByRole("button", { name: "Todos", exact: true });
+    if (await tableToday.getAttribute("aria-pressed") !== "true") throw new Error("Hoy no aparece activo en el filtro de tabla");
+    await tableTomorrow.click();
+    if (await tableTomorrow.getAttribute("aria-pressed") !== "true" || await tableToday.getAttribute("aria-pressed") !== "false") throw new Error("El filtro de tabla no mueve la selección a Mañana");
+    await tableAll.click();
+    if (await tableAll.getAttribute("aria-pressed") !== "true") throw new Error("Todos no aparece activo en el filtro de tabla");
+  }
   await page.locator(".prep-order-card").first().waitFor({ state: "visible", timeout: 30000 });
   await page.locator(".prep-order-card").first().click();
   const loadNote = page.locator(".document-preview");
