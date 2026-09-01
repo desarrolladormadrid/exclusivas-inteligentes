@@ -2825,6 +2825,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         });
         if (!lineResponse.ok) return alert(`${isProforma ? "La proforma" : "El presupuesto"} se creó, pero no se pudo guardar una de sus líneas.`);
       }
+      if (isProforma) await prepareInvoicePdf(d);
     }
     setDbError("");
     setRows(editing ? rows.map((x) => (x.id === d.id ? d : x)) : [d, ...rows]);
@@ -3480,6 +3481,34 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     if (!response.ok) return alert(updated.error || "No se pudo convertir la proforma");
     setRows((current) => current.map((item) => item.id === row.id ? updated : item));
     alert(`Factura ${updated.code} creada a partir de la proforma`);
+  }
+  async function prepareInvoicePdf(row: any, force = false) {
+    const response = await fetch(`/api/invoices/${row.id}/pdf`, { method: "POST", headers: actorHeaders, body: JSON.stringify({ force }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { alert(data.error || "No se pudo generar el PDF de la factura"); return null; }
+    setRows((current) => current.map((item) => Number(item.id) === Number(data.id) ? { ...item, ...data } : item));
+    setPreview((current: any) => current && Number(current.id) === Number(data.id) ? { ...current, ...data } : current);
+    return data;
+  }
+  async function openInvoicePdf(row: any) {
+    const data = await prepareInvoicePdf(row);
+    if (!data) return;
+    window.open(data.share_url || `/api/invoices/share/${encodeURIComponent(data.share_token)}`, "_blank", "noopener,noreferrer");
+  }
+  async function copyInvoiceLink(row: any) {
+    const data = await prepareInvoicePdf(row);
+    if (!data) return;
+    const link = data.share_url || `${window.location.origin}/api/invoices/share/${encodeURIComponent(data.share_token)}`;
+    try { await navigator.clipboard.writeText(link); alert("Enlace seguro de la factura copiado."); } catch { window.prompt("Copia este enlace seguro de factura:", link); }
+  }
+  async function sendInvoiceEmail(row: any) {
+    const response = await fetch(`/api/invoices/${row.id}/email`, { method: "POST", headers: actorHeaders, body: JSON.stringify({}) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(data.error || "No se pudo preparar el email de la factura");
+    if (data.mode === "mailto") {
+      window.location.href = `mailto:${encodeURIComponent(data.to)}?subject=${encodeURIComponent(data.subject)}&body=${encodeURIComponent(data.body)}`;
+      alert("Se ha preparado el correo con la factura y su enlace seguro. Revisa el destinatario y pulsa Enviar.");
+    } else alert(`Factura enviada por email a ${data.to}.`);
   }
   function downloadAttachment(row: any) {
     if (!row.attachment_data) return;
@@ -4881,6 +4910,13 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                             Vista previa
                           </button>
                         )}
+                        {active === "Facturas" && (
+                          <>
+                            <button className="row-action workflow" onClick={() => void openInvoicePdf(r)}>Ver PDF</button>
+                            <button className="row-action" onClick={() => void copyInvoiceLink(r)}>Compartir enlace</button>
+                            <button className="row-action workflow" onClick={() => void sendInvoiceEmail(r)}>Enviar email</button>
+                          </>
+                        )}
                         {active === "Albaranes" && (
                           <button
                             className="row-action workflow"
@@ -5276,6 +5312,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             <button className="button secondary" disabled={previewLoading} onClick={() => window.print()}>
               Imprimir / guardar PDF
             </button>
+            {active === "Facturas" && <div className="invoice-document-actions"><button type="button" className="button workflow" onClick={() => void openInvoicePdf(preview)}>Ver PDF generado</button><button type="button" className="button secondary" onClick={() => void copyInvoiceLink(preview)}>Copiar enlace seguro</button><button type="button" className="button workflow" onClick={() => void sendInvoiceEmail(preview)}>Enviar por email</button><button type="button" className="button secondary" onClick={() => void prepareInvoicePdf(preview, true)}>Regenerar PDF</button></div>}
             {active === "Pedidos" && <div className="order-preview-actions"><button type="button" className="button workflow" onClick={() => void (getOrderShipment(preview) ? openOrderLoadNote(preview) : createOrderLoadNote(preview))}>{getOrderShipment(preview) ? "Abrir nota de carga" : "Crear nota de carga"}</button>{!isOrderSent(preview) && <button type="button" className="button secondary" onClick={() => { setPreview(null); beginInline(preview); }}>Editar pedido</button>}<button type="button" className="button secondary" onClick={() => void convertOrder(preview, "delivery")}>Crear albarán</button><button type="button" className="button primary" onClick={() => void convertOrder(preview, "invoice")}>Crear factura</button></div>}
             {active === "Presupuestos" && <div className="quote-preview-actions"><button type="button" className="button secondary" onClick={() => void sendQuoteToClient(preview)}>Enviar al cliente</button><button type="button" className="button primary" disabled={preview.status === "Convertido"} onClick={() => void convertQuoteToOrder(preview)}>{preview.status === "Convertido" ? "Convertido a pedido" : "Convertir a pedido"}</button></div>}
           </div>

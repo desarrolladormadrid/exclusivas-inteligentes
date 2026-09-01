@@ -96,6 +96,138 @@ async function uploadReceiptAttachment(dataUrl, receiptCode, incidentKey, index)
     format: String(body.format || parsed.mime.split("/")[1] || ""),
   };
 }
+function pdfSafeText(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, "?");
+}
+function pdfLiteral(value) {
+  return `(${pdfSafeText(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)")})`;
+}
+function createInvoicePdf(invoice) {
+  const lineRows = Array.isArray(invoice.lines) ? invoice.lines : [];
+  const lineTotal = lineRows.reduce((sum, line) => sum + Number(line.amount || Number(line.quantity || 0) * Number(line.unit_price || 0)), 0);
+  const vatRate = Number(invoice.vat || 21);
+  const base = lineTotal || (Number(invoice.amount || 0) / (1 + vatRate / 100));
+  const total = lineTotal ? base * (1 + vatRate / 100) : Number(invoice.amount || 0);
+  const vat = total - base;
+  const lines = [
+    "EXCLUSIVAS INTELIGENTES",
+    "DISTRIBUIDORA DE BEBIDAS",
+    "",
+    `FACTURA ${invoice.code || `#${invoice.id}`}`,
+    `Fecha: ${String(invoice.issue_date || invoice.created_at || new Date().toISOString()).slice(0, 10)}`,
+    "",
+    `Cliente: ${invoice.client_name || "Cliente no indicado"}`,
+    `Direccion: ${invoice.client_address || "No indicada"}`,
+    `Ciudad: ${invoice.client_city || "No indicada"}`,
+    `Correo: ${invoice.client_email || "No indicado"}`,
+    "",
+    "CONCEPTOS",
+    ...(lineRows.length ? lineRows.flatMap((line) => {
+      const description = line.product_name || `Producto #${line.product_id || ""}`;
+      const quantity = Number(line.quantity || 0);
+      const amount = Number(line.amount || quantity * Number(line.unit_price || 0));
+      return [`${description} · ${quantity} uds. · ${amount.toFixed(2)} EUR`];
+    }) : ["Sin lineas de producto asociadas"]),
+    "",
+    `Base imponible: ${base.toFixed(2)} EUR`,
+    `IVA (${vatRate.toFixed(0)}%): ${vat.toFixed(2)} EUR`,
+    `TOTAL: ${total.toFixed(2)} EUR`,
+    "",
+    "Documento generado por Exclusivas Inteligentes.",
+  ];
+  const wrapped = [];
+  for (const line of lines) {
+    const text = pdfSafeText(line);
+    if (!text) { wrapped.push(""); continue; }
+    for (let offset = 0; offset < text.length; offset += 92) wrapped.push(text.slice(offset, offset + 92));
+  }
+  const pages = [];
+  for (let offset = 0; offset < wrapped.length; offset += 38) pages.push(wrapped.slice(offset, offset + 38));
+  if (!pages.length) pages.push(["Factura sin contenido"]);
+  const objects = [];
+  const addObject = (value) => { objects.push(value); return objects.length; };
+  const catalogId = addObject("");
+  const pagesId = addObject("");
+  const fontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const pageIds = [];
+  for (const pageLines of pages) {
+    const commands = ["BT", "/F1 10 Tf", "50 790 Td"];
+    pageLines.forEach((line, index) => {
+      if (index) commands.push("0 -18 Td");
+      commands.push(`${pdfLiteral(line)} Tj`);
+    });
+    commands.push("ET");
+    const contentId = addObject(`<< /Length ${Buffer.byteLength(commands.join("\n"), "ascii")} >>\nstream\n${commands.join("\n")}\nendstream`);
+    const pageId = addObject("");
+    objects[pageId - 1] = `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`;
+    pageIds.push(pageId);
+  }
+  objects[catalogId - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+  objects[pagesId - 1] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`;
+  let pdf = "%PDF-1.4\n%âãÏÓ\n";
+  const offsets = [0];
+  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf, "binary")); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = Buffer.byteLength(pdf, "binary");
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => { pdf += `${String(offset).padStart(10, "0")} 00000 n \n`; });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(pdf, "binary");
+}
+function invoicePdfData(invoiceId) {
+  const invoice = db.prepare("SELECT i.*,c.name client_name,c.address client_address,c.city client_city,c.email client_email,c.phone client_phone FROM invoices i LEFT JOIN clients c ON c.id=i.client_id WHERE i.id=? AND CAST(COALESCE(i.deleted,0) AS INTEGER)=0").get(Number(invoiceId));
+  if (!invoice) return null;
+  const lines = db.prepare("SELECT il.*,p.name product_name,p.sku FROM invoice_lines il LEFT JOIN products p ON p.id=il.product_id WHERE il.invoice_id=? ORDER BY il.id").all(Number(invoiceId));
+  return { ...invoice, lines };
+}
+async function uploadInvoicePdf(buffer, invoice) {
+  if (!cloudinaryReady()) return null;
+  const cloud = String(process.env.CLOUDINARY_CLOUD_NAME).trim();
+  const timestamp = Math.floor(Date.now() / 1000);
+  const folder = "exclusivas-inteligentes/facturas";
+  const publicId = `factura-${Number(invoice.id)}-${slugifyProductName(invoice.code || "documento")}.pdf`;
+  const signed = { folder, public_id: publicId, timestamp };
+  const signatureBase = Object.keys(signed).sort().map((key) => `${key}=${signed[key]}`).join("&");
+  const signature = createHash("sha1").update(`${signatureBase}${process.env.CLOUDINARY_API_SECRET}`).digest("hex");
+  const form = new FormData();
+  form.append("file", new Blob([buffer], { type: "application/pdf" }), publicId);
+  form.append("api_key", String(process.env.CLOUDINARY_API_KEY).trim());
+  form.append("timestamp", String(timestamp));
+  form.append("folder", folder);
+  form.append("public_id", publicId);
+  form.append("signature", signature);
+  form.append("overwrite", "true");
+  const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloud)}/raw/upload`, { method: "POST", body: form });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.secure_url) throw new Error(body?.error?.message || "No se pudo subir la factura a Cloudinary");
+  return { public_id: body.public_id || publicId, secure_url: body.secure_url, bytes: Number(body.bytes || buffer.length) };
+}
+async function ensureInvoicePdf(invoiceId, actor = "Sistema", force = false) {
+  const current = invoicePdfData(invoiceId);
+  if (!current) throw new Error("Factura no encontrada");
+  if (!force && current.pdf_status === "Generado" && current.pdf_generated_at && current.share_token) return current;
+  const pdf = createInvoicePdf(current);
+  const uploaded = await uploadInvoicePdf(pdf, current);
+  const now = new Date().toISOString();
+  const shareToken = current.share_token || randomBytes(24).toString("hex");
+  const status = uploaded ? "Generado" : "Generado local · Cloudinary no configurado";
+  db.prepare("UPDATE invoices SET pdf_public_id=?,pdf_url=?,pdf_bytes=?,pdf_sha256=?,pdf_generated_at=?,pdf_status=?,share_token=?,updated_at=? WHERE id=?").run(uploaded?.public_id || current.pdf_public_id || null, uploaded?.secure_url || current.pdf_url || null, uploaded?.bytes || pdf.length, createHash("sha256").update(pdf).digest("hex"), now, status, shareToken, now, Number(invoiceId));
+  recordAudit(actor, "POST", `invoices/${Number(invoiceId)}/pdf`, "Generar PDF de factura", JSON.stringify({ invoice_id: Number(invoiceId), code: current.code, storage: uploaded ? "Cloudinary" : "local" }));
+  invalidateReadCache("invoices");
+  return { ...current, pdf_public_id: uploaded?.public_id || current.pdf_public_id || null, pdf_url: uploaded?.secure_url || current.pdf_url || null, pdf_bytes: uploaded?.bytes || pdf.length, pdf_sha256: createHash("sha256").update(pdf).digest("hex"), pdf_generated_at: now, pdf_status: status, share_token: shareToken, _pdf: pdf };
+}
+function markInvoicePdfStale(invoiceId) {
+  if (!invoiceId || !hasColumn("invoices", "pdf_status")) return;
+  db.prepare("UPDATE invoices SET pdf_status='Pendiente de regenerar',updated_at=? WHERE id=?").run(new Date().toISOString(), Number(invoiceId));
+  invalidateReadCache("invoices");
+}
+function invoiceShareUrl(req, token) {
+  const host = String(req.headers.host || "exclusivas-inteligentes.vercel.app");
+  const protocol = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
+  return `${protocol}://${host}/api/invoices/share/${encodeURIComponent(token)}`;
+}
 const remoteMode = process.env.DATABASE_MODE === "remote";
 const db = remoteMode
   ? createRemoteDatabaseSync({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN })
@@ -231,6 +363,21 @@ db.exec(
 );
 db.exec(`CREATE TABLE IF NOT EXISTS invoice_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL,order_id INTEGER NOT NULL,UNIQUE(invoice_id,order_id),UNIQUE(order_id));`);
 try { db.exec("INSERT OR IGNORE INTO invoice_orders(invoice_id,order_id) SELECT id,order_id FROM invoices WHERE order_id IS NOT NULL"); } catch {}
+for (const column of [
+  "pdf_public_id TEXT",
+  "pdf_url TEXT",
+  "pdf_bytes INTEGER DEFAULT 0",
+  "pdf_sha256 TEXT",
+  "pdf_generated_at TEXT",
+  "pdf_status TEXT DEFAULT 'Pendiente'",
+  "share_token TEXT",
+  "pdf_email_sent_at TEXT",
+  "pdf_email_to TEXT",
+  "pdf_email_status TEXT",
+]) {
+  try { db.exec(`ALTER TABLE invoices ADD COLUMN ${column}`); } catch {}
+}
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_share_token ON invoices(share_token) WHERE share_token IS NOT NULL"); } catch {}
 for (const column of ["quantity_requested", "quantity_unit", "units_factor"]) { try { db.exec(`ALTER TABLE order_lines ADD COLUMN ${column} TEXT`); } catch {} }
 try { db.exec("ALTER TABLE order_lines ADD COLUMN prepared INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE order_lines ADD COLUMN prepared_quantity REAL DEFAULT 0"); } catch {}
@@ -486,6 +633,38 @@ const send = (r, s, d) => {
   });
   r.end(JSON.stringify(d));
 };
+const sendPdf = (r, buffer, filename, disposition = "inline") => {
+  r.writeHead(200, {
+    "Content-Type": "application/pdf",
+    "Content-Length": String(buffer.length),
+    "Content-Disposition": `${disposition}; filename="${String(filename || "factura.pdf").replace(/["\\\\\\r\\\\n]/g, "_")}"`,
+    "Cache-Control": "private, no-store",
+    "Access-Control-Allow-Origin": "*",
+  });
+  r.end(buffer);
+};
+async function sendInvoiceEmail(invoice, pdf, shareUrl, recipient) {
+  const apiKey = String(process.env.RESEND_API_KEY || "").trim();
+  const from = String(process.env.RESEND_FROM_EMAIL || "").trim();
+  const to = String(recipient || "").trim();
+  const subject = `Factura ${invoice.code || `#${invoice.id}`} · Exclusivas Inteligentes`;
+  const body = `Hola,\n\nTe enviamos la factura ${invoice.code || `#${invoice.id}`} de Exclusivas Inteligentes.\n\nPuedes consultar o descargarla desde este enlace seguro:\n${shareUrl}\n\nUn saludo.`;
+  if (!apiKey || !from) return { mode: "mailto", to, subject, body, share_url: shareUrl };
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from,
+      to: [to],
+      subject,
+      html: `<p>Hola,</p><p>Te enviamos la factura <strong>${pdfSafeText(invoice.code || `#${invoice.id}`)}</strong> de Exclusivas Inteligentes.</p><p><a href="${shareUrl}">Consultar o descargar factura</a></p><p>Un saludo.</p>`,
+      attachments: [{ filename: `${invoice.code || `factura-${invoice.id}`}.pdf`, content: pdf.toString("base64") }],
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result?.message || result?.error || "El proveedor de correo rechazó el envío");
+  return { mode: "resend", provider_id: result.id || null, to, subject, share_url: shareUrl };
+}
 const readCache = new Map();
 const READ_CACHE_MS = 60000;
 const listColumnsCache = new Map();
@@ -676,6 +855,33 @@ export async function crmApiHandler(req, res) {
       .filter(Boolean);
     try {
       const actor = req.headers["x-actor"] || "Usuario local";
+      if (p[1] === "invoices" && p[2] === "share" && p[3] && req.method === "GET") {
+        const invoice = db.prepare("SELECT id,code,share_token FROM invoices WHERE share_token=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(String(p[3]));
+        if (!invoice) return send(res, 404, { error: "Enlace de factura no válido o caducado" });
+        const prepared = await ensureInvoicePdf(invoice.id, "Consulta mediante enlace");
+        const current = invoicePdfData(invoice.id);
+        const pdf = prepared._pdf || createInvoicePdf(current);
+        return sendPdf(res, pdf, `${String(invoice.code || `factura-${invoice.id}`).replace(/[^a-zA-Z0-9._-]+/g, "-")}.pdf`, "inline");
+      }
+      if (p[1] === "invoices" && p[2] && req.method === "POST" && p[3] === "pdf") {
+        const body = await read(req);
+        const prepared = await ensureInvoicePdf(Number(p[2]), actor, body.force === true);
+        return send(res, 200, { id: prepared.id, code: prepared.code, pdf_url: prepared.pdf_url, pdf_bytes: prepared.pdf_bytes, pdf_generated_at: prepared.pdf_generated_at, pdf_status: prepared.pdf_status, share_token: prepared.share_token, share_url: invoiceShareUrl(req, prepared.share_token) });
+      }
+      if (p[1] === "invoices" && p[2] && req.method === "POST" && p[3] === "email") {
+        const body = await read(req);
+        const prepared = await ensureInvoicePdf(Number(p[2]), actor, false);
+        const invoice = invoicePdfData(Number(p[2]));
+        const recipient = String(body.email || invoice?.client_email || "").trim();
+        if (!recipient || !recipient.includes("@")) return send(res, 400, { error: "La factura no tiene un email de cliente válido" });
+        const shareUrl = invoiceShareUrl(req, prepared.share_token);
+        const result = await sendInvoiceEmail(invoice, prepared._pdf || createInvoicePdf(invoice), shareUrl, recipient);
+        const now = new Date().toISOString();
+        db.prepare("UPDATE invoices SET pdf_email_sent_at=?,pdf_email_to=?,pdf_email_status=?,updated_at=? WHERE id=?").run(result.mode === "resend" ? now : null, recipient, result.mode === "resend" ? "Enviada" : "Preparada para enviar", now, Number(p[2]));
+        recordAudit(actor, "POST", `invoices/${Number(p[2])}/email`, result.mode === "resend" ? "Enviar factura por email" : "Preparar email de factura", JSON.stringify({ invoice_id: Number(p[2]), to: recipient, mode: result.mode }));
+        invalidateReadCache("invoices");
+        return send(res, 200, { ok: true, ...result, pdf_status: prepared.pdf_status });
+      }
       // Las consultas automáticas de carga no deben modificar SQLite: en desarrollo
       // provocarían un ciclo de HMR (consulta -> cambio de DB -> recarga -> consulta).
       // Las consultas explícitas pueden marcarse con X-Audit-Query.
@@ -1348,7 +1554,9 @@ export async function crmApiHandler(req, res) {
           if (!remoteMode) db.exec("COMMIT");
           invalidateReadCache("invoice_lines");
           invalidateReadCache("orders");
-          return send(res, 201, { id: invoiceId, code, amount: total, client_id: orders[0].client_id, order_ids: ids, status: "Pendiente" });
+          let pdf = null;
+          try { pdf = await ensureInvoicePdf(invoiceId, actor); } catch (error) { pdf = { pdf_status: "Pendiente · PDF no generado", pdf_error: error?.message || "No se pudo generar el PDF" }; }
+          return send(res, 201, { id: invoiceId, code, amount: total, client_id: orders[0].client_id, order_ids: ids, status: "Pendiente", pdf_status: pdf.pdf_status, pdf_generated_at: pdf.pdf_generated_at || null, share_url: pdf.share_token ? invoiceShareUrl(req, pdf.share_token) : null, pdf_error: pdf.pdf_error || null });
         } catch (error) { if (!remoteMode) { try { db.exec("ROLLBACK"); } catch {} } return send(res, 500, { error: error?.message || "No se pudo crear la factura" }); }
       }
       if (
@@ -1397,6 +1605,10 @@ export async function crmApiHandler(req, res) {
         );
         invalidateReadCache(delivery ? "delivery_note_lines" : "invoice_lines");
         invalidateReadCache("orders");
+        let pdf = null;
+        if (!delivery) {
+          try { pdf = await ensureInvoicePdf(newId, actor); } catch (error) { pdf = { pdf_status: "Pendiente · PDF no generado", pdf_error: error?.message || "No se pudo generar el PDF" }; }
+        }
         return send(res, 201, {
           id: newId,
           code,
@@ -1404,6 +1616,10 @@ export async function crmApiHandler(req, res) {
           client_id: order.client_id,
           amount: order.amount || 0,
           status: "Pendiente",
+          pdf_status: pdf?.pdf_status || null,
+          pdf_generated_at: pdf?.pdf_generated_at || null,
+          share_url: pdf?.share_token ? invoiceShareUrl(req, pdf.share_token) : null,
+          pdf_error: pdf?.pdf_error || null,
         });
       }
       if (t === "delivery_notes" && req.method === "POST" && p[2] === "convert-invoice") {
@@ -1428,7 +1644,9 @@ export async function crmApiHandler(req, res) {
         if (delivery.order_id) db.prepare("UPDATE orders SET status='Facturado',updated_at=? WHERE id=?").run(new Date().toISOString(), delivery.order_id);
         invalidateReadCache("invoice_lines");
         invalidateReadCache("orders");
-        return send(res, 201, { id: invoiceId, code, order_id: delivery.order_id || null, delivery_note_id: delivery.id, client_id: delivery.client_id, amount: order?.amount || 0, status: "Pendiente" });
+        let pdf = null;
+        try { pdf = await ensureInvoicePdf(invoiceId, actor); } catch (error) { pdf = { pdf_status: "Pendiente · PDF no generado", pdf_error: error?.message || "No se pudo generar el PDF" }; }
+        return send(res, 201, { id: invoiceId, code, order_id: delivery.order_id || null, delivery_note_id: delivery.id, client_id: delivery.client_id, amount: order?.amount || 0, status: "Pendiente", pdf_status: pdf.pdf_status, pdf_generated_at: pdf.pdf_generated_at || null, share_url: pdf.share_token ? invoiceShareUrl(req, pdf.share_token) : null, pdf_error: pdf.pdf_error || null });
       }
       if (t === "summary" && req.method === "GET") {
         const query = new URL(req.url, "http://local").searchParams;
@@ -1778,6 +1996,7 @@ export async function crmApiHandler(req, res) {
           const names = stockAlerts.map((item) => db.prepare("SELECT name FROM products WHERE id=?").get(item.product_id)?.name || `Producto #${item.product_id}`);
           db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,completed,created_at) VALUES(?,?,?,?,?,?,?,?)").run(`Revisar stock · ${d.code || "Nuevo pedido"}`, `El pedido queda reservado, pero ${names.join(", ")} quedará por debajo del stock mínimo o sin unidades suficientes. Revisa reposición antes de preparar.`, stockShortages.length ? "Urgente" : "Alta", "Stock", Number(r.lastInsertRowid), 1, 0, now);
         }
+        if (t === "invoice_lines" && d.invoice_id) markInvoicePdfStale(d.invoice_id);
         const createdRecord = { id: Number(r.lastInsertRowid), ...d };
         if (t === "products") Object.assign(createdRecord, db.prepare("SELECT photo_url,photo_public_id,photo_thumbnail_url,photo_web_url,photo_bytes,photo_width,photo_height,photo_format FROM products WHERE id=?").get(Number(r.lastInsertRowid)) || {});
         if (t === "orders") createdRecord.stock_alerts = [...stockShortages, ...stockAlerts];
@@ -1803,6 +2022,11 @@ export async function crmApiHandler(req, res) {
         }
         const result = db.prepare(`UPDATE ${t} SET deleted=1,deleted_at=?,deleted_by=?,updated_at=? WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0`).run(now, actor, now, p[2]);
         if (!result.changes) return send(res, 404, { error: "Registro no encontrado" });
+        if (t === "invoice_lines") {
+          const line = db.prepare("SELECT invoice_id FROM invoice_lines WHERE id=?").get(Number(p[2]));
+          if (line?.invoice_id) markInvoicePdfStale(line.invoice_id);
+        }
+        if (t === "invoices") invalidateReadCache("invoices");
         return send(res, 200, { ok: true, deleted: 1 });
       }
       if (req.method === "PUT") {
@@ -2036,6 +2260,11 @@ export async function crmApiHandler(req, res) {
           db.prepare("INSERT INTO product_price_history(product_id,supplier_id,price_type,amount,valid_from,source,notes,created_at) VALUES(?,?,?,?,?,?,?,?)").run(Number(p[2]), d.primary_supplier_id || d.supplier_id || null, "Coste", Number(d.real_cost || d.cost_price || 0), now, actor, "Cambio de precio del producto", now);
           db.prepare("INSERT INTO product_price_history(product_id,price_type,amount,valid_from,source,notes,created_at) VALUES(?,?,?,?,?,?,?)").run(Number(p[2]), "Venta", Number(d.unit_price || 0), now, actor, "Cambio de tarifa principal", now);
         }
+        if (t === "invoice_lines") {
+          const line = db.prepare("SELECT invoice_id FROM invoice_lines WHERE id=?").get(Number(p[2]));
+          if (line?.invoice_id) markInvoicePdfStale(line.invoice_id);
+        }
+        if (t === "invoices") markInvoicePdfStale(Number(p[2]));
         return send(res, 200, { id: Number(p[2]), ...d });
       }
       return send(res, 405, { error: "Método no permitido" });
