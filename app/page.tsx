@@ -2318,19 +2318,6 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     setForm(value);
     setEditing(record);
   }
-  useEffect(() => {
-    if (active !== "Cobros" || formOpen) return;
-    try {
-      const raw = sessionStorage.getItem("excluvas.pending-payment");
-      if (!raw) return;
-      sessionStorage.removeItem("excluvas.pending-payment");
-      const pending = JSON.parse(raw);
-      const invoice = (lookups.invoices || []).find((item: any) => Number(item.id) === Number(pending.invoice_id));
-      if (!invoice) return setError("No se ha encontrado la factura para preparar el cobro.");
-      beginForm({ invoice_id: String(invoice.id), amount: String(pending.amount || invoice.amount || ""), payment_date: tabletTodayInput(), method: "Transferencia" });
-      setFormOpen(true);
-    } catch { /* La pantalla de cobros sigue disponible aunque no se pueda recuperar el contexto. */ }
-  }, [active, formOpen, lookups.invoices]);
   function closeForm(force = false) {
     if (!force && formDirty && !window.confirm("Hay cambios sin guardar. Si cierras ahora se perderán. ¿Quieres continuar?")) return false;
     setEditing(null);
@@ -2400,6 +2387,19 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     inventory_movements: [],
   });
   const getClient = (id: any) => (lookups.clients || []).find((item: any) => Number(item.id) === Number(id));
+  useEffect(() => {
+    if (active !== "Cobros" || formOpen) return;
+    try {
+      const raw = sessionStorage.getItem("excluvas.pending-payment");
+      if (!raw) return;
+      sessionStorage.removeItem("excluvas.pending-payment");
+      const pending = JSON.parse(raw);
+      const invoice = (lookups.invoices || []).find((item: any) => Number(item.id) === Number(pending.invoice_id));
+      if (!invoice) return setError("No se ha encontrado la factura para preparar el cobro.");
+      beginForm({ invoice_id: String(invoice.id), amount: String(pending.amount || invoice.amount || ""), payment_date: tabletTodayInput(), method: "Transferencia" });
+      setFormOpen(true);
+    } catch { /* La pantalla de cobros sigue disponible aunque no se pueda recuperar el contexto. */ }
+  }, [active, formOpen, lookups.invoices]);
   useEffect(() => {
     if (!assistantFormIntent || assistantFormIntent.section !== active) return;
     const source = assistantFormIntent.data && typeof assistantFormIntent.data === "object" ? assistantFormIntent.data : {};
