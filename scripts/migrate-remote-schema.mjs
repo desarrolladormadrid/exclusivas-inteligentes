@@ -18,6 +18,9 @@ const migrationsByTable = {
   ],
   goods_receipt_incidents: [
     ["table", "CREATE TABLE IF NOT EXISTS goods_receipt_incidents(id INTEGER PRIMARY KEY AUTOINCREMENT,receipt_id INTEGER NOT NULL,receipt_line_id INTEGER,supplier_id INTEGER,type TEXT DEFAULT 'Diferencia',description TEXT NOT NULL,expected_quantity REAL,received_quantity REAL,status TEXT DEFAULT 'Pendiente',attachment_name TEXT,attachment_mime TEXT,attachment_data TEXT,created_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT)"],
+    ["resolution", "ALTER TABLE goods_receipt_incidents ADD COLUMN resolution TEXT"],
+    ["resolved_by", "ALTER TABLE goods_receipt_incidents ADD COLUMN resolved_by TEXT"],
+    ["resolved_at", "ALTER TABLE goods_receipt_incidents ADD COLUMN resolved_at TEXT"],
   ],
   ocr_documents: [
     ["table", "CREATE TABLE IF NOT EXISTS ocr_documents(id INTEGER PRIMARY KEY AUTOINCREMENT,file_name TEXT NOT NULL,mime_type TEXT,file_size INTEGER DEFAULT 0,document_type TEXT DEFAULT 'Otro',detected_email TEXT,detected_total TEXT,extracted_text TEXT,status TEXT DEFAULT 'Pendiente',created_by TEXT DEFAULT 'Usuario local',created_at TEXT,updated_at TEXT)"],
@@ -33,6 +36,7 @@ const migrationsByTable = {
     ["public_token", "ALTER TABLE purchase_requests ADD COLUMN public_token TEXT"],
     ["channels", "ALTER TABLE purchase_requests ADD COLUMN channels TEXT"],
     ["sent_at", "ALTER TABLE purchase_requests ADD COLUMN sent_at TEXT"],
+    ["valid_until", "ALTER TABLE purchase_requests ADD COLUMN valid_until TEXT"],
   ],
   purchase_request_offers: [
     ["table", "CREATE TABLE IF NOT EXISTS purchase_request_offers(id INTEGER PRIMARY KEY AUTOINCREMENT,request_id INTEGER NOT NULL,supplier_id INTEGER,supplier_ref TEXT,contact_name TEXT,email TEXT,valid_until TEXT,delivery_days INTEGER DEFAULT 0,notes TEXT,lines_json TEXT NOT NULL,status TEXT DEFAULT 'Recibida',created_at TEXT,updated_at TEXT)"],
@@ -64,6 +68,10 @@ const migrationsByTable = {
     ["source_balance", "ALTER TABLE suppliers ADD COLUMN source_balance REAL DEFAULT 0"],
     ["source_overdue_balance", "ALTER TABLE suppliers ADD COLUMN source_overdue_balance REAL DEFAULT 0"],
     ["source_payments", "ALTER TABLE suppliers ADD COLUMN source_payments REAL DEFAULT 0"],
+    ["city", "ALTER TABLE suppliers ADD COLUMN city TEXT"],
+    ["latitude", "ALTER TABLE suppliers ADD COLUMN latitude REAL"],
+    ["longitude", "ALTER TABLE suppliers ADD COLUMN longitude REAL"],
+    ["geocoding_status", "ALTER TABLE suppliers ADD COLUMN geocoding_status TEXT DEFAULT 'Pendiente'"],
   ],
   clients: [
     ["external_code", "ALTER TABLE clients ADD COLUMN external_code TEXT"],
@@ -78,6 +86,12 @@ const migrationsByTable = {
     ["source_overdue_balance", "ALTER TABLE clients ADD COLUMN source_overdue_balance REAL DEFAULT 0"],
     ["source_sales", "ALTER TABLE clients ADD COLUMN source_sales REAL DEFAULT 0"],
     ["source_payments", "ALTER TABLE clients ADD COLUMN source_payments REAL DEFAULT 0"],
+    ["billing_address", "ALTER TABLE clients ADD COLUMN billing_address TEXT"],
+    ["billing_city", "ALTER TABLE clients ADD COLUMN billing_city TEXT"],
+    ["latitude", "ALTER TABLE clients ADD COLUMN latitude REAL"],
+    ["longitude", "ALTER TABLE clients ADD COLUMN longitude REAL"],
+    ["geocoded_at", "ALTER TABLE clients ADD COLUMN geocoded_at TEXT"],
+    ["geocoding_status", "ALTER TABLE clients ADD COLUMN geocoding_status TEXT DEFAULT 'Pendiente'"],
   ],
   products: [
     ["external_code", "ALTER TABLE products ADD COLUMN external_code TEXT"],
@@ -96,6 +110,28 @@ const migrationsByTable = {
     ["created_by", "ALTER TABLE inventory_movements ADD COLUMN created_by TEXT"],
     ["receipt_id", "ALTER TABLE inventory_movements ADD COLUMN receipt_id INTEGER"],
   ],
+  purchase_orders: [
+    ["updated_at", "ALTER TABLE purchase_orders ADD COLUMN updated_at TEXT"],
+    ["stock_applied_at", "ALTER TABLE purchase_orders ADD COLUMN stock_applied_at TEXT"],
+    ["stock_applied_by", "ALTER TABLE purchase_orders ADD COLUMN stock_applied_by TEXT"],
+  ],
+  returns: [
+    ["return_date", "ALTER TABLE returns ADD COLUMN return_date TEXT"],
+    ["reviewed_by", "ALTER TABLE returns ADD COLUMN reviewed_by TEXT"],
+    ["reviewed_at", "ALTER TABLE returns ADD COLUMN reviewed_at TEXT"],
+    ["authorized_by", "ALTER TABLE returns ADD COLUMN authorized_by TEXT"],
+    ["authorized_at", "ALTER TABLE returns ADD COLUMN authorized_at TEXT"],
+    ["stock_applied_at", "ALTER TABLE returns ADD COLUMN stock_applied_at TEXT"],
+    ["stock_applied_by", "ALTER TABLE returns ADD COLUMN stock_applied_by TEXT"],
+    ["warehouse_id", "ALTER TABLE returns ADD COLUMN warehouse_id INTEGER"],
+  ],
+  collection_points: [
+    ["table", "CREATE TABLE IF NOT EXISTS collection_points(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE,name TEXT NOT NULL,client_id INTEGER,address TEXT,city TEXT,contact TEXT,phone TEXT,email TEXT,opening_hours TEXT,notes TEXT)"],
+    ["latitude", "ALTER TABLE collection_points ADD COLUMN latitude REAL"],
+    ["longitude", "ALTER TABLE collection_points ADD COLUMN longitude REAL"],
+    ["geocoded_at", "ALTER TABLE collection_points ADD COLUMN geocoded_at TEXT"],
+    ["geocoding_status", "ALTER TABLE collection_points ADD COLUMN geocoding_status TEXT DEFAULT 'Pendiente'"],
+  ],
   shipments: [
     ["collection_point_id", "ALTER TABLE shipments ADD COLUMN collection_point_id INTEGER"],
     ["origin_address", "ALTER TABLE shipments ADD COLUMN origin_address TEXT"],
@@ -108,6 +144,10 @@ const migrationsByTable = {
     ["stock_released_at", "ALTER TABLE shipments ADD COLUMN stock_released_at TEXT"],
     ["stock_released_by", "ALTER TABLE shipments ADD COLUMN stock_released_by TEXT"],
     ["urgent", "ALTER TABLE shipments ADD COLUMN urgent INTEGER DEFAULT 0"],
+    ["prepared_by", "ALTER TABLE shipments ADD COLUMN prepared_by TEXT"],
+    ["shipped_by", "ALTER TABLE shipments ADD COLUMN shipped_by TEXT"],
+    ["delivered_by", "ALTER TABLE shipments ADD COLUMN delivered_by TEXT"],
+    ["delivery_city", "ALTER TABLE shipments ADD COLUMN delivery_city TEXT"],
   ],
   import_batches: [
     ["table", "CREATE TABLE IF NOT EXISTS import_batches(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,source_system TEXT NOT NULL,source_file TEXT NOT NULL,entity TEXT NOT NULL,status TEXT DEFAULT 'Pendiente',rows_read INTEGER DEFAULT 0,rows_inserted INTEGER DEFAULT 0,rows_updated INTEGER DEFAULT 0,rows_skipped INTEGER DEFAULT 0,started_at TEXT,completed_at TEXT,notes TEXT,created_by TEXT DEFAULT 'Sistema',created_at TEXT)"],
@@ -138,6 +178,13 @@ for (const sql of [
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_source_code ON clients(source_system, external_code)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_products_source_code ON products(source_system, external_code)",
   "CREATE INDEX IF NOT EXISTS idx_import_records_batch ON import_records(batch_id, entity, source_code)",
+  "CREATE INDEX IF NOT EXISTS idx_orders_delivery_date ON orders(delivery_date)",
+  "CREATE INDEX IF NOT EXISTS idx_orders_client ON orders(client_id)",
+  "CREATE INDEX IF NOT EXISTS idx_order_lines_order ON order_lines(order_id)",
+  "CREATE INDEX IF NOT EXISTS idx_invoices_client ON invoices(client_id)",
+  "CREATE INDEX IF NOT EXISTS idx_shipments_order ON shipments(order_id)",
+  "CREATE INDEX IF NOT EXISTS idx_goods_receipt_incidents_receipt ON goods_receipt_incidents(receipt_id, status)",
+  "CREATE INDEX IF NOT EXISTS idx_tasks_status_next_run ON scheduled_tasks(status, next_run)",
 ]) await client.execute(sql);
 await client.execute("INSERT OR IGNORE INTO invoice_orders(invoice_id,order_id) SELECT id,order_id FROM invoices WHERE order_id IS NOT NULL");
 await client.close();

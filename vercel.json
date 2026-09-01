@@ -1,6 +1,9 @@
 {
   "version": 2,
   "buildCommand": "npm run build",
+  "crons": [
+    { "path": "/api/scheduler/run", "schedule": "0 */12 * * *" }
+  ],
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/index" },
     { "source": "/", "destination": "/api/index" },

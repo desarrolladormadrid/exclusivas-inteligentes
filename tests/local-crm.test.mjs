@@ -32,6 +32,32 @@ test("todos los registros nuevos guardan fechas de auditoría", async () => {
   assert.equal(updated.data.phone, "600000000");
   await call(`/clients/${created.data.id}`, { method: "DELETE" });
 });
+test("los clientes conservan geolocalización y dirección fiscal", async () => {
+  const created = await call("/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "__TEST_CLIENTE_GEO__", address: "Calle Mayor 1", city: "Palencia", billing_address: "Calle Fiscal 2", billing_city: "Palencia", latitude: 42.0095, longitude: -4.5288, geocoding_status: "Geolocalizada" }) });
+  assert.equal(created.status, 201);
+  assert.equal(created.data.billing_address, "Calle Fiscal 2");
+  assert.equal(Number(created.data.latitude), 42.0095);
+  assert.equal(created.data.geocoding_status, "Geolocalizada");
+  const loaded = await call(`/clients/${created.data.id}`);
+  assert.equal(Number(loaded.data.longitude), -4.5288);
+  await call(`/clients/${created.data.id}`, { method: "DELETE" });
+});
+test("corregir una dirección de reparto sincroniza pedido, ubicación y cliente si se confirma", async () => {
+  const client = (await call("/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "__TEST_CLIENTE_DIRECCION__", address: "Calle Antigua 1", city: "Palencia" }) })).data;
+  const point = (await call("/collection_points", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: `__TEST_UBI_${Date.now()}`, name: "Principal", client_id: client.id, address: "Calle Antigua 1", city: "Palencia" }) })).data;
+  const order = (await call("/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: `__TEST_DIRECCION_${Date.now()}`, client_id: client.id, collection_point_id: point.id, address: "Calle Antigua 1", delivery_city: "Palencia", delivery_date: "2099-01-01" }) })).data;
+  const shipment = (await call("/shipments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: `__TEST_HOJA_${Date.now()}`, order_id: order.id, client_id: client.id, collection_point_id: point.id, address: "Calle Antigua 1", delivery_city: "Palencia", status: "Preparando" }) })).data;
+  assert.ok(shipment.id);
+  const updated = await call(`/shipments/${shipment.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...shipment, address: "Calle Nueva 9", delivery_city: "Palencia", latitude: 42.01, longitude: -4.52, geocoded_at: new Date().toISOString(), geocoding_status: "Geolocalizada", update_client_address: 1 }) });
+  assert.equal(updated.status, 200);
+  assert.equal((await call(`/orders/${order.id}`)).data.address, "Calle Nueva 9");
+  assert.equal((await call(`/collection_points/${point.id}`)).data.address, "Calle Nueva 9");
+  assert.equal((await call(`/clients/${client.id}`)).data.address, "Calle Nueva 9");
+  await call(`/shipments/${shipment.id}`, { method: "DELETE" });
+  await call(`/orders/${order.id}`, { method: "DELETE" });
+  await call(`/collection_points/${point.id}`, { method: "DELETE" });
+  await call(`/clients/${client.id}`, { method: "DELETE" });
+});
 for (const resource of [
   "suppliers",
   "warehouses",
@@ -167,15 +193,46 @@ test("las notas rápidas se guardan y se pueden destacar", async () => {
   await call(`/notes/${created.data.id}`, { method: "DELETE" });
 });
 
-test("una devolución aumenta stock y registra el movimiento", async () => {
+test("una devolución queda pendiente y solo aumenta stock al aceptarse", async () => {
   const product = (await call("/products", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "__TEST_DEVOLUCION__", stock: 3 }) })).data;
   const before = (await call("/products")).data.find((x) => x.id === product.id).stock;
   const ret = await call("/returns", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "__TEST_DEV_" + Date.now(), product_id: product.id, quantity: 2, reason: "Producto rechazado" }) });
   assert.equal(ret.status, 201);
-  const after = (await call("/products")).data.find((x) => x.id === product.id).stock;
+  assert.equal(ret.data.status, "Pendiente");
+  let after = (await call("/products")).data.find((x) => x.id === product.id).stock;
+  assert.equal(after, before);
+  const accepted = await call(`/returns/${ret.data.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...ret.data, status: "Aceptada" }) });
+  assert.equal(accepted.status, 200);
+  after = (await call("/products")).data.find((x) => x.id === product.id).stock;
   assert.equal(after, before + 2);
+  const acceptedAgain = await call(`/returns/${ret.data.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...accepted.data, status: "Aceptada" }) });
+  assert.equal(acceptedAgain.status, 200);
+  const afterAgain = (await call("/products")).data.find((x) => x.id === product.id).stock;
+  assert.equal(afterAgain, before + 2);
   await call(`/returns/${ret.data.id}`, { method: "DELETE" });
   await call(`/products/${product.id}`, { method: "DELETE" });
+});
+
+test("un cobro inválido no altera la factura", async () => {
+  const invoice = (await call("/invoices", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "__TEST_COBRO_INVALIDO_" + Date.now(), amount: 25, status: "Pendiente" }) })).data;
+  const invalid = await call("/payments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ invoice_id: invoice.id, amount: 30, method: "Transferencia" }) });
+  assert.equal(invalid.status, 400);
+  const current = (await call("/invoices")).data.find((x) => x.id === invoice.id);
+  assert.equal(current.status, "Pendiente");
+  await call(`/invoices/${invoice.id}`, { method: "DELETE" });
+});
+
+test("impide duplicar una tarea programada activa", async () => {
+  const title = `__TEST_TAREA_DUPLICADA_${Date.now()}__`;
+  const task = await call("/scheduled_tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, action_text: "nota: comprobar pedidos", schedule_type: "Recurrente", recurrence: "diaria", next_run: "2099-01-01T08:00:00.000Z" }) });
+  assert.equal(task.status, 201);
+  const duplicate = await call("/scheduled_tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: ` ${title.toLowerCase()} `, action_text: "NOTA: COMPROBAR PEDIDOS", schedule_type: "Recurrente", recurrence: "diaria", next_run: "2099-01-01T08:00:00.000Z" }) });
+  assert.equal(duplicate.status, 409);
+  await call(`/scheduled_tasks/${task.data.id}`, { method: "DELETE" });
+});
+test("el ejecutor programado exige autorización", async () => {
+  const r = await fetch("http://127.0.0.1:3001/api/scheduler/run");
+  assert.equal(r.status, 401);
 });
 
 test("los cobros parciales actualizan el estado de la factura", async () => {

@@ -3,7 +3,7 @@ title Exclusivas Inteligentes - CRM local
 cd /d "%~dp0"
 node migrate.mjs
 node seed.mjs
-start "" /b node server-v3.mjs
+start "" /b node server-local.mjs
 start "" /b npm run dev
 timeout /t 5 /nobreak >nul
 start "" "http://localhost:3000"

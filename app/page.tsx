@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.42";
+const APP_VERSION = "2.0.43";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -292,8 +292,11 @@ const cfg: any = {
       "email",
       "address",
       "city",
+      "billing_address",
+      "billing_city",
       "latitude",
       "longitude",
+      "geocoding_status",
       "payment_terms",
       "credit_limit",
       "active",
@@ -305,10 +308,13 @@ const cfg: any = {
       "Contacto",
       "Teléfono",
       "Email",
-      "Dirección",
-      "Ciudad",
+      "Dirección de entrega",
+      "Ciudad de entrega",
+      "Dirección fiscal",
+      "Ciudad fiscal",
       "Latitud",
       "Longitud",
+      "Estado geolocalización",
       "Condiciones de pago",
       "Límite crédito",
       "Estado activo",
@@ -401,6 +407,10 @@ const cfg: any = {
       "phone",
       "email",
       "address",
+      "city",
+      "latitude",
+      "longitude",
+      "geocoding_status",
       "payment_terms",
       "active",
     ],
@@ -412,6 +422,10 @@ const cfg: any = {
       "Teléfono",
       "Email",
       "Dirección",
+      "Ciudad",
+      "Latitud",
+      "Longitud",
+      "Estado geolocalización",
       "Condiciones de pago",
       "Estado activo",
     ],
@@ -541,6 +555,9 @@ const cfg: any = {
       "phone",
       "email",
       "opening_hours",
+      "latitude",
+      "longitude",
+      "geocoding_status",
       "notes",
     ],
     labels: [
@@ -552,6 +569,9 @@ const cfg: any = {
       "Teléfono",
       "Email",
       "Horario",
+      "Latitud",
+      "Longitud",
+      "Estado geolocalización",
       "Notas",
     ],
   },
@@ -1968,6 +1988,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [search, setSearch] = useState("");
   const [preview, setPreview] = useState<any>(null);
   const [entryDetail, setEntryDetail] = useState<any>(null);
+  const [entryIncidentSaving, setEntryIncidentSaving] = useState<number | null>(null);
   const [labelProduct, setLabelProduct] = useState<any>(null);
   const [productDetail, setProductDetail] = useState<any>(null);
   const [batchLabelProducts, setBatchLabelProducts] = useState<any[]>([]);
@@ -1998,6 +2019,10 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [billingError, setBillingError] = useState("");
   const [billingFilter, setBillingFilter] = useState("todos");
   const [shippingFilter, setShippingFilter] = useState("todos");
+  const [listDateFrom, setListDateFrom] = useState("");
+  const [listDateTo, setListDateTo] = useState("");
+  const [listClient, setListClient] = useState("");
+  const [listStatus, setListStatus] = useState("Todos");
   const [previewLines, setPreviewLines] = useState<any[]>([]);
   const [incidentLineId, setIncidentLineId] = useState<number | null>(null);
   const [incidentText, setIncidentText] = useState("");
@@ -2050,6 +2075,12 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       document.removeEventListener("keydown", closeWithEscape);
     };
   }, [inlineEditing]);
+  useEffect(() => {
+    setListDateFrom("");
+    setListDateTo("");
+    setListClient("");
+    setListStatus("Todos");
+  }, [active]);
   useEffect(() => {
     try {
     if (c.api === "orders") {
@@ -2449,8 +2480,13 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     const isProforma = c.api === "invoices" && currentForm.status === "Proforma";
     const quoteAmount = quoteLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
     const reopenPreparation = c.api === "orders" && editing && !isOrderSent(editing);
+    let clientGeodata: Record<string, any> = {};
+    if (c.api === "clients" && String(currentForm.address || "").trim() && (!editing || String(editing.address || "").trim() !== String(currentForm.address || "").trim() || String(editing.city || "").trim() !== String(currentForm.city || "").trim())) {
+      clientGeodata = await geocodeAddress(String(currentForm.address).trim(), String(currentForm.city || "").trim());
+    }
     const payload = {
       ...currentForm,
+      ...clientGeodata,
       ...(reopenPreparation ? { status: "Pendiente", reopen_preparation: true } : {}),
       ...((c.api === "quotes" || isProforma || c.api === "orders") ? { amount: quoteAmount } : {}),
       ...(c.api === "orders" && !editing ? { lines: quoteLines } : {}),
@@ -2514,6 +2550,10 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
           name: "Dirección principal",
           address: d.address,
           city: d.city || "",
+          latitude: d.latitude ?? null,
+          longitude: d.longitude ?? null,
+          geocoded_at: d.geocoded_at ?? null,
+          geocoding_status: d.geocoding_status || "Pendiente",
           notes: "Ubicación principal creada automáticamente con el cliente.",
         }),
       });
@@ -2674,6 +2714,21 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     const detail = await response.json().catch(() => ({}));
     if (!response.ok) return alert(detail.error || "No se pudo cargar el detalle de la entrada");
     setEntryDetail(detail);
+  }
+  async function resolveEntryIncident(incident: any, status: string) {
+    if (!incident?.id || entryIncidentSaving) return;
+    setEntryIncidentSaving(Number(incident.id));
+    try {
+      const now = new Date().toISOString();
+      const response = await fetch(`/api/goods_receipt_incidents/${incident.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...incident, status, resolution: status === "Resuelta" ? "Incidencia revisada y cerrada" : incident.resolution || "", resolved_by: status === "Resuelta" ? (user?.username || "Usuario local") : null, resolved_at: status === "Resuelta" ? now : null }) });
+      const updated = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(updated.error || "No se pudo actualizar la incidencia.");
+      setEntryDetail((current: any) => current ? { ...current, incidents: (current.incidents || []).map((item: any) => item.id === incident.id ? { ...item, ...updated } : item) } : current);
+    } catch (caught: any) {
+      alert(caught?.message || "No se pudo actualizar la incidencia.");
+    } finally {
+      setEntryIncidentSaving(null);
+    }
   }
   function editorValue(field: string, value: any) {
     const raw = String(value ?? "");
@@ -3255,10 +3310,11 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     setPreparationAddressError("");
     setPreparationAddressMessage("");
     try {
+      const geo = await geocodeAddress(address, city);
       const response = await fetch(`/api/shipments/${preview.id}`, {
         method: "PUT",
         headers: actorHeaders,
-        body: JSON.stringify({ address, delivery_city: city, update_client_address: preparationUpdateClient ? 1 : 0 }),
+        body: JSON.stringify({ address, delivery_city: city, ...geo, update_client_address: preparationUpdateClient ? 1 : 0 }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "No se pudo guardar la dirección de entrega.");
@@ -3570,6 +3626,21 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         return item.name || item.code || `Registro ${value}`;
       }
     }
+    if (field.endsWith("_id") && value !== null && value !== undefined && value !== "") {
+      const missingRelationLabels: Record<string, string> = {
+        client_id: "Cliente no disponible",
+        product_id: "Producto no disponible",
+        supplier_id: "Proveedor no disponible",
+        primary_supplier_id: "Proveedor principal no disponible",
+        warehouse_id: "Almacén no disponible",
+        collection_point_id: "Ubicación no disponible",
+        order_id: "Pedido no disponible",
+        purchase_order_id: "Compra no disponible",
+        invoice_id: "Factura no disponible",
+        shipment_id: "Hoja de carga no disponible",
+      };
+      return missingRelationLabels[field] || "Relación no disponible";
+    }
     if (["amount", "unit_price", "cost_price"].includes(field)) {
       return Number(value).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
     }
@@ -3598,8 +3669,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const isLoadPreparation = active === "Preparación de pedidos";
   const usesRecordModal = ["Clientes", "Proveedores", "Almacenes", "Lugares de recogida", "Productos"].includes(active);
   const previewLocation = preview ? (lookups.collection_points || []).find((item: any) => Number(item.id) === Number(preview.collection_point_id)) : null;
-  const previewLat = Number(previewLocation?.latitude);
-  const previewLon = Number(previewLocation?.longitude);
+  const previewLat = Number(previewLocation?.latitude ?? previewClient?.latitude);
+  const previewLon = Number(previewLocation?.longitude ?? previewClient?.longitude);
   const previewAddress = preview?.address || previewLocation?.address || previewClient?.address || "";
   const previewCity = preview?.delivery_city || previewLocation?.city || previewClient?.city || preview?.city || "";
   const previewMapQuery = [previewAddress, previewCity, previewLocation?.name, previewClient?.name, "España"].filter(Boolean).join(", ");
@@ -3655,7 +3726,15 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     const currentShippingStatus = active === "Pedidos" ? getOrderShippingStatus(row) : "";
     const matchesShipping = active !== "Pedidos" || shippingFilter === "todos"
       || (shippingFilter === "pendientes" ? ["Pendiente de enviar", "Preparado"].includes(currentShippingStatus) : ["Enviado", "En reparto", "Entregado"].includes(currentShippingStatus));
-    if (!isProducts && !isLoadPreparation) return matchesText && matchesBilling && matchesShipping;
+    const linkedInvoice = active === "Cobros" ? (lookups.invoices || []).find((item: any) => Number(item.id) === Number(row.invoice_id)) : null;
+    const rowClientId = row.client_id || linkedInvoice?.client_id || "";
+    const rowDate = String(active === "Facturas" ? (row.issue_date || row.created_at) : active === "Cobros" ? (row.payment_date || row.created_at) : active === "Devoluciones" ? (row.return_date || row.created_at) : active === "Pedidos" ? (row.delivery_date || row.created_at) : (row.created_at || "")).slice(0, 10);
+    const matchesListClient = !listClient || String(rowClientId) === String(listClient);
+    const matchesListFrom = !listDateFrom || (rowDate && rowDate >= listDateFrom);
+    const matchesListTo = !listDateTo || (rowDate && rowDate <= listDateTo);
+    const matchesListStatus = listStatus === "Todos" || String(row.status || "") === listStatus;
+    const listFilterActive = ["Pedidos", "Facturas", "Cobros", "Devoluciones"].includes(active);
+    if (!isProducts && !isLoadPreparation) return matchesText && matchesBilling && matchesShipping && (!listFilterActive || (matchesListClient && matchesListFrom && matchesListTo && (active === "Cobros" || matchesListStatus)));
     if (isLoadPreparation) return matchesText && (!preparationDateFilter || String(row.preparation_date || "").slice(0, 10) === preparationDateFilter);
     const available = Number(row.stock || 0) - Number(row.stock_reserved || 0);
     const matchesCategory = !productFilters.category || row.category === productFilters.category;
@@ -3760,6 +3839,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         </select>
       ) : ["Proveedores", "Clientes", "Productos"].includes(active) && f === "active" ? (
         <select aria-label={c.labels[i]} value={String(form[f] ?? "1")} onChange={(e) => handleFormChange(f, e.target.value)}><option value="1">Activo</option><option value="0">Baja</option></select>
+      ) : active === "Clientes" && f === "geocoding_status" ? (
+        <input aria-label={c.labels[i]} value={form[f] || "Pendiente"} readOnly />
       ) : active === "Productos" && f === "product_status" ? (
         <select aria-label={c.labels[i]} value={form[f] ?? "Activo"} onChange={(e) => handleFormChange(f, e.target.value)}>{["Activo", "Inactivo", "Descatalogado", "Estacional"].map((value) => <option key={value}>{value}</option>)}</select>
       ) : active === "Productos" && ["family", "subfamily"].includes(f) ? (
@@ -4127,6 +4208,13 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
           </span>
           {active === "Pedidos" && <select className="billing-filter-select" value={billingFilter} onChange={(event) => setBillingFilter(event.target.value)} aria-label="Filtrar pedidos por facturación"><option value="todos">Facturación: todos</option><option value="pendientes">Sin facturar</option><option value="facturados">Facturados</option></select>}
           {active === "Pedidos" && <select className="billing-filter-select" value={shippingFilter} onChange={(event) => setShippingFilter(event.target.value)} aria-label="Filtrar pedidos por envío"><option value="todos">Envío: todos</option><option value="pendientes">Pendientes de enviar</option><option value="enviados">Enviados o entregados</option></select>}
+          {["Pedidos", "Facturas", "Cobros", "Devoluciones"].includes(active) && <>
+            <label className="list-filter-field">Cliente<select value={listClient} onChange={(event) => setListClient(event.target.value)} aria-label={`Filtrar ${active.toLowerCase()} por cliente`}><option value="">Todos los clientes</option>{(lookups.clients || []).map((client: any) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
+            <label className="list-filter-field">Desde<input type="date" value={listDateFrom} onChange={(event) => setListDateFrom(event.target.value)} aria-label={`Fecha inicial de ${active.toLowerCase()}`} /></label>
+            <label className="list-filter-field">Hasta<input type="date" value={listDateTo} onChange={(event) => setListDateTo(event.target.value)} aria-label={`Fecha final de ${active.toLowerCase()}`} /></label>
+            {active !== "Cobros" && <label className="list-filter-field">Estado<select value={listStatus} onChange={(event) => setListStatus(event.target.value)} aria-label={`Filtrar ${active.toLowerCase()} por estado`}><option>Todos</option>{(active === "Facturas" ? ["Proforma", "Pendiente", "Parcial", "Cobrada", "Vencida", "Anulada"] : active === "Devoluciones" ? ["Pendiente", "Aprobada", "Recibida", "Rechazada", "Anulada"] : ["Nuevo", "Pendiente", "Confirmado", "Preparando", "Preparado", "Enviado", "En reparto", "Entregado", "Facturado", "Cancelado"]).map((status) => <option key={status}>{status}</option>)}</select></label>}
+            {(listClient || listDateFrom || listDateTo || listStatus !== "Todos") && <button type="button" className="deleted-toggle" onClick={() => { setListClient(""); setListDateFrom(""); setListDateTo(""); setListStatus("Todos"); }}>Limpiar filtros</button>}
+          </>}
           {isLoadPreparation && <div className="prep-date-filter" aria-label="Filtrar preparación por fecha"><label>Preparar el día <input type="date" value={preparationDateFilter} onChange={(event) => setPreparationDateFilter(event.target.value)} /></label><button type="button" className={`button ${preparationDateFilter === tabletTodayInput() ? "primary" : "secondary"}`} aria-pressed={preparationDateFilter === tabletTodayInput()} onClick={() => setPreparationDateFilter(tabletTodayInput())}>Hoy</button><button type="button" className={`button ${preparationDateFilter === tabletDateOffset(1) ? "primary" : "secondary"}`} aria-pressed={preparationDateFilter === tabletDateOffset(1)} onClick={() => setPreparationDateFilter(tabletDateOffset(1))}>Mañana</button><button type="button" className={`button ${preparationDateFilter === "" ? "primary" : "secondary"}`} aria-pressed={preparationDateFilter === ""} onClick={() => setPreparationDateFilter("")}>Todos</button></div>}
           {isLoadPreparation && <div className="prep-summary"><b>{filteredRows.length} pedidos a preparar</b><span>{preparationUrgentCount} urgentes</span><span>{preparationIncidentCount} con incidencia</span></div>}
           {active === "Stock" && (
@@ -4313,6 +4401,9 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                         )}
                         {active === "Pedidos" && (
                           <>
+                            <button type="button" className="row-action primary" onClick={() => { if (isOrderSent(r)) void openPreview(r); else void openRecordModal(r); }}>
+                              Ver detalle
+                            </button>
                             {getOrderShipment(r) && <button type="button" className="row-action workflow" onClick={() => void openOrderLoadNote(r)}>
                               Nota de carga
                             </button>}
@@ -4397,7 +4488,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             <header className="preview-header"><div><b>Entrada · {entryDetail.code}</b><small>{entryDetail.supplier_name || "Proveedor sin nombre"} · {formatTableValue("receipt_date", entryDetail.receipt_date)} · {entryDetail.warehouse_name || "Almacén"}</small></div><button type="button" className="preview-close" aria-label="Cerrar" onClick={() => setEntryDetail(null)}>×</button></header>
             <div className="goods-receipt-detail-meta"><span><b>Estado</b>{entryDetail.status}</span><span><b>Pedido de compra</b>{entryDetail.purchase_order_code || "Sin vincular"}</span><span><b>Recepcionado por</b>{entryDetail.received_by || "—"}</span></div>
             <div className="goods-receipt-detail-lines">{(entryDetail.lines || []).map((line: any) => <article key={line.id}><div><b>{line.product_name || line.product_name_snapshot}</b><small>{line.sku || "Sin referencia"}</small></div><span>Esperadas <b>{line.expected_quantity}</b></span><span>Recibidas <b>{line.received_quantity}</b></span><strong className={line.status !== "Correcta" ? "goods-receipt-incident-text" : ""}>{line.status}</strong></article>)}</div>
-            {(entryDetail.incidents || []).length > 0 && <section className="goods-receipt-detail-incidents"><b>Incidencias pendientes</b>{entryDetail.incidents.map((incident: any) => <article key={incident.id}><div><strong>{incident.type}</strong><span>{incident.description}</span></div>{incident.attachment_data && <img src={incident.attachment_data} alt={incident.attachment_name || "Foto de incidencia"} />}</article>)}</section>}
+            {(entryDetail.incidents || []).length > 0 && <section className="goods-receipt-detail-incidents"><b>Incidencias de la entrada</b>{entryDetail.incidents.map((incident: any) => <article key={incident.id}><div><strong>{incident.type}</strong><span>{incident.description}</span><small>Estado: {incident.status || "Pendiente"}{incident.resolved_by ? ` · ${incident.resolved_by}` : ""}</small>{incident.resolution && <small>{incident.resolution}</small>}</div>{incident.attachment_data && <img src={incident.attachment_data} alt={incident.attachment_name || "Foto de incidencia"} />}<div className="goods-receipt-incident-actions"><select aria-label={`Estado de incidencia ${incident.type}`} value={incident.status || "Pendiente"} disabled={entryIncidentSaving === Number(incident.id)} onChange={(event) => void resolveEntryIncident(incident, event.target.value)}><option>Pendiente</option><option>En revisión</option><option>Resuelta</option><option>Rechazada</option></select></div></article>)}</section>}
             <footer className="preview-actions"><button type="button" className="button secondary" onClick={() => setEntryDetail(null)}>Cerrar</button></footer>
           </section>
         </div>
@@ -4461,7 +4552,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                 {isLoadPreparation && <><br /><b>Preparado por:</b> {preview.prepared_by || "Pendiente de asignar"}</>}
               </p>
             </div>
-            {(previewLocation || previewAddress || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewAddress || "Dirección no indicada"}</span>{previewLocation?.geocoding_status === "Geolocalizada" ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.google.com/maps/search/?api=1&query=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a><a className="button secondary" href={`https://www.google.com/maps/dir/?api=1&destination=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Navegar con Google Maps</a></> : <a className="button secondary icon-action map-action" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(previewMapQuery)}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en Google Maps" title="Buscar dirección en Google Maps"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</section>}
+            {(previewLocation || previewAddress || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewAddress || "Dirección no indicada"}</span>{(previewLocation?.geocoding_status === "Geolocalizada" || previewClient?.geocoding_status === "Geolocalizada") ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.google.com/maps/search/?api=1&query=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a><a className="button secondary" href={`https://www.google.com/maps/dir/?api=1&destination=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Navegar con Google Maps</a></> : <a className="button secondary icon-action map-action" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(previewMapQuery)}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en Google Maps" title="Buscar dirección en Google Maps"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</section>}
             {isLoadPreparation && <section className="preparation-delivery-panel" aria-label="Editar dirección de entrega">
               <div className="preparation-delivery-head"><div><b>Dirección de entrega</b><small>Se guarda en este pedido y en su nota de carga.</small></div></div>
               <div className="preparation-delivery-fields">
@@ -4496,7 +4587,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             {active === "Cobros" && (
               <section className="payment-preview-details" aria-label="Origen del cobro">
                 <div><span>Importe cobrado</span><strong>{Number(preview.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong></div>
-                <div><span>Factura de origen</span><strong>{previewInvoice?.code || (preview.invoice_id ? `Factura #${preview.invoice_id}` : "No vinculada")}</strong></div>
+                <div><span>Factura de origen</span><strong>{previewInvoice?.code || (lookups.invoices || []).find((invoice: any) => Number(invoice.id) === Number(preview.invoice_id))?.code || (preview.invoice_id ? `Factura #${preview.invoice_id}` : "No vinculada")}</strong></div>
                 <div><span>Cliente</span><strong>{previewClient?.name || "No indicado"}</strong></div>
                 <div><span>Fecha del cobro</span><strong>{preview.payment_date ? String(preview.payment_date).slice(0, 10) : "No indicada"}</strong></div>
                 <div><span>Método de pago</span><strong>{preview.method || "No indicado"}</strong></div>
@@ -4708,9 +4799,9 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         <button className="preview-close" onClick={() => !billingSaving && setBillingOpen(false)}>×</button>
         <p className="eyebrow">FACTURACIÓN · EXCLUSIVAS INTELIGENTES</p><h2>Facturar pedidos</h2>
         <p className="muted">Selecciona pedidos del mismo cliente para crear una única factura. Los ya facturados quedan bloqueados.</p>
-        <div className="billing-toolbar"><label>Desde<input type="date" value={billingFrom} onChange={(e) => setBillingFrom(e.target.value)} /></label><label>Hasta<input type="date" value={billingTo} onChange={(e) => setBillingTo(e.target.value)} /></label><label>Cliente<select value={billingClient} onChange={(e) => setBillingClient(e.target.value)}><option value="">Todos los clientes</option>{(lookups.clients || []).map((client: any) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label><button className="button secondary" onClick={() => void loadBillingOrders()}>Buscar</button></div>
+        <div className="billing-toolbar"><label>Entrega desde<input type="date" value={billingFrom} onChange={(e) => setBillingFrom(e.target.value)} /></label><label>Entrega hasta<input type="date" value={billingTo} onChange={(e) => setBillingTo(e.target.value)} /></label><label>Cliente<select value={billingClient} onChange={(e) => setBillingClient(e.target.value)}><option value="">Todos los clientes</option>{(lookups.clients || []).map((client: any) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label><button className="button secondary" onClick={() => void loadBillingOrders()}>Buscar</button></div>
         {billingError && <div className="error-message" role="alert">{billingError}</div>}
-        {billingLoading ? <div className="data-loading"><span className="loading-spinner" />Cargando pedidos…</div> : <div className="billing-list">{billingRows.length ? billingRows.map((row: any) => <label className={`billing-row${row.billed ? " billed" : ""}`} key={row.id}><input type="checkbox" disabled={Boolean(row.billed)} checked={billingSelected.includes(Number(row.id))} onChange={() => setBillingSelected((current) => current.includes(Number(row.id)) ? current.filter((id) => id !== Number(row.id)) : [...current, Number(row.id)])} /><span><b>{row.code}</b><small>{row.client_name || "Cliente no indicado"} · {row.created_at ? formatSpanishDateValue(row.created_at, false) : "Fecha no indicada"}</small></span><strong>{Number(row.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong><em>{row.billed ? "Ya facturado" : row.status || "Pendiente"}</em><button type="button" className="button link-button" onClick={() => { setBillingOpen(false); void openPreview(row); }}>Ver pedido</button></label>) : <p className="empty-state">No hay pedidos para los filtros seleccionados.</p>}</div>}
+        {billingLoading ? <div className="data-loading"><span className="loading-spinner" />Cargando pedidos…</div> : <div className="billing-list">{billingRows.length ? billingRows.map((row: any) => <label className={`billing-row${row.billed ? " billed" : ""}`} key={row.id}><input type="checkbox" disabled={Boolean(row.billed)} checked={billingSelected.includes(Number(row.id))} onChange={() => setBillingSelected((current) => current.includes(Number(row.id)) ? current.filter((id) => id !== Number(row.id)) : [...current, Number(row.id)])} /><span><b>{row.code}</b><small>{row.client_name || "Cliente no indicado"} · Entrega {row.delivery_date || (row.created_at ? formatSpanishDateValue(row.created_at, false) : "Fecha no indicada")}</small></span><strong>{Number(row.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong><em>{row.billed ? "Ya facturado" : row.status || "Pendiente"}</em><button type="button" className="button link-button" onClick={() => { setBillingOpen(false); void openPreview(row); }}>Ver pedido</button></label>) : <p className="empty-state">No hay pedidos para los filtros seleccionados.</p>}</div>}
         <div className="billing-footer"><span>{billingSelected.length} seleccionados · {billingRows.filter((row) => billingSelected.includes(Number(row.id))).reduce((sum, row) => sum + Number(row.amount || 0), 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</span><button className="button primary" disabled={!billingSelected.length || billingSaving} onClick={() => void createGroupedInvoice()}>{billingSaving ? "Creando…" : "Crear factura agrupada"}</button></div>
       </article></div>}
     </div>
@@ -8452,7 +8543,16 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
         const nextUser = { id: 0, permissions: "*", ...session };
         setCurrentUser(nextUser);
         const storedSection = localStorage.getItem("excluvas.active-section");
-        setActive(resolvedRouteMode === "ocr" ? "OCR inteligente" : (storedSection && allowedModulesFor(nextUser).includes(storedSection) ? storedSection : preferredModuleFor(nextUser)));
+        const routeDefault = routeDefaultSections[window.location.pathname.replace(/\/$/, "")];
+        setActive(
+          routeDefault && routeModules.includes(routeDefault)
+            ? routeDefault
+            : resolvedRouteMode === "ocr"
+              ? "OCR inteligente"
+              : (storedSection && allowedModulesFor(nextUser).includes(storedSection)
+                ? storedSection
+                : preferredModuleFor(nextUser)),
+        );
       }
     } catch {}
   }, [resolvedRouteMode]);
@@ -8783,24 +8883,26 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
         )}
         <div className="appbar-actions">
           <div className="header-quick-actions" aria-label="Accesos rápidos">
-            <button
-              className="button primary quick-icon-action"
-              onClick={() => setActive("Preparación de pedidos")}
-              aria-label="Preparación de pedidos"
-              title="Preparación de pedidos"
-            >
-              <ToolbarIcon name="preparation" />
-              <span className="icon-action-label">Preparación de pedidos</span>
-            </button>
-            <button
-              className="button primary quick-icon-action"
-              onClick={() => setActive("Stock")}
-              aria-label="Stock"
-              title="Stock"
-            >
-              <ToolbarIcon name="stock" />
-              <span className="icon-action-label">Stock</span>
-            </button>
+            {canOpenWarehouseView && <>
+              <button
+                className="button primary quick-icon-action"
+                onClick={() => setActive("Preparación de pedidos")}
+                aria-label="Preparación de pedidos"
+                title="Preparación de pedidos"
+              >
+                <ToolbarIcon name="preparation" />
+                <span className="icon-action-label">Preparación de pedidos</span>
+              </button>
+              <button
+                className="button primary quick-icon-action"
+                onClick={() => setActive("Stock")}
+                aria-label="Stock"
+                title="Stock"
+              >
+                <ToolbarIcon name="stock" />
+                <span className="icon-action-label">Stock</span>
+              </button>
+            </>}
             {canOpenCommercialView && (
               <a className="button primary quick-icon-action app-route-shortcut" href="/comercial" aria-label="Vista comercial" title="Vista comercial">
                 <ToolbarIcon name="commercial" />
