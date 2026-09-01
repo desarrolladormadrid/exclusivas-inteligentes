@@ -2504,7 +2504,9 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         hasCachedRows = true;
       }
     } catch { /* Si la caché está dañada, se ignora y se consulta la API. */ }
-    setLoading(!hasCachedRows);
+    // La caché sirve de respaldo si la API falla, pero no debe mostrarse como
+    // si fuera el listado definitivo mientras llega la respuesta actualizada.
+    setLoading(true);
     setDbError("");
     const params = new URLSearchParams();
     if (showDeleted) params.set("include_deleted", "1");
@@ -4824,7 +4826,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
           </div>
         </section>
       )}
-      <div className="panel table-panel">
+      <div className={`panel table-panel${loading ? " is-loading" : ""}`}>
         <div className="table-tools">
           <div className="table-tools-primary">
           <input
