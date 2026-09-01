@@ -1673,6 +1673,12 @@ function ProductLabelModal({ product, actor, onClose, onSaved }: { product: any;
   );
 }
 
+function productImageSource(product: any, large = false) {
+  // Una foto recién seleccionada debe prevalecer sobre la URL antigua hasta
+  // que el usuario guarde la ficha.
+  return product?.photo_data || (large ? product?.photo_web_url : product?.photo_thumbnail_url) || product?.photo_url || "";
+}
+
 function ProductDetailDrawer({ product, onClose, onEdit, onLabel, onDuplicate }: { product: any; onClose: () => void; onEdit: () => void; onLabel: () => void; onDuplicate: () => void }) {
   const available = Number(product.stock || 0) - Number(product.stock_reserved || 0);
   const critical = available <= Number(product.min_stock || 0);
@@ -1680,6 +1686,7 @@ function ProductDetailDrawer({ product, onClose, onEdit, onLabel, onDuplicate }:
     <div className="product-drawer-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
       <aside className="product-drawer" aria-label={`Ficha de ${product.name}`}>
         <div className="product-drawer-head"><div><p className="eyebrow">FICHA DEL PRODUCTO</p><h2>{product.name}</h2><small>{product.sku || "Sin SKU"}</small></div><button type="button" onClick={onClose} aria-label="Cerrar">×</button></div>
+        <div className="product-drawer-image">{productImageSource(product, true) ? <img src={productImageSource(product, true)} alt={`Imagen de ${product.name}`} /> : <span>Sin imagen de catálogo</span>}</div>
         <div className={`product-drawer-stock ${critical ? "critical" : "available"}`}><strong>{available}</strong><span>unidades disponibles</span><small>{Number(product.stock || 0)} físicas · {Number(product.stock_reserved || 0)} reservadas</small></div>
         <div className="product-drawer-grid">
           <div><span>Familia</span><b>{product.category || "—"}</b></div><div><span>Marca</span><b>{product.brand || "—"}</b></div>
@@ -4141,6 +4148,25 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                   <button type="button" className="button secondary" onClick={() => setForm((current: any) => ({ ...current, product_status: "Activo" }))}>Marcar activo</button>
                 </div>
               </div>
+              <section className="product-photo-editor" aria-labelledby="product-photo-editor-title">
+                <div className="product-photo-editor-preview">
+                  {productImageSource(form, true)
+                    ? <img src={productImageSource(form, true)} alt={`Vista previa de ${form.name || "producto"}`} />
+                    : <span aria-hidden="true">Sin imagen</span>}
+                </div>
+                <div className="product-photo-editor-content">
+                  <div>
+                    <b id="product-photo-editor-title">Imagen del producto</b>
+                    <small>{form.photo_data ? "Nueva imagen seleccionada; se guardará al confirmar." : form.photo_url ? "Imagen actual del catálogo." : "Añade una imagen cuadrada para el catálogo y la web."}</small>
+                  </div>
+                  <label className="button secondary product-photo-select">
+                    {form.photo_url || form.photo_data ? "Cambiar imagen" : "Añadir imagen"}
+                    <input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) attachProductPhoto(file); }} />
+                  </label>
+                  {(form.photo_url || form.photo_data) && <button type="button" className="button secondary" onClick={() => setForm((current: any) => ({ ...current, photo_name: null, photo_mime: null, photo_data: null, photo_url: null, photo_public_id: null, photo_thumbnail_url: null, photo_web_url: null, photo_bytes: 0, photo_width: 0, photo_height: 0, photo_format: null }))}>Quitar imagen</button>}
+                  <small className="product-photo-editor-note">Se optimiza automáticamente al guardarla y se generan versiones para miniatura y web.</small>
+                </div>
+              </section>
               {productSections.map((section, sectionIndex) => (
                 <details className="product-master-section" key={section.title} open={sectionIndex < 2}>
                   <summary><b>{section.title}</b><span>Mostrar más/menos</span></summary>
@@ -4183,11 +4209,6 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             </section>
           )}
           {active === "Productos" && <>
-            <label className="product-photo-field">
-              <span>Foto del producto</span>
-              <input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) attachProductPhoto(file); }} />
-              <small>{form.photo_name ? `Foto seleccionada: ${form.photo_name}` : "Opcional. Se conserva en la base de datos local."}</small>
-            </label>
             <section className="product-form-codes" aria-labelledby="product-form-codes-title">
               <div className="product-form-codes-head">
                 <div><b id="product-form-codes-title">Códigos del producto</b><small>Se generan con el código de barras, el número proveedor o la referencia disponible.</small></div>
@@ -4386,6 +4407,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             <thead>
             <tr>
                 {isProducts && <th className="product-check-column"><span className="sr-only">Seleccionar</span></th>}
+                {isProducts && <th className="product-image-column">Imagen</th>}
                 {visibleFields.map((f: string) => (
                   <th key={f} className={isDateField(f) ? "sortable-date-column" : undefined}>
                     <button type="button" className="table-sort-button" onClick={() => { setStockSort("none"); setDateSort(null); setTableSort((current) => current?.field === f ? { field: f, direction: current.direction === "asc" ? "desc" : "asc" } : { field: f, direction: "asc" }); }} aria-label={`Ordenar ${c.labels[c.fields.indexOf(f)] || f}`} title="Ordenar columna">{c.labels[c.fields.indexOf(f)] || f}<span aria-hidden="true">{tableSort?.field === f ? (tableSort.direction === "asc" ? " ↑" : " ↓") : " ↕"}</span></button>
@@ -4398,6 +4420,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               {sortedRows.map((r) => (
                   <tr key={r.id ?? r.product_id} data-inline-row={r.id ?? r.product_id} data-row-modal={active === "Presupuestos" || active === "Pedidos" || usesRecordModal || active === "Entradas" ? "true" : undefined} className={`${isProducts && Number(r.stock || 0) - Number(r.stock_reserved || 0) <= Number(r.min_stock || 0) ? "product-row-critical" : ""}${isLoadPreparation && Number(r.urgent) === 1 ? " prep-row-urgent" : ""}${isLoadPreparation && r.status === "Preparado con incidencia" ? " prep-row-incident" : ""}${Number(r.deleted) === 1 ? " deleted-row" : ""}${active === "Pedidos" ? " order-list-row" : ""}`} onClick={(event) => { if (inlineEditing === (r.id ?? r.product_id) || (event.target as HTMLElement).closest("button, input, select, textarea, a")) return; if (active === "Entradas") { void openEntryDetail(r); return; } if (active === "Presupuestos" || active === "Pedidos") { if (active === "Pedidos" && isOrderSent(r)) void openPreview(r); else void openRecordModal(r); return; } if (isLoadPreparation) { void openPreparationRow(r); return; } if (usesRecordModal) { void openRecordModal(r); return; } beginInline(r); }}>
                     {isProducts && <td className="product-check-column"><input type="checkbox" checked={selectedProductIds.includes(Number(r.id))} onChange={() => toggleProductSelection(Number(r.id))} aria-label={`Seleccionar ${r.name}`} /></td>}
+                    {isProducts && <td className="product-image-column"><button type="button" className="product-thumbnail-button" onClick={() => setProductDetail(r)} aria-label={`Abrir imagen de ${r.name}`}>{productImageSource(r) ? <img src={productImageSource(r)} alt="" loading="lazy" /> : <span aria-hidden="true">—</span>}</button></td>}
                     {visibleFields.map((f: string) => (
                       <td key={f} className={`${stockCellClass(r, f)}${active === "Stock" && ["stock", "stock_reserved", "available_stock", "min_stock"].includes(f) && Number(r[f]) < 0 ? " stock-negative" : ""}`}>
                         {inlineEditing === (r.id ?? r.product_id) ? (

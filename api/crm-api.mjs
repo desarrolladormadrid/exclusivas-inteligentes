@@ -14,6 +14,59 @@ if (existsSync(envPath)) {
     if (match && !process.env[match[1]]) process.env[match[1]] = match[2].trim();
   }
 }
+function cloudinaryReady() {
+  return Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+}
+function slugifyProductName(value) {
+  return String(value || "producto")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "producto";
+}
+function parseImageDataUrl(value) {
+  const match = String(value || "").match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=]+)$/i);
+  if (!match) return null;
+  const buffer = Buffer.from(match[2], "base64");
+  if (!buffer.length || buffer.length > 8 * 1024 * 1024) return null;
+  return { mime: match[1].toLowerCase(), buffer };
+}
+function cloudinaryTransform(url, transformation) {
+  return String(url || "").replace("/image/upload/", `/image/upload/${transformation}/`);
+}
+async function uploadProductImage(dataUrl, productId, productName) {
+  const parsed = parseImageDataUrl(dataUrl);
+  if (!parsed || !cloudinaryReady()) return null;
+  const cloud = String(process.env.CLOUDINARY_CLOUD_NAME).trim();
+  const timestamp = Math.floor(Date.now() / 1000);
+  const folder = "exclusivas-inteligentes/productos";
+  const publicId = `producto-${Number(productId)}-${slugifyProductName(productName)}`;
+  const signed = { folder, public_id: publicId, timestamp };
+  const signatureBase = Object.keys(signed).sort().map((key) => `${key}=${signed[key]}`).join("&");
+  const signature = createHash("sha1").update(`${signatureBase}${process.env.CLOUDINARY_API_SECRET}`).digest("hex");
+  const form = new FormData();
+  form.append("file", new Blob([parsed.buffer], { type: parsed.mime }), `${publicId}.${parsed.mime.split("/")[1] || "jpg"}`);
+  form.append("api_key", String(process.env.CLOUDINARY_API_KEY).trim());
+  form.append("timestamp", String(timestamp));
+  form.append("folder", folder);
+  form.append("public_id", publicId);
+  form.append("signature", signature);
+  const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloud)}/image/upload`, { method: "POST", body: form });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.secure_url) throw new Error(body?.error?.message || "No se pudo subir la imagen a Cloudinary");
+  return {
+    photo_url: body.secure_url,
+    photo_public_id: body.public_id || publicId,
+    photo_thumbnail_url: cloudinaryTransform(body.secure_url, "c_fill,w_320,h_320,f_auto,q_auto"),
+    photo_web_url: cloudinaryTransform(body.secure_url, "c_limit,w_1600,f_auto,q_auto"),
+    photo_bytes: Number(body.bytes || parsed.buffer.length),
+    photo_width: Number(body.width || 0),
+    photo_height: Number(body.height || 0),
+    photo_format: String(body.format || ""),
+  };
+}
 const remoteMode = process.env.DATABASE_MODE === "remote";
 const db = remoteMode
   ? createRemoteDatabaseSync({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN })
@@ -94,7 +147,7 @@ db.exec(
 );
 try { db.exec("ALTER TABLE inventory_movements ADD COLUMN receipt_id INTEGER"); } catch {}
 for (const [table, columns] of [
-  ["products", ["photo_name TEXT", "photo_mime TEXT", "photo_data TEXT", "description TEXT", "category_code TEXT", "warehouse_id INTEGER", "preorder INTEGER DEFAULT 1", "product_tracking_code TEXT DEFAULT 'Sin seguimiento'", "inventory_valuation_method TEXT DEFAULT 'FIFO'", "last_direct_cost REAL DEFAULT 0", "accounting_product_group TEXT DEFAULT 'Mercaderías'", "accounting_vat_group TEXT DEFAULT '21%'", "inventory_register_group TEXT DEFAULT 'Mercaderías'", "created_at TEXT", "created_by TEXT", "family TEXT", "subfamily TEXT", "purchase_format TEXT", "sale_format TEXT", "cases_per_pallet REAL DEFAULT 0", "units_per_pallet REAL DEFAULT 0", "weight_kg REAL DEFAULT 0", "volume_m3 REAL DEFAULT 0", "warehouse_location TEXT", "picking_order INTEGER DEFAULT 0", "product_status TEXT DEFAULT 'Activo'", "primary_supplier_id INTEGER", "fixed_supplier INTEGER DEFAULT 0", "target_margin_percent REAL DEFAULT 0", "min_margin_percent REAL DEFAULT 0", "stock_min REAL DEFAULT 0", "stock_target REAL DEFAULT 0", "stock_safety REAL DEFAULT 0", "lot_tracking INTEGER DEFAULT 0", "expiry_tracking INTEGER DEFAULT 0", "returnable_packaging INTEGER DEFAULT 0", "tax_surcharge_percent REAL DEFAULT 0", "extra_tax_name TEXT", "extra_tax_percent REAL DEFAULT 0", "freight_cost REAL DEFAULT 0", "handling_cost REAL DEFAULT 0", "real_cost REAL DEFAULT 0"]],
+  ["products", ["photo_name TEXT", "photo_mime TEXT", "photo_data TEXT", "photo_url TEXT", "photo_public_id TEXT", "photo_thumbnail_url TEXT", "photo_web_url TEXT", "photo_bytes INTEGER DEFAULT 0", "photo_width INTEGER DEFAULT 0", "photo_height INTEGER DEFAULT 0", "photo_format TEXT", "description TEXT", "category_code TEXT", "warehouse_id INTEGER", "preorder INTEGER DEFAULT 1", "product_tracking_code TEXT DEFAULT 'Sin seguimiento'", "inventory_valuation_method TEXT DEFAULT 'FIFO'", "last_direct_cost REAL DEFAULT 0", "accounting_product_group TEXT DEFAULT 'Mercaderías'", "accounting_vat_group TEXT DEFAULT '21%'", "inventory_register_group TEXT DEFAULT 'Mercaderías'", "created_at TEXT", "created_by TEXT", "family TEXT", "subfamily TEXT", "purchase_format TEXT", "sale_format TEXT", "cases_per_pallet REAL DEFAULT 0", "units_per_pallet REAL DEFAULT 0", "weight_kg REAL DEFAULT 0", "volume_m3 REAL DEFAULT 0", "warehouse_location TEXT", "picking_order INTEGER DEFAULT 0", "product_status TEXT DEFAULT 'Activo'", "primary_supplier_id INTEGER", "fixed_supplier INTEGER DEFAULT 0", "target_margin_percent REAL DEFAULT 0", "min_margin_percent REAL DEFAULT 0", "stock_min REAL DEFAULT 0", "stock_target REAL DEFAULT 0", "stock_safety REAL DEFAULT 0", "lot_tracking INTEGER DEFAULT 0", "expiry_tracking INTEGER DEFAULT 0", "returnable_packaging INTEGER DEFAULT 0", "tax_surcharge_percent REAL DEFAULT 0", "extra_tax_name TEXT", "extra_tax_percent REAL DEFAULT 0", "freight_cost REAL DEFAULT 0", "handling_cost REAL DEFAULT 0", "real_cost REAL DEFAULT 0"]],
   ["suppliers", ["tax_id TEXT", "contact TEXT", "payment_terms TEXT", "city TEXT", "latitude REAL", "longitude REAL", "geocoding_status TEXT DEFAULT 'Pendiente'", "minimum_order REAL DEFAULT 0", "transport_cost REAL DEFAULT 0", "lead_time_days INTEGER DEFAULT 0", "reliability_percent REAL DEFAULT 0", "promotions TEXT", "rappel_percent REAL DEFAULT 0", "active INTEGER DEFAULT 1", "external_code TEXT", "source_system TEXT", "source_warehouse_code TEXT", "source_created_at TEXT", "source_closed_at TEXT", "source_balance REAL DEFAULT 0", "source_overdue_balance REAL DEFAULT 0", "source_payments REAL DEFAULT 0"]],
   ["clients", ["external_code TEXT", "source_system TEXT", "active INTEGER DEFAULT 1", "billing_address TEXT", "billing_city TEXT", "latitude REAL", "longitude REAL", "geocoded_at TEXT", "geocoding_status TEXT DEFAULT 'Pendiente'", "payment_method_code TEXT", "payment_terms_code TEXT", "source_warehouse_code TEXT", "source_created_at TEXT", "source_closed_at TEXT", "source_balance REAL DEFAULT 0", "source_overdue_balance REAL DEFAULT 0", "source_sales REAL DEFAULT 0", "source_payments REAL DEFAULT 0"]],
   ["products", ["external_code TEXT", "source_system TEXT", "active INTEGER DEFAULT 1", "source_type TEXT", "source_substitute TEXT", "assembly_item INTEGER DEFAULT 0", "cost_adjusted INTEGER DEFAULT 0", "default_split_template TEXT", "source_supplier_code TEXT", "source_created_at TEXT", "source_closed_at TEXT"]],
@@ -411,7 +464,7 @@ const lookupFields = {
   suppliers: ["id", "name", "tax_id", "contact", "phone", "email", "address", "city", "latitude", "longitude", "geocoding_status", "active", "minimum_order", "transport_cost", "lead_time_days", "reliability_percent", "rappel_percent", "external_code"],
   warehouses: ["id", "name", "address"],
   collection_points: ["id", "code", "name", "client_id", "address", "city", "contact", "phone", "email", "geocoding_status", "latitude", "longitude"],
-  products: ["id", "name", "sku", "unit", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "vat", "stock", "stock_reserved", "min_stock", "stock_min", "category", "brand", "format", "active", "product_status", "warehouse_id", "supplier_id", "primary_supplier_id", "warehouse_location", "cost_price"],
+  products: ["id", "name", "sku", "unit", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "vat", "stock", "stock_reserved", "min_stock", "stock_min", "category", "brand", "format", "active", "product_status", "warehouse_id", "supplier_id", "primary_supplier_id", "warehouse_location", "cost_price", "photo_url", "photo_thumbnail_url", "photo_web_url"],
   orders: ["id", "code", "client_id", "status", "amount", "created_at", "updated_at", "delivery_date", "preparation_date", "shipping_date", "address", "delivery_city", "collection_point_id", "urgent", "stock_alert"],
   shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "delivery_city", "carrier", "packages", "incidents", "notes"],
   invoices: ["id", "code", "order_id", "client_id", "amount", "status", "created_at", "issue_date", "due_date"],
@@ -1254,6 +1307,11 @@ export async function crmApiHandler(req, res) {
         );
       }
       const d = await read(req);
+      let pendingProductPhoto = null;
+      if (t === "products" && cloudinaryReady() && String(d.photo_data || "").startsWith("data:image/")) {
+        pendingProductPhoto = String(d.photo_data);
+        delete d.photo_data;
+      }
       const reopenPreparation = Boolean(d.reopen_preparation);
       const updateClientAddress = Boolean(d.update_client_address);
       delete d.reopen_preparation;
@@ -1424,6 +1482,14 @@ export async function crmApiHandler(req, res) {
               `INSERT INTO ${t} (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`,
             )
             .run(...keys.map((k) => d[k]));
+        if (t === "products" && pendingProductPhoto) {
+          try {
+            const uploaded = await uploadProductImage(pendingProductPhoto, Number(r.lastInsertRowid), d.name);
+            if (uploaded) db.prepare("UPDATE products SET photo_url=?,photo_public_id=?,photo_thumbnail_url=?,photo_web_url=?,photo_bytes=?,photo_width=?,photo_height=?,photo_format=? WHERE id=?").run(uploaded.photo_url, uploaded.photo_public_id, uploaded.photo_thumbnail_url, uploaded.photo_web_url, uploaded.photo_bytes, uploaded.photo_width, uploaded.photo_height, uploaded.photo_format, Number(r.lastInsertRowid));
+          } catch {
+            db.prepare("UPDATE products SET photo_data=? WHERE id=?").run(pendingProductPhoto, Number(r.lastInsertRowid));
+          }
+        }
         if (t === "orders") {
           // La notificación de alta debe apuntar al pedido concreto para
           // que el clic abra directamente su modal, no el listado general.
@@ -1467,6 +1533,7 @@ export async function crmApiHandler(req, res) {
           db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,completed,created_at) VALUES(?,?,?,?,?,?,?,?)").run(`Revisar stock · ${d.code || "Nuevo pedido"}`, `El pedido queda reservado, pero ${names.join(", ")} quedará por debajo del stock mínimo o sin unidades suficientes. Revisa reposición antes de preparar.`, stockShortages.length ? "Urgente" : "Alta", "Stock", Number(r.lastInsertRowid), 1, 0, now);
         }
         const createdRecord = { id: Number(r.lastInsertRowid), ...d };
+        if (t === "products") Object.assign(createdRecord, db.prepare("SELECT photo_url,photo_public_id,photo_thumbnail_url,photo_web_url,photo_bytes,photo_width,photo_height,photo_format FROM products WHERE id=?").get(Number(r.lastInsertRowid)) || {});
         if (t === "orders") createdRecord.stock_alerts = [...stockShortages, ...stockAlerts];
         return send(res, 201, createdRecord);
       }
@@ -1500,6 +1567,15 @@ export async function crmApiHandler(req, res) {
         invalidateRelatedReadCaches(t);
         const currentRecord = db.prepare(`SELECT id FROM ${t} WHERE id=?`).get(Number(p[2]));
         if (!currentRecord) return send(res, 404, { error: "Registro no encontrado" });
+        if (t === "products" && pendingProductPhoto) {
+          try {
+            const uploaded = await uploadProductImage(pendingProductPhoto, Number(p[2]), d.name || db.prepare("SELECT name FROM products WHERE id=?").get(Number(p[2]))?.name);
+            if (uploaded) Object.assign(d, uploaded);
+            else Object.assign(d, { photo_data: pendingProductPhoto, photo_url: null, photo_public_id: null, photo_thumbnail_url: null, photo_web_url: null, photo_bytes: 0, photo_width: 0, photo_height: 0, photo_format: null });
+          } catch {
+            Object.assign(d, { photo_data: pendingProductPhoto, photo_url: null, photo_public_id: null, photo_thumbnail_url: null, photo_web_url: null, photo_bytes: 0, photo_width: 0, photo_height: 0, photo_format: null });
+          }
+        }
         d.updated_at = new Date().toISOString();
         for (const key of ["stock_alerts", "client_name", "client_city", "billed", "billing_status", "available_stock", "stock_status", "product_name", "warehouse_name"]) delete d[key];
         if (t === "returns") {
