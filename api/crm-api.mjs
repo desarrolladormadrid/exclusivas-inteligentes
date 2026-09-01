@@ -446,7 +446,9 @@ db.exec(
 for (const [table, columns] of [["orders", ["preparation_date", "shipping_date", "delivery_city"]], ["shipments", ["preparation_date", "delivery_city"]]]) for (const column of columns) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`); } catch {} }
 try { db.exec("ALTER TABLE orders ADD COLUMN urgent INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE shipments ADD COLUMN urgent INTEGER DEFAULT 0"); } catch {}
-try { db.exec("UPDATE purchase_orders SET stock_applied_at=COALESCE(stock_applied_at,updated_at,order_date) WHERE status='Recibida' AND stock_applied_at IS NULL"); } catch {}
+if (!remoteMode) {
+  try { db.exec("UPDATE purchase_orders SET stock_applied_at=COALESCE(stock_applied_at,updated_at,order_date) WHERE status='Recibida' AND stock_applied_at IS NULL"); } catch {}
+}
 db.exec(
   `CREATE TABLE IF NOT EXISTS inventory_movements(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,warehouse_id INTEGER, movement_type TEXT NOT NULL, quantity REAL DEFAULT 0, reference TEXT, movement_date TEXT DEFAULT CURRENT_DATE, notes TEXT);`,
 );
@@ -464,6 +466,9 @@ for (const [table, columns] of [["clients", ["opening_time TEXT", "closing_time 
 }
 // Conservamos los campos históricos de stock y rellenamos los nuevos umbrales
 // para que las instalaciones antiguas entren directamente en el motor de compras.
+// En Turso estas correcciones se ejecutan mediante la migración puntual; nunca
+// durante el arranque de cada función serverless.
+if (!remoteMode) {
 try {
   db.exec("UPDATE products SET stock_min=COALESCE(NULLIF(stock_min,0),min_stock,0), stock_target=COALESCE(NULLIF(stock_target,0),COALESCE(min_stock,0)*2,0), stock_safety=COALESCE(stock_safety,0), real_cost=COALESCE(NULLIF(real_cost,0),cost_price,0)");
 } catch {}
@@ -478,6 +483,8 @@ try {
   db.exec("UPDATE suppliers SET tax_id=COALESCE(NULLIF(tax_id,''),'B' || printf('%08d',id)), contact=COALESCE(NULLIF(contact,''),'Departamento comercial'), payment_terms=COALESCE(NULLIF(payment_terms,''),'30 días'), minimum_order=COALESCE(NULLIF(minimum_order,0),1), transport_cost=COALESCE(transport_cost,0), lead_time_days=COALESCE(NULLIF(lead_time_days,0),2), reliability_percent=COALESCE(NULLIF(reliability_percent,0),92), active=COALESCE(active,1)");
   db.exec("UPDATE products SET family=COALESCE(NULLIF(family,''),COALESCE(NULLIF(category,''),'Bebidas')), subfamily=COALESCE(NULLIF(subfamily,''),COALESCE(NULLIF(format,''),'Distribución')), purchase_format=COALESCE(NULLIF(purchase_format,''),COALESCE(NULLIF(format,''),'caja')), sale_format=COALESCE(NULLIF(sale_format,''),COALESCE(NULLIF(unit,''),'unidad')), units_per_case=COALESCE(NULLIF(units_per_case,0),1), cases_per_pallet=COALESCE(NULLIF(cases_per_pallet,0),40), units_per_pallet=COALESCE(NULLIF(units_per_pallet,0),COALESCE(NULLIF(units_per_case,0),1)*COALESCE(NULLIF(cases_per_pallet,0),40)), warehouse_location=COALESCE(NULLIF(warehouse_location,''),'Almacén central · Pasillo 01'), product_status=COALESCE(NULLIF(product_status,''),'Activo'), stock_min=COALESCE(NULLIF(stock_min,0),NULLIF(min_stock,0),10), stock_target=COALESCE(NULLIF(stock_target,0),MAX(COALESCE(NULLIF(min_stock,0),10)*2,COALESCE(stock,0)+10)), stock_safety=COALESCE(NULLIF(stock_safety,0),5), target_margin_percent=COALESCE(NULLIF(target_margin_percent,0),30), min_margin_percent=COALESCE(NULLIF(min_margin_percent,0),18), real_cost=COALESCE(NULLIF(real_cost,0),COALESCE(cost_price,0)+COALESCE(freight_cost,0)+COALESCE(handling_cost,0)), tax_surcharge_percent=COALESCE(tax_surcharge_percent,0), extra_tax_percent=COALESCE(extra_tax_percent,0)");
 } catch {}
+}
+if (!remoteMode) {
 // Normaliza ubicaciones históricas al formato de picking: una zona (A-Z) y una
 // posición de tres cifras. Las posiciones ya válidas se conservan.
 try {
@@ -513,6 +520,7 @@ try {
     db.exec("UPDATE products SET warehouse_location=CASE id " + locations + " ELSE warehouse_location END, picking_order=CASE id " + orders + " ELSE picking_order END WHERE id IN (" + ids + ")");
   }
 } catch {}
+}
 for (const column of ["order_id", "shipment_id", "client_id", "created_by"]) {
   try { db.exec(`ALTER TABLE inventory_movements ADD COLUMN ${column} TEXT`); } catch {}
 }
@@ -535,7 +543,9 @@ db.exec(
   `CREATE TABLE IF NOT EXISTS order_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,order_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS quote_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,quote_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS delivery_note_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,delivery_note_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS invoice_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);`,
 );
 db.exec(`CREATE TABLE IF NOT EXISTS invoice_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL,order_id INTEGER NOT NULL,UNIQUE(invoice_id,order_id),UNIQUE(order_id));`);
-try { db.exec("INSERT OR IGNORE INTO invoice_orders(invoice_id,order_id) SELECT id,order_id FROM invoices WHERE order_id IS NOT NULL"); } catch {}
+if (!remoteMode) {
+  try { db.exec("INSERT OR IGNORE INTO invoice_orders(invoice_id,order_id) SELECT id,order_id FROM invoices WHERE order_id IS NOT NULL"); } catch {}
+}
 for (const column of [
   "pdf_public_id TEXT",
   "pdf_url TEXT",
@@ -554,7 +564,7 @@ for (const column of [
 // para no ralentizar cada función serverless. Estas columnas son necesarias
 // para que las facturas puedan conservar su PDF y su enlace seguro en Turso,
 // así que las aplicamos explícitamente una sola vez por instancia fría.
-if (remoteMode) {
+if (remoteMode && process.env.RUN_REMOTE_MIGRATIONS === "1") {
   for (const column of [
     "pdf_public_id TEXT",
     "pdf_url TEXT",
@@ -587,7 +597,7 @@ for (const table of ["orders", "quotes"]) {
 }
 // Igual que en facturas, el adaptador Turso no ejecuta DDL genérico durante el
 // arranque; estas columnas se aplican de forma explícita en la primera instancia.
-if (remoteMode) {
+if (remoteMode && process.env.RUN_REMOTE_MIGRATIONS === "1") {
   for (const table of ["orders", "quotes"]) {
     for (const column of [
       "pdf_public_id TEXT",
@@ -608,7 +618,7 @@ for (const table of ["orders", "quotes"]) {
 }
 // El adaptador remoto no ejecuta las migraciones DDL genéricas del arranque.
 // Estas columnas se aplican explícitamente también en Turso.
-if (remoteMode) {
+if (remoteMode && process.env.RUN_REMOTE_MIGRATIONS === "1") {
   for (const [table, columns] of [["clients", ["opening_time TEXT", "closing_time TEXT"]], ["collection_points", ["opening_time TEXT", "closing_time TEXT"]], ["delivery_route_stops", ["opening_time TEXT", "closing_time TEXT"]]]) {
     for (const column of columns) { try { db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column}`).run(); } catch {} }
   }
@@ -631,7 +641,7 @@ if (!db.prepare("SELECT COUNT(*) n FROM users").get().n) {
   );
 }
 try { db.exec("ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT '[]'"); } catch {}
-db.prepare("UPDATE users SET role='admin', permissions='*' WHERE username IN ('Luis','Jose')").run();
+if (!remoteMode) db.prepare("UPDATE users SET role='admin', permissions='*' WHERE username IN ('Luis','Jose')").run();
 const tables = new Set([
   "suppliers",
   "purchase_orders",
@@ -756,7 +766,7 @@ function optimizeStops(stops, originLat, originLon) {
   }
   return ordered.map((stop, index) => ({ ...stop, position: index + 1 }));
 }
-try {
+if (!remoteMode) try {
   const automaticBackup = db.prepare("SELECT id FROM scheduled_tasks WHERE status='Activa' AND LOWER(title)=LOWER(?) LIMIT 1").get("Copia automática de Turso");
   if (!automaticBackup) {
     const now = new Date().toISOString();
@@ -842,7 +852,7 @@ if (!remoteMode && Number(db.prepare("SELECT COUNT(*) n FROM document_templates 
 }
 // Datos de apoyo para que el motor pueda comparar alternativas desde el primer
 // arranque. Se crean una sola vez y después quedan totalmente editables.
-try {
+if (!remoteMode) try {
   const products = db.prepare("SELECT id,cost_price,primary_supplier_id,supplier_id FROM products WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 ORDER BY id").all();
   const suppliers = db.prepare("SELECT id,minimum_order,transport_cost,lead_time_days,reliability_percent,rappel_percent FROM suppliers WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 ORDER BY id").all();
   if (products.length && suppliers.length && Number(db.prepare("SELECT COUNT(*) n FROM product_suppliers").get().n) === 0) {
