@@ -3761,8 +3761,31 @@ select.form-control option:hover {
 .public-web-benefits { display: grid; gap: 11px; margin-top: 28px; }
 .public-web-benefits span { display: flex; align-items: center; gap: 12px; color: #514d46; font-size: 11px; font-weight: 700; }
 .public-web-benefits b { color: #bd2027; font-size: 9px; letter-spacing: .1em; }
+.public-web-product-card { cursor: pointer; transition: transform .18s ease, box-shadow .18s ease; }
+.public-web-product-card:hover, .public-web-product-card:focus-visible { transform: translateY(-3px); box-shadow: 0 12px 24px rgba(17,17,15,.12); outline: 0; }
+.public-web-product-card:focus-visible { box-shadow: 0 0 0 3px rgba(189,32,39,.28), 0 12px 24px rgba(17,17,15,.12); }
+.public-web-product-image.has-photo img { inset: 0; width: 100%; height: 100%; max-width: 100%; object-fit: cover; }
+.public-web-product-image.has-photo::after { display: block; content: ""; position: absolute; inset: auto 0 0; width: auto; height: 40%; border: 0; border-radius: 0; background: linear-gradient(transparent, rgba(0,0,0,.48)); pointer-events: none; }
+.public-web-product-modal { display: grid; grid-template-columns: minmax(260px, .9fr) minmax(280px, 1fr); width: min(820px, 100%); max-height: calc(100vh - 36px); overflow: auto; background: #f4f3ed; color: #11110f; }
+.public-web-product-modal-image { position: relative; min-height: 390px; overflow: hidden; background: #bd2027; }
+.public-web-product-modal-image img { display: block; width: 100%; height: 100%; min-height: 390px; object-fit: cover; }
+.public-web-product-modal-image:not(.has-photo) img { width: 200%; max-width: none; }
+.public-web-product-modal-copy { display: grid; align-content: center; gap: 15px; padding: 46px 38px; }
+.public-web-product-modal-copy h2 { margin: 0; font-size: clamp(32px, 4vw, 54px); letter-spacing: -.07em; line-height: .94; }
+.public-web-product-modal-copy > p:not(.public-web-kicker):not(.public-web-product-modal-meta) { margin: 0; color: #746f67; font-size: 14px; line-height: 1.55; }
+.public-web-product-modal-meta { margin: -5px 0 0; color: #bd2027; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.public-web-product-modal-copy .public-web-primary { width: max-content; margin-top: 8px; }
+.public-web-product-modal .public-web-modal-close { z-index: 1; }
 .public-web-product-image { isolation: isolate; }
 .public-web ~ .assistant-ball, body:has(.public-web) .assistant-ball, body:has(.public-web) .assistant-global, body:has(.public-web) .settings-fab, body:has(.public-web) .settings-panel { display: none !important; }
+.public-web-product-modal-image:not(.has-photo) img { object-position: top left; }
+@media (max-width: 560px) {
+  .public-web-product-modal { grid-template-columns: 1fr; max-height: calc(100vh - 20px); }
+  .public-web-product-modal-image, .public-web-product-modal-image img { min-height: 250px; height: 250px; }
+  .public-web-product-modal-copy { padding: 28px 20px; }
+  .public-web-product-modal-copy h2 { font-size: 38px; }
+  .public-web-product-modal-copy .public-web-primary { width: 100%; }
+}
 .public-web-product-image img { position: absolute; inset: 0; z-index: 0; width: 200%; max-width: none; height: 200%; object-fit: cover; }
 .public-web-product-image.crop-0 img { top: 0; left: 0; }
 .public-web-product-image.crop-1 img { top: 0; left: -100%; }
