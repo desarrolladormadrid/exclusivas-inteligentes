@@ -35,7 +35,7 @@ export default function WebPage() {
 
   useEffect(() => {
     let mounted = true;
-    fetch("/api/products?limit=300", { headers: { "X-Audit-Query": "true" } }).then((response) => response.json()).then((data) => { if (mounted) setProducts(Array.isArray(data) ? data.filter((item) => Number(item.deleted || 0) === 0 && item.product_status !== "Baja" && !/^(__TEST|__DBG|__DEBUG|DEMO)/i.test(String(item.name || ""))) : []); }).catch(() => { if (mounted) setProducts([]); }).finally(() => { if (mounted) setLoading(false); });
+    fetch("/api/products?view=public&limit=300", { headers: { "X-Audit-Query": "true" } }).then((response) => response.json()).then((data) => { if (mounted) setProducts(Array.isArray(data) ? data.filter((item) => !/^(__TEST|__DBG|__DEBUG|DEMO)/i.test(String(item.name || ""))) : []); }).catch(() => { if (mounted) setProducts([]); }).finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
   }, []);
   const categories = useMemo(() => Array.from(new Set(products.map(productCategory))).filter(Boolean).slice(0, 14), [products]);

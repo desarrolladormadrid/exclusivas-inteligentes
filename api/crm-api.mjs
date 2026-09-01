@@ -1258,6 +1258,7 @@ export async function crmApiHandler(req, res) {
         const includeDeleted = query.get("include_deleted") === "1";
         const includeInactive = query.get("include_inactive") === "1";
         const isLookup = query.get("view") === "lookup";
+        const isPublicCatalog = t === "products" && query.get("view") === "public";
         const parsePageValue = (value, fallback) => {
           const parsed = Number.parseInt(String(value || ""), 10);
           return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
@@ -1283,14 +1284,18 @@ export async function crmApiHandler(req, res) {
         const source = t === "orders"
           ? `orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id`
           : t;
-        const selection = isLookup
+        const selection = isPublicCatalog
+          ? "products.id,products.name,products.family,products.category,products.subfamily,products.brand,products.format,products.sku,products.description,products.photo_url,products.photo_thumbnail_url,products.photo_web_url"
+          : isLookup
           ? lookupSelectFor(t)
           : t === "orders"
             ? "orders.*,order_client.name AS client_name,order_client.city AS client_city,CASE WHEN orders.status='Facturado' OR EXISTS(SELECT 1 FROM invoice_orders io JOIN invoices bi ON bi.id=io.invoice_id WHERE io.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) OR EXISTS(SELECT 1 FROM invoices bi WHERE bi.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) THEN 'Facturado' ELSE 'Sin facturar' END AS billing_status"
             : listSelectFor(t);
         const filters = [];
         if (!includeDeleted && hasColumn(t, "deleted")) filters.push(`CAST(COALESCE(${t === "orders" ? "orders" : t}.deleted,0) AS INTEGER)=0`);
-        if (!includeInactive && ["suppliers", "clients", "products"].includes(t)) {
+        if (isPublicCatalog) {
+          filters.push("CAST(COALESCE(products.active,1) AS INTEGER)=1", "LOWER(COALESCE(products.product_status,'Activo')) NOT IN ('inactivo','baja','descatalogado')");
+        } else if (!includeInactive && ["suppliers", "clients", "products"].includes(t)) {
           filters.push(t === "products"
             ? `CAST(COALESCE(products.active,1) AS INTEGER)=1 AND LOWER(COALESCE(products.product_status,'Activo')) NOT IN ('inactivo','baja','descatalogado')`
             : `CAST(COALESCE(${t}.active,1) AS INTEGER)=1`);
