@@ -1302,7 +1302,10 @@ export async function crmApiHandler(req, res) {
         }
         const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
         const pagination = limitValue === null ? "" : ` LIMIT ${limitValue} OFFSET ${offsetValue}`;
-        const rows = db.prepare(`SELECT ${selection} FROM ${source} ${where} ORDER BY ${t === "orders" ? "orders.id" : "id"} DESC${pagination}`).all();
+        const orderBy = isPublicCatalog
+          ? "CASE WHEN TRIM(COALESCE(products.photo_web_url,''))<>'' THEN 0 ELSE 1 END, products.id DESC"
+          : `${t === "orders" ? "orders.id" : "id"} DESC`;
+        const rows = db.prepare(`SELECT ${selection} FROM ${source} ${where} ORDER BY ${orderBy}${pagination}`).all();
         return send(
           res,
           200,
