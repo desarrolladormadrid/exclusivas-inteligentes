@@ -1673,10 +1673,28 @@ function ProductLabelModal({ product, actor, onClose, onSaved }: { product: any;
   );
 }
 
+const crmReferenceImages = {
+  cerveza: { thumbnail: "https://res.cloudinary.com/a3msu7ba/image/upload/c_fill,w_320,h_320,f_auto,q_auto/v1788259225/exclusivas-inteligentes/referencias-catalogo/generico-cerveza.png", web: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259225/exclusivas-inteligentes/referencias-catalogo/generico-cerveza.png" },
+  vino: { thumbnail: "https://res.cloudinary.com/a3msu7ba/image/upload/c_fill,w_320,h_320,f_auto,q_auto/v1788259068/exclusivas-inteligentes/referencias-catalogo/generico-vino.png", web: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259068/exclusivas-inteligentes/referencias-catalogo/generico-vino.png" },
+  agua: { thumbnail: "https://res.cloudinary.com/a3msu7ba/image/upload/c_fill,w_320,h_320,f_auto,q_auto/v1788259069/exclusivas-inteligentes/referencias-catalogo/generico-agua.png", web: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259069/exclusivas-inteligentes/referencias-catalogo/generico-agua.png" },
+  refrescos: { thumbnail: "https://res.cloudinary.com/a3msu7ba/image/upload/c_fill,w_320,h_320,f_auto,q_auto/v1788259069/exclusivas-inteligentes/referencias-catalogo/generico-refrescos.png", web: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259069/exclusivas-inteligentes/referencias-catalogo/generico-refrescos.png" },
+  zumos: { thumbnail: "https://res.cloudinary.com/a3msu7ba/image/upload/c_fill,w_320,h_320,f_auto,q_auto/v1788259070/exclusivas-inteligentes/referencias-catalogo/generico-zumos.png", web: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259070/exclusivas-inteligentes/referencias-catalogo/generico-zumos.png" },
+  alimentacion: { thumbnail: "https://res.cloudinary.com/a3msu7ba/image/upload/c_fill,w_320,h_320,f_auto,q_auto/v1788259071/exclusivas-inteligentes/referencias-catalogo/generico-alimentacion.png", web: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259071/exclusivas-inteligentes/referencias-catalogo/generico-alimentacion.png" },
+  bebidas: { thumbnail: "https://res.cloudinary.com/a3msu7ba/image/upload/c_fill,w_320,h_320,f_auto,q_auto/v1788259072/exclusivas-inteligentes/referencias-catalogo/generico-bebidas.png", web: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259072/exclusivas-inteligentes/referencias-catalogo/generico-bebidas.png" },
+} as const;
+function productReferenceImageSource(product: any, large = false) {
+  if (!String(product?.name || "").trim()) return "";
+  const text = `${product?.name || ""} ${product?.family || ""} ${product?.category || ""} ${product?.subfamily || ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const category = /cerveza|lager|ipa|sidra/.test(text) ? "cerveza" : /vino|cava|vermut|jerez|licor|whisky|ginebra|ron|vodka/.test(text) ? "vino" : /agua|mineral|fuente/.test(text) ? "agua" : /zumo|nectar|jugo/.test(text) ? "zumos" : /refresco|cola|tonica|ginger|limonada|naranja|isotonica|energy/.test(text) ? "refrescos" : /leche|cafe|galleta|azucar|chocolate|sobao|rosquilla|speculoos|snack|patata|aceituna|conserva|salsa|mayonesa|tomate|pan|aperitivo/.test(text) ? "alimentacion" : "bebidas";
+  return crmReferenceImages[category][large ? "web" : "thumbnail"];
+}
 function productImageSource(product: any, large = false) {
   // Una foto recién seleccionada debe prevalecer sobre la URL antigua hasta
   // que el usuario guarde la ficha.
   return product?.photo_data || (large ? product?.photo_web_url : product?.photo_thumbnail_url) || product?.photo_url || "";
+}
+function productDisplayImageSource(product: any, large = false) {
+  return productImageSource(product, large) || productReferenceImageSource(product, large);
 }
 
 function ProductDetailDrawer({ product, onClose, onEdit, onLabel, onDuplicate }: { product: any; onClose: () => void; onEdit: () => void; onLabel: () => void; onDuplicate: () => void }) {
@@ -1686,7 +1704,7 @@ function ProductDetailDrawer({ product, onClose, onEdit, onLabel, onDuplicate }:
     <div className="product-drawer-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
       <aside className="product-drawer" aria-label={`Ficha de ${product.name}`}>
         <div className="product-drawer-head"><div><p className="eyebrow">FICHA DEL PRODUCTO</p><h2>{product.name}</h2><small>{product.sku || "Sin SKU"}</small></div><button type="button" onClick={onClose} aria-label="Cerrar">×</button></div>
-        <div className="product-drawer-image">{productImageSource(product, true) ? <img src={productImageSource(product, true)} alt={`Imagen de ${product.name}`} /> : <span>Sin imagen de catálogo</span>}</div>
+        <div className={`product-drawer-image${productImageSource(product, true) ? "" : " product-reference-image"}`}><img src={productDisplayImageSource(product, true)} alt={productImageSource(product, true) ? `Imagen de ${product.name}` : `Imagen de referencia para ${product.name}`} />{!productImageSource(product, true) && <small>Imagen de referencia</small>}</div>
         <div className={`product-drawer-stock ${critical ? "critical" : "available"}`}><strong>{available}</strong><span>unidades disponibles</span><small>{Number(product.stock || 0)} físicas · {Number(product.stock_reserved || 0)} reservadas</small></div>
         <div className="product-drawer-grid">
           <div><span>Familia</span><b>{product.category || "—"}</b></div><div><span>Marca</span><b>{product.brand || "—"}</b></div>
@@ -4150,14 +4168,14 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               </div>
               <section className="product-photo-editor" aria-labelledby="product-photo-editor-title">
                 <div className="product-photo-editor-preview">
-                  {productImageSource(form, true)
-                    ? <img src={productImageSource(form, true)} alt={`Vista previa de ${form.name || "producto"}`} />
+                  {productDisplayImageSource(form, true)
+                    ? <img src={productDisplayImageSource(form, true)} alt={productImageSource(form, true) ? `Vista previa de ${form.name || "producto"}` : `Imagen de referencia para ${form.name || "producto"}`} />
                     : <span aria-hidden="true">Sin imagen</span>}
                 </div>
                 <div className="product-photo-editor-content">
                   <div>
                     <b id="product-photo-editor-title">Imagen del producto</b>
-                    <small>{form.photo_data ? "Nueva imagen seleccionada; se guardará al confirmar." : form.photo_url ? "Imagen actual del catálogo." : "Añade una imagen cuadrada para el catálogo y la web."}</small>
+                    <small>{form.photo_data ? "Nueva imagen seleccionada; se guardará al confirmar." : form.photo_url ? "Imagen actual de Cloudinary." : "Imagen de referencia Cloudinary; añade la foto propia cuando esté disponible."}</small>
                   </div>
                   <label className="button secondary product-photo-select">
                     {form.photo_url || form.photo_data ? "Cambiar imagen" : "Añadir imagen"}
@@ -4420,7 +4438,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               {sortedRows.map((r) => (
                   <tr key={r.id ?? r.product_id} data-inline-row={r.id ?? r.product_id} data-row-modal={active === "Presupuestos" || active === "Pedidos" || usesRecordModal || active === "Entradas" ? "true" : undefined} className={`${isProducts && Number(r.stock || 0) - Number(r.stock_reserved || 0) <= Number(r.min_stock || 0) ? "product-row-critical" : ""}${isLoadPreparation && Number(r.urgent) === 1 ? " prep-row-urgent" : ""}${isLoadPreparation && r.status === "Preparado con incidencia" ? " prep-row-incident" : ""}${Number(r.deleted) === 1 ? " deleted-row" : ""}${active === "Pedidos" ? " order-list-row" : ""}`} onClick={(event) => { if (inlineEditing === (r.id ?? r.product_id) || (event.target as HTMLElement).closest("button, input, select, textarea, a")) return; if (active === "Entradas") { void openEntryDetail(r); return; } if (active === "Presupuestos" || active === "Pedidos") { if (active === "Pedidos" && isOrderSent(r)) void openPreview(r); else void openRecordModal(r); return; } if (isLoadPreparation) { void openPreparationRow(r); return; } if (usesRecordModal) { void openRecordModal(r); return; } beginInline(r); }}>
                     {isProducts && <td className="product-check-column"><input type="checkbox" checked={selectedProductIds.includes(Number(r.id))} onChange={() => toggleProductSelection(Number(r.id))} aria-label={`Seleccionar ${r.name}`} /></td>}
-                    {isProducts && <td className="product-image-column"><button type="button" className="product-thumbnail-button" onClick={() => setProductDetail(r)} aria-label={`Abrir imagen de ${r.name}`}>{productImageSource(r) ? <img src={productImageSource(r)} alt="" loading="lazy" /> : <span aria-hidden="true">—</span>}</button></td>}
+                    {isProducts && <td className="product-image-column"><button type="button" className={`product-thumbnail-button${productImageSource(r) ? "" : " product-reference-thumbnail"}`} onClick={() => setProductDetail(r)} aria-label={`Abrir imagen de ${r.name}`}>{<img src={productDisplayImageSource(r)} alt={productImageSource(r) ? "" : `Imagen de referencia para ${r.name}`} loading="lazy" />}</button></td>}
                     {visibleFields.map((f: string) => (
                       <td key={f} className={`${stockCellClass(r, f)}${active === "Stock" && ["stock", "stock_reserved", "available_stock", "min_stock"].includes(f) && Number(r[f]) < 0 ? " stock-negative" : ""}`}>
                         {inlineEditing === (r.id ?? r.product_id) ? (
