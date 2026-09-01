@@ -5,16 +5,6 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 type Product = { id: number; name: string; family?: string; category?: string; subfamily?: string; brand?: string; format?: string; sku?: string; unit_price?: number; deleted?: number; product_status?: string; description?: string; photo_url?: string | null; photo_thumbnail_url?: string | null; photo_web_url?: string | null };
 type RegistrationKind = "cliente" | "proveedor";
 
-const referenceImages = {
-  cerveza: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259225/exclusivas-inteligentes/referencias-catalogo/generico-cerveza.png",
-  vino: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259068/exclusivas-inteligentes/referencias-catalogo/generico-vino.png",
-  agua: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259069/exclusivas-inteligentes/referencias-catalogo/generico-agua.png",
-  refrescos: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259069/exclusivas-inteligentes/referencias-catalogo/generico-refrescos.png",
-  zumos: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259070/exclusivas-inteligentes/referencias-catalogo/generico-zumos.png",
-  alimentacion: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259071/exclusivas-inteligentes/referencias-catalogo/generico-alimentacion.png",
-  bebidas: "https://res.cloudinary.com/a3msu7ba/image/upload/c_limit,w_1600,f_auto,q_auto/v1788259072/exclusivas-inteligentes/referencias-catalogo/generico-bebidas.png",
-} as const;
-
 const categoryCards = [
   ["01", "Cervezas", "Barril, botellín y referencias para llenar tu cámara."],
   ["02", "Vinos y vermuts", "Bodegas, denominaciones y formatos para cada servicio."],
@@ -27,18 +17,11 @@ const zones = [
   ["03", "Tierra de Campos y norte", "Planificamos la entrega para que el género llegue cuando lo necesitas."],
 ];
 const productCategory = (product: Product) => String(product.family || product.category || product.subfamily || "Selección horeca").trim();
-const productImage = (product: Product) => String(product.photo_web_url || product.photo_url || product.photo_thumbnail_url || "").trim();
-const productReferenceCategory = (product: Product) => {
-  const text = `${product.name || ""} ${product.family || ""} ${product.category || ""} ${product.subfamily || ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  if (/cerveza|lager|ipa|sidra/.test(text)) return "cerveza";
-  if (/vino|cava|vermut|jerez|licor|whisky|ginebra|ron|vodka/.test(text)) return "vino";
-  if (/agua|mineral|fuente/.test(text)) return "agua";
-  if (/zumo|nectar|jugo/.test(text)) return "zumos";
-  if (/refresco|cola|tonica|ginger|limonada|naranja|isotonica|energy/.test(text)) return "refrescos";
-  if (/leche|cafe|galleta|azucar|chocolate|sobao|rosquilla|speculoos|snack|patata|aceituna|conserva|salsa|mayonesa|tomate|pan|aperitivo/.test(text)) return "alimentacion";
-  return "bebidas";
+const productImage = (product: Product) => {
+  const source = String(product.photo_web_url || product.photo_url || product.photo_thumbnail_url || "").trim();
+  return source.includes("res.cloudinary.com") ? source : "";
 };
-const productDisplayImage = (product: Product) => productImage(product) || referenceImages[productReferenceCategory(product) as keyof typeof referenceImages];
+const productDisplayImage = (product: Product) => productImage(product);
 const offerLabels = ["Oferta de alta", "Descuento por volumen", "Condición especial horeca", "Promoción de temporada"];
 
 export default function WebPage() {
@@ -59,7 +42,7 @@ export default function WebPage() {
     return () => { mounted = false; };
   }, []);
   const categories = useMemo(() => Array.from(new Set(products.map(productCategory))).filter(Boolean).slice(0, 14), [products]);
-  const filteredProducts = useMemo(() => products.filter((product) => { const text = `${product.name || ""} ${product.sku || ""} ${product.brand || ""} ${product.family || ""} ${product.category || ""} ${product.format || ""}`.toLowerCase(); return (!query.trim() || text.includes(query.trim().toLowerCase())) && (category === "Todos" || productCategory(product) === category); }), [products, query, category]);
+  const filteredProducts = useMemo(() => products.filter((product) => { const text = `${product.name || ""} ${product.sku || ""} ${product.brand || ""} ${product.family || ""} ${product.category || ""} ${product.format || ""}`.toLowerCase(); return Boolean(productImage(product)) && (!query.trim() || text.includes(query.trim().toLowerCase())) && (category === "Todos" || productCategory(product) === category); }), [products, query, category]);
   function openRegistration(kind: RegistrationKind) { setRegistrationKind(kind); setRegistrationMessage(""); setRegistration({ company_name: "", tax_id: "", contact_name: "", email: "", phone: "", address: "", city: "", message: "" }); }
   async function submitRegistration(event: FormEvent) { event.preventDefault(); if (!registrationKind) return; setRegistrationSaving(true); setRegistrationMessage(""); try { const response = await fetch("/api/web_registrations", { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": "Portal web" }, body: JSON.stringify({ ...registration, kind: registrationKind }) }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || "No se ha podido enviar el formulario."); setRegistrationMessage("Recibido. Nuestro equipo revisará los datos y se pondrá en contacto contigo."); } catch (error) { setRegistrationMessage(error instanceof Error ? error.message : "No se ha podido enviar el formulario."); } finally { setRegistrationSaving(false); } }
   return <main className="public-web">

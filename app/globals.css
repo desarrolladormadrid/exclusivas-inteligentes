@@ -3789,11 +3789,8 @@ select.form-control option:hover {
   .public-web-product-modal-copy h2 { font-size: 38px; }
   .public-web-product-modal-copy .public-web-primary { width: 100%; }
 }
-.public-web-product-image img { position: absolute; inset: 0; z-index: 0; width: 200%; max-width: none; height: 200%; object-fit: cover; }
-.public-web-product-image.crop-0 img { top: 0; left: 0; }
-.public-web-product-image.crop-1 img { top: 0; left: -100%; }
-.public-web-product-image.crop-2 img { top: -100%; left: 0; }
-.public-web-product-image.crop-3 img { top: -100%; left: -100%; }
+.public-web-product-image img { position: absolute; inset: 0; z-index: 0; width: 100%; max-width: 100%; height: 100%; object-fit: cover; }
+.public-web-product-image.crop-0 img, .public-web-product-image.crop-1 img, .public-web-product-image.crop-2 img, .public-web-product-image.crop-3 img { top: 0; left: 0; }
 .public-web-product-image::before, .public-web-product-image::after { display: none; }
 .public-web-product-image i { display: none; }
 .public-web-product-image > span { z-index: 2; }
