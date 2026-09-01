@@ -4680,6 +4680,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       )}
       <div className="panel table-panel">
         <div className="table-tools">
+          <div className="table-tools-primary">
           <input
             placeholder={isProducts ? "Buscar por nombre, SKU, referencia o código..." : "Buscar en columnas principales..."}
             value={search}
@@ -4692,6 +4693,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             <span className="saved-views-label">Vistas</span>
             {quickViewOptions.map((option) => <button key={option.value} type="button" className={`saved-view-button${quickView === option.value ? " is-active" : ""}`} aria-pressed={quickView === option.value} onClick={() => { setQuickView(option.value); try { localStorage.setItem(`excluvas.quick-view.${c.api}`, option.value); } catch {} }}>{option.label}</button>)}
           </div>}
+          </div>
+          <div className="table-tools-filters">
           {active === "Pedidos" && <select className="billing-filter-select" value={billingFilter} onChange={(event) => setBillingFilter(event.target.value)} aria-label="Filtrar pedidos por facturación"><option value="todos">Facturación: todos</option><option value="pendientes">Sin facturar</option><option value="facturados">Facturados</option></select>}
           {active === "Pedidos" && <select className="billing-filter-select" value={shippingFilter} onChange={(event) => setShippingFilter(event.target.value)} aria-label="Filtrar pedidos por envío"><option value="todos">Envío: todos</option><option value="pendientes">Pendientes de enviar</option><option value="enviados">Enviados o entregados</option></select>}
           {listFilterActive && <>
@@ -4735,6 +4738,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
           >
             {showDeleted ? "Ocultar eliminados" : "Mostrar eliminados"}
           </button>
+          </div>
         </div>
         {active === "Stock" && <div className="stock-meaning" role="note"><b>Cómo leer la cobertura:</b><span>Stock físico = existencias actuales</span><span>Necesario = unidades requeridas por pedidos abiertos</span><span>Saldo = stock físico − necesario</span><span className="stock-meaning-alert">Saldo negativo = no se pueden cubrir todos los pedidos</span></div>}
         {isProducts && (
