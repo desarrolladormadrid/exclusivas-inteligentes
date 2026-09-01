@@ -41,6 +41,15 @@ const migrationsByTable = {
   purchase_request_offers: [
     ["table", "CREATE TABLE IF NOT EXISTS purchase_request_offers(id INTEGER PRIMARY KEY AUTOINCREMENT,request_id INTEGER NOT NULL,supplier_id INTEGER,supplier_ref TEXT,contact_name TEXT,email TEXT,valid_until TEXT,delivery_days INTEGER DEFAULT 0,notes TEXT,lines_json TEXT NOT NULL,status TEXT DEFAULT 'Recibida',created_at TEXT,updated_at TEXT)"],
   ],
+  backup_snapshots: [
+    ["table", "CREATE TABLE IF NOT EXISTS backup_snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,created_at TEXT NOT NULL,created_by TEXT,source TEXT DEFAULT 'Turso',tables_json TEXT NOT NULL,data_base64 TEXT NOT NULL,checksum TEXT NOT NULL,status TEXT DEFAULT 'Disponible',restored_at TEXT,restored_by TEXT,size_bytes INTEGER DEFAULT 0)"],
+  ],
+  delivery_routes: [
+    ["table", "CREATE TABLE IF NOT EXISTS delivery_routes(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,route_date TEXT NOT NULL,driver TEXT,vehicle TEXT,status TEXT DEFAULT 'Planificada',radius_meters REAL DEFAULT 150,origin_address TEXT,origin_latitude REAL,origin_longitude REAL,notes TEXT,created_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT)"],
+  ],
+  delivery_route_stops: [
+    ["table", "CREATE TABLE IF NOT EXISTS delivery_route_stops(id INTEGER PRIMARY KEY AUTOINCREMENT,route_id INTEGER NOT NULL,position INTEGER NOT NULL,shipment_id INTEGER,client_id INTEGER,collection_point_id INTEGER,client_name TEXT,address TEXT,city TEXT,latitude REAL,longitude REAL,distance_km REAL DEFAULT 0,status TEXT DEFAULT 'Pendiente',notes TEXT,created_at TEXT,updated_at TEXT)"],
+  ],
   order_lines: [
     ["incident_resolution", "ALTER TABLE order_lines ADD COLUMN incident_resolution TEXT"],
     ["incident_resolved_at", "ALTER TABLE order_lines ADD COLUMN incident_resolved_at TEXT"],
@@ -185,6 +194,9 @@ for (const sql of [
   "CREATE INDEX IF NOT EXISTS idx_shipments_order ON shipments(order_id)",
   "CREATE INDEX IF NOT EXISTS idx_goods_receipt_incidents_receipt ON goods_receipt_incidents(receipt_id, status)",
   "CREATE INDEX IF NOT EXISTS idx_tasks_status_next_run ON scheduled_tasks(status, next_run)",
+  "CREATE INDEX IF NOT EXISTS idx_backup_snapshots_created ON backup_snapshots(created_at)",
+  "CREATE INDEX IF NOT EXISTS idx_delivery_routes_date ON delivery_routes(route_date, status)",
+  "CREATE INDEX IF NOT EXISTS idx_delivery_route_stops_route ON delivery_route_stops(route_id, position)",
 ]) await client.execute(sql);
 await client.execute("INSERT OR IGNORE INTO invoice_orders(invoice_id,order_id) SELECT id,order_id FROM invoices WHERE order_id IS NOT NULL");
 await client.close();

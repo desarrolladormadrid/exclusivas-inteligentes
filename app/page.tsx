@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.43";
+const APP_VERSION = "2.0.44";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -21,6 +21,7 @@ const initialModules = [
   "Almacenes",
   "Preparación de pedidos",
   "Lugares de recogida",
+  "Rutas",
   "Entradas",
   "Salidas",
   "Pedidos",
@@ -38,6 +39,7 @@ const initialModules = [
   "Usuarios y permisos",
   "Papelera",
   "Documentos",
+  "Copias de seguridad",
   "OCR inteligente",
   "Altas web",
 ];
@@ -862,6 +864,7 @@ const sidebarGroups = [
       "Stock",
       "Almacenes",
       "Lugares de recogida",
+      "Rutas",
       "Entradas",
       "Salidas",
       "Devoluciones",
@@ -873,13 +876,13 @@ const sidebarGroups = [
   },
   { name: "Análisis y control", items: ["Balance", "Informes"] },
   { name: "Automatización", items: ["Tareas programadas", "Notas", "OCR inteligente"] },
-  { name: "Administración", items: ["Usuarios y permisos", "Altas web", "Documentos", "Historial", "Papelera"] },
+  { name: "Administración", items: ["Usuarios y permisos", "Altas web", "Documentos", "Copias de seguridad", "Historial", "Papelera"] },
 ];
 
 const routeModuleScopes: Record<string, string[]> = {
   crm: initialModules,
   comercial: ["Pedidos", "Clientes", "Contactos", "Presupuestos", "Albaranes", "Facturas", "Cobros", "Envíos"],
-  almacen: ["Preparación de pedidos", "Stock", "Productos", "Almacenes", "Entradas", "Salidas", "Devoluciones", "Envíos", "Pedidos", "Notas"],
+  almacen: ["Preparación de pedidos", "Stock", "Productos", "Almacenes", "Rutas", "Entradas", "Salidas", "Devoluciones", "Envíos", "Pedidos", "Notas"],
   web: ["Inicio", "Pedidos", "Clientes", "Productos"],
   ocr: ["OCR inteligente"],
 };
@@ -1028,6 +1031,78 @@ export function Sidebar({
       </div>
     </aside>
   );
+}
+
+function IntegratedMap({ locations, radiusMeters = 150 }: { locations: any[]; radiusMeters?: number }) {
+  const valid = locations.filter((location) => Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude)));
+  if (!valid.length) return <div className="integrated-map-empty">Geolocaliza una dirección para mostrarla en el mapa.</div>;
+  const center = valid[0];
+  const lat = Number(center.latitude), lon = Number(center.longitude);
+  const delta = Math.max(0.0025, Number(radiusMeters || 150) / 111000 * 2.8);
+  const src = `https://www.openstreetmap.org/export/embed.html?bbox=${lon - delta}%2C${lat - delta}%2C${lon + delta}%2C${lat + delta}&layer=mapnik&marker=${lat}%2C${lon}`;
+  return <div className="integrated-map" aria-label={`Mapa de ubicaciones, radio ${radiusMeters} metros`}>
+    <iframe title="Mapa de ubicaciones de entrega" src={src} loading="lazy" />
+    <div className="integrated-map-radius" style={{ width: `${Math.min(180, Math.max(76, Number(radiusMeters) / 2))}px`, height: `${Math.min(180, Math.max(76, Number(radiusMeters) / 2))}px` }} aria-hidden="true"><span /></div>
+    <div className="integrated-map-legend"><span className="integrated-map-dot" />Radio operativo {radiusMeters} m · {valid.length} ubicación{valid.length === 1 ? "" : "es"}</div>
+  </div>;
+}
+
+function RoutesManager({ user }: { user: any }) {
+  const [shipments, setShipments] = useState<any[]>([]);
+  const [routes, setRoutes] = useState<any[]>([]);
+  const [routeDate, setRouteDate] = useState(() => tabletTodayInput());
+  const [selected, setSelected] = useState<number[]>([]);
+  const [driver, setDriver] = useState(user?.username || "");
+  const [vehicle, setVehicle] = useState("");
+  const [radius, setRadius] = useState(150);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [activeRoute, setActiveRoute] = useState<any>(null);
+  async function load() {
+    setLoading(true);
+    try {
+      const [shipmentResponse, clientsResponse, pointsResponse, routesResponse] = await Promise.all([fetch("/api/shipments"), fetch("/api/clients?view=lookup&limit=500"), fetch("/api/collection_points?view=lookup&limit=500"), fetch("/api/routes")]);
+      const shipmentRows = shipmentResponse.ok ? await shipmentResponse.json() : [];
+      const clients = clientsResponse.ok ? await clientsResponse.json() : [];
+      const points = pointsResponse.ok ? await pointsResponse.json() : [];
+      const enriched = (Array.isArray(shipmentRows) ? shipmentRows : []).filter((item) => !["Cancelado", "Entregado"].includes(String(item.status || ""))).map((item) => {
+        const point = points.find((row: any) => Number(row.id) === Number(item.collection_point_id));
+        const client = clients.find((row: any) => Number(row.id) === Number(item.client_id));
+        return { ...item, client_name: client?.name || "Cliente sin nombre", address: item.address || point?.address || client?.address || "", city: item.delivery_city || point?.city || client?.city || "", latitude: item.latitude ?? point?.latitude ?? client?.latitude, longitude: item.longitude ?? point?.longitude ?? client?.longitude };
+      });
+      setShipments(enriched);
+      setRoutes(routesResponse.ok ? await routesResponse.json() : []);
+    } catch { setMessage("No se han podido cargar los envíos y rutas."); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+  const dayShipments = shipments.filter((item) => String(item.expected_delivery_at || item.delivery_date || "").slice(0, 10) === routeDate);
+  const selectedLocations = dayShipments.filter((item) => selected.includes(Number(item.id)));
+  async function createRoute() {
+    if (!selected.length) { setMessage("Selecciona al menos un envío."); return; }
+    setSaving(true); setMessage("");
+    try {
+      const response = await fetch("/api/routes", { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": user?.username || "Usuario local" }, body: JSON.stringify({ route_date: routeDate, shipment_ids: selected, driver, vehicle, radius_meters: radius }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "No se ha podido crear la ruta.");
+      setActiveRoute(body); setRoutes((current) => [body, ...current]); setSelected([]); setMessage(`Ruta ${body.code} planificada con ${body.stops.length} paradas.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se ha podido crear la ruta."); }
+    finally { setSaving(false); }
+  }
+  return <section className="routes-manager"><div className="manager-head"><div><p className="eyebrow">LOGÍSTICA · PLANIFICACIÓN</p><h2>Rutas de reparto</h2><p className="muted">Agrupa entregas geolocalizadas y ordénalas por proximidad para abrirlas en Google Maps.</p></div><button type="button" className="button secondary" onClick={() => void load()}>Actualizar</button></div><div className="routes-toolbar"><label>Fecha de entrega<input type="date" value={routeDate} onChange={(event) => { setRouteDate(event.target.value); setSelected([]); setActiveRoute(null); }} /></label><label>Radio operativo (m)<input type="number" min="50" max="5000" step="50" value={radius} onChange={(event) => setRadius(Math.max(50, Number(event.target.value) || 150))} /></label><label>Repartidor<input value={driver} onChange={(event) => setDriver(event.target.value)} placeholder="Nombre" /></label><label>Vehículo<input value={vehicle} onChange={(event) => setVehicle(event.target.value)} placeholder="Matrícula o referencia" /></label></div>{message && <p className="routes-message" role="status">{message}</p>}<div className="routes-layout"><div className="routes-shipments panel"><div className="panel-head"><div><h3>Entregas disponibles</h3><p className="muted">{dayShipments.length} envíos para el {routeDate}</p></div><button type="button" className="button primary" disabled={saving || !selected.length} onClick={() => void createRoute()}>{saving ? "Planificando…" : `Crear ruta (${selected.length})`}</button></div>{loading ? <div className="data-loading" role="status">Cargando entregas…</div> : <div className="route-shipment-list">{dayShipments.length ? dayShipments.map((item) => { const located = Number.isFinite(Number(item.latitude)) && Number.isFinite(Number(item.longitude)); return <label className={`route-shipment${selected.includes(Number(item.id)) ? " selected" : ""}`} key={item.id}><input type="checkbox" checked={selected.includes(Number(item.id))} onChange={(event) => setSelected((current) => event.target.checked ? [...current, Number(item.id)] : current.filter((id) => id !== Number(item.id)))} /><span><b>{item.code}</b><strong>{item.client_name}</strong><small>{[item.address, item.city].filter(Boolean).join(" · ") || "Sin dirección"}</small></span><em className={located ? "located" : "not-located"}>{located ? "Geolocalizado" : "Sin coordenadas"}</em></label>; }) : <p className="empty-state">No hay envíos para esta fecha.</p>}</div>}</div><div className="routes-existing panel"><div className="panel-head"><div><h3>Rutas planificadas</h3><p className="muted">Histórico y seguimiento de paradas.</p></div></div>{routes.length ? routes.map((route) => <button type="button" className={`route-card${activeRoute?.id === route.id ? " active" : ""}`} key={route.id} onClick={() => setActiveRoute(route)}><span><b>{route.code}</b><small>{route.route_date} · {route.driver || "Sin repartidor"}</small></span><strong>{route.stops?.length || 0}</strong></button>) : <p className="empty-state">Todavía no hay rutas.</p>}</div></div>{activeRoute && <div className="route-detail panel"><div className="panel-head"><div><p className="eyebrow">{activeRoute.code}</p><h3>Orden de ruta · {activeRoute.route_date}</h3><p className="muted">{activeRoute.driver || "Sin repartidor"} · {activeRoute.vehicle || "Sin vehículo"} · Radio {activeRoute.radius_meters || 150} m</p></div>{activeRoute.maps_url && <a className="button primary" href={activeRoute.maps_url} target="_blank" rel="noreferrer">Navegar con Google Maps</a>}</div><IntegratedMap locations={activeRoute.stops || selectedLocations} radiusMeters={Number(activeRoute.radius_meters || 150)} /><ol className="route-stop-list">{(activeRoute.stops || []).map((stop: any) => <li key={stop.id}><b>{stop.position}. {stop.client_name}</b><span>{[stop.address, stop.city].filter(Boolean).join(" · ")}</span><small>{stop.distance_km ? `${stop.distance_km} km desde la parada anterior` : "Salida"}</small></li>)}</ol></div>}</section>;
+}
+
+function BackupsManager({ user }: { user: any }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function load() { setLoading(true); try { const response = await fetch("/api/backups"); setRows(response.ok ? await response.json() : []); } catch { setMessage("No se ha podido cargar el histórico de copias."); } finally { setLoading(false); } }
+  useEffect(() => { void load(); }, []);
+  async function create() { setSaving(true); setMessage(""); try { const response = await fetch("/api/backups", { method: "POST", headers: { "X-Actor": user?.username || "Usuario local" } }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "No se pudo crear la copia."); setMessage(`Copia ${body.snapshot.code} creada correctamente.`); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo crear la copia."); } finally { setSaving(false); } }
+  async function restore(row: any) { if (!window.confirm(`Vas a restaurar ${row.code}. Se conservarán usuarios e historial, pero se reemplazarán los datos operativos. ¿Continuar?`)) return; setSaving(true); setMessage(""); try { const response = await fetch(`/api/backups/${row.id}/restore`, { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": user?.username || "Usuario local" }, body: JSON.stringify({ confirm: "RESTAURAR_TURSO" }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "No se pudo restaurar la copia."); setMessage(`${row.code} restaurada. Registros recuperados: ${body.inserted}.`); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo restaurar la copia."); } finally { setSaving(false); } }
+  return <section className="backups-manager"><div className="manager-head"><div><p className="eyebrow">ADMINISTRACIÓN · TURSO</p><h2>Copias de seguridad</h2><p className="muted">Histórico de snapshots de la base de datos y restauración controlada.</p></div><div className="backup-manager-actions"><a className="button secondary" href="/api/backup">Descargar copia actual</a><button type="button" className="button primary" disabled={saving} onClick={() => void create()}>{saving ? "Creando…" : "Crear copia ahora"}</button></div></div>{message && <p className="success-message" role="status">{message}</p>}{loading ? <div className="data-loading" role="status">Cargando copias…</div> : <div className="backup-list panel">{rows.length ? rows.map((row) => <article className="backup-row" key={row.id}><div><b>{row.code}</b><small>{row.created_at ? formatSpanishDateValue(row.created_at, true) : "—"} · {row.created_by || "Sistema"} · {row.size_bytes ? `${Math.round(Number(row.size_bytes) / 1024)} KB comprimidos` : "—"}</small><span>{Object.entries(row.tables || {}).slice(0, 4).map(([table, count]) => `${table}: ${count}`).join(" · ")}</span></div><div><b className="backup-status">{row.status}</b><a className="button secondary" href={`/api/backups/${row.id}`}>Descargar</a><button type="button" className="button danger" disabled={saving} onClick={() => void restore(row)}>Restaurar</button></div></article>) : <p className="empty-state">Todavía no hay copias automáticas guardadas.</p>}</div>}</section>;
 }
 
 function Contacts({ onNavigate }: { onNavigate: (section: string) => void }) {
@@ -4552,7 +4627,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                 {isLoadPreparation && <><br /><b>Preparado por:</b> {preview.prepared_by || "Pendiente de asignar"}</>}
               </p>
             </div>
-            {(previewLocation || previewAddress || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewAddress || "Dirección no indicada"}</span>{(previewLocation?.geocoding_status === "Geolocalizada" || previewClient?.geocoding_status === "Geolocalizada") ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.google.com/maps/search/?api=1&query=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a><a className="button secondary" href={`https://www.google.com/maps/dir/?api=1&destination=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Navegar con Google Maps</a></> : <a className="button secondary icon-action map-action" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(previewMapQuery)}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en Google Maps" title="Buscar dirección en Google Maps"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</section>}
+            {(previewLocation || previewAddress || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewAddress || "Dirección no indicada"}</span>{(previewLocation?.geocoding_status === "Geolocalizada" || previewClient?.geocoding_status === "Geolocalizada") ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.google.com/maps/search/?api=1&query=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a><a className="button secondary" href={`https://www.google.com/maps/dir/?api=1&destination=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Navegar con Google Maps</a><IntegratedMap locations={[{ latitude: previewLat, longitude: previewLon, name: previewLocation?.name || previewClient?.name }]} /></> : <a className="button secondary icon-action map-action" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(previewMapQuery)}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en Google Maps" title="Buscar dirección en Google Maps"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</section>}
             {isLoadPreparation && <section className="preparation-delivery-panel" aria-label="Editar dirección de entrega">
               <div className="preparation-delivery-head"><div><b>Dirección de entrega</b><small>Se guarda en este pedido y en su nota de carga.</small></div></div>
               <div className="preparation-delivery-fields">
@@ -9467,6 +9542,10 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
             <SmartPurchasing user={currentUser} />
           ) : active === "Papelera" ? (
             <TrashManager user={currentUser} />
+          ) : active === "Rutas" ? (
+            <RoutesManager user={currentUser} />
+          ) : active === "Copias de seguridad" ? (
+            <BackupsManager user={currentUser} />
           ) : (
             <Manager
               active={active}

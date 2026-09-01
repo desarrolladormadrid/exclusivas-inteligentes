@@ -257,3 +257,37 @@ test("la base de datos permite descargar una copia", async () => {
   const bytes = await r.arrayBuffer();
   assert.ok(bytes.byteLength > 1000);
 });
+
+test("planifica una ruta con varias entregas geolocalizadas", async () => {
+  const suffix = Date.now();
+  const clientA = (await call("/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: `__TEST_RUTA_A_${suffix}`, address: "Calle A 1", city: "Palencia", latitude: 42.01, longitude: -4.52, geocoding_status: "Geolocalizada" }) })).data;
+  const clientB = (await call("/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: `__TEST_RUTA_B_${suffix}`, address: "Calle B 2", city: "Palencia", latitude: 42.02, longitude: -4.51, geocoding_status: "Geolocalizada" }) })).data;
+  const shipmentA = (await call("/shipments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: `__TEST_RUTA_ENV_A_${suffix}`, client_id: clientA.id, address: clientA.address, delivery_city: clientA.city, expected_delivery_at: "2099-01-02", status: "Preparado" }) })).data;
+  const shipmentB = (await call("/shipments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: `__TEST_RUTA_ENV_B_${suffix}`, client_id: clientB.id, address: clientB.address, delivery_city: clientB.city, expected_delivery_at: "2099-01-02", status: "Preparado" }) })).data;
+  const route = await call("/routes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ route_date: "2099-01-02", shipment_ids: [shipmentA.id, shipmentB.id], radius_meters: 150, driver: "Luis" }) });
+  assert.equal(route.status, 201);
+  assert.equal(route.data.stops.length, 2);
+  assert.equal(Number(route.data.radius_meters), 150);
+  assert.match(route.data.maps_url, /google\.com\/maps\/dir/);
+  const listed = await call(`/routes/${route.data.id}`);
+  assert.equal(listed.status, 200);
+  assert.equal(listed.data.stops[0].position, 1);
+  await call(`/routes/${route.data.id}`, { method: "DELETE", headers: { "x-actor": "test" } });
+  await call(`/shipments/${shipmentA.id}`, { method: "DELETE" });
+  await call(`/shipments/${shipmentB.id}`, { method: "DELETE" });
+  await call(`/clients/${clientA.id}`, { method: "DELETE" });
+  await call(`/clients/${clientB.id}`, { method: "DELETE" });
+});
+
+test("crea y restaura una copia local con confirmación explícita", async () => {
+  const created = await call("/backups", { method: "POST", headers: { "x-actor": "test" } });
+  assert.equal(created.status, 201);
+  assert.match(created.data.snapshot.code, /^BKP-/);
+  const listed = await call("/backups");
+  assert.ok(listed.data.some((row) => row.id === created.data.snapshot.id));
+  const denied = await call(`/backups/${created.data.snapshot.id}/restore`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: "NO" }) });
+  assert.equal(denied.status, 400);
+  const restored = await call(`/backups/${created.data.snapshot.id}/restore`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: "RESTAURAR_TURSO" }) });
+  assert.equal(restored.status, 200);
+  assert.ok(restored.data.inserted > 0);
+});

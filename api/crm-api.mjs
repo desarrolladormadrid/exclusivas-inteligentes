@@ -1,6 +1,7 @@
 import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRemoteDatabaseSync } from "../remote-db-sync.mjs";
@@ -49,6 +50,9 @@ try { db.exec("ALTER TABLE collection_points ADD COLUMN geocoded_at TEXT"); } ca
 try { db.exec("ALTER TABLE collection_points ADD COLUMN geocoding_status TEXT DEFAULT 'Pendiente'"); } catch {}
 db.exec(`CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,actor TEXT DEFAULT 'Usuario local',method TEXT NOT NULL,resource TEXT NOT NULL,action TEXT NOT NULL,details TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS product_location_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,previous_location TEXT,current_location TEXT,changed_by TEXT DEFAULT 'Usuario local',changed_at TEXT DEFAULT CURRENT_TIMESTAMP,source TEXT DEFAULT 'CRM');`);
 db.exec(`CREATE TABLE IF NOT EXISTS scheduled_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,action_text TEXT NOT NULL,schedule_type TEXT DEFAULT 'Unica',recurrence TEXT,next_run TEXT,status TEXT DEFAULT 'Activa',last_run TEXT,last_result TEXT,created_by TEXT DEFAULT 'Usuario local',created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT);`);
+db.exec(`CREATE TABLE IF NOT EXISTS backup_snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,created_at TEXT NOT NULL,created_by TEXT,source TEXT DEFAULT 'Turso',tables_json TEXT NOT NULL,data_base64 TEXT NOT NULL,checksum TEXT NOT NULL,status TEXT DEFAULT 'Disponible',restored_at TEXT,restored_by TEXT,size_bytes INTEGER DEFAULT 0);`);
+db.exec(`CREATE TABLE IF NOT EXISTS delivery_routes(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,route_date TEXT NOT NULL,driver TEXT,vehicle TEXT,status TEXT DEFAULT 'Planificada',radius_meters REAL DEFAULT 150,origin_address TEXT,origin_latitude REAL,origin_longitude REAL,notes TEXT,created_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT);`);
+db.exec(`CREATE TABLE IF NOT EXISTS delivery_route_stops(id INTEGER PRIMARY KEY AUTOINCREMENT,route_id INTEGER NOT NULL,position INTEGER NOT NULL,shipment_id INTEGER,client_id INTEGER,collection_point_id INTEGER,client_name TEXT,address TEXT,city TEXT,latitude REAL,longitude REAL,distance_km REAL DEFAULT 0,status TEXT DEFAULT 'Pendiente',notes TEXT,created_at TEXT,updated_at TEXT);`);
 try {
   const duplicateTasks = db.prepare(`SELECT id FROM scheduled_tasks WHERE status='Activa' AND id NOT IN (SELECT MIN(id) FROM scheduled_tasks WHERE status='Activa' GROUP BY LOWER(TRIM(title)),LOWER(TRIM(action_text)),schedule_type,COALESCE(recurrence,''))`).all();
   for (const task of duplicateTasks) db.prepare("UPDATE scheduled_tasks SET status='Pausada',last_result='Pausada automáticamente: tarea duplicada',updated_at=? WHERE id=?").run(new Date().toISOString(), task.id);
@@ -194,9 +198,90 @@ const tables = new Set([
   "purchase_request_offers",
   "import_batches",
   "import_records",
+  "delivery_routes",
+  "delivery_route_stops",
   "users",
 ]);
 const backupTables = [...tables];
+const backupReplacer = (_key, value) => {
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) return { __backup_type: "base64", value: Buffer.from(value).toString("base64") };
+  return value;
+};
+const backupReviver = (_key, value) => value && value.__backup_type === "base64" ? Buffer.from(value.value, "base64") : value;
+function buildBackupSnapshot(actor = "Sistema") {
+  const tableData = {};
+  const skippedTables = [];
+  for (const table of backupTables) {
+    try { tableData[table] = db.prepare(`SELECT * FROM ${table}`).all(); }
+    catch { tableData[table] = []; skippedTables.push(table); }
+  }
+  return {
+    format: "excluvas-turso-backup",
+    version: 2,
+    created_at: new Date().toISOString(),
+    created_by: actor,
+    source: remoteMode ? "Turso" : "SQLite local",
+    tables: tableData,
+    skipped_tables: skippedTables,
+  };
+}
+function encodeBackupSnapshot(snapshot) {
+  const json = JSON.stringify(snapshot, backupReplacer);
+  const compressed = gzipSync(Buffer.from(json));
+  return { json, data: compressed.toString("base64"), checksum: createHash("sha256").update(compressed).digest("hex"), size: compressed.length };
+}
+function decodeBackupSnapshot(data) {
+  const compressed = Buffer.from(String(data || ""), "base64");
+  return JSON.parse(gunzipSync(compressed).toString("utf8"), backupReviver);
+}
+function createBackupSnapshot(actor = "Sistema") {
+  const snapshot = buildBackupSnapshot(actor);
+  const encoded = encodeBackupSnapshot(snapshot);
+  const now = new Date().toISOString();
+  const code = `BKP-${now.replace(/[-:TZ.]/g, "").slice(0, 14)}-${String(Date.now()).slice(-5)}`;
+  const counts = Object.fromEntries(Object.entries(snapshot.tables).map(([table, rows]) => [table, rows.length]));
+  const result = db.prepare("INSERT INTO backup_snapshots(code,created_at,created_by,source,tables_json,data_base64,checksum,status,size_bytes) VALUES(?,?,?,?,?,?,?,?,?)").run(code, now, actor, remoteMode ? "Turso" : "SQLite local", JSON.stringify(counts), encoded.data, encoded.checksum, "Disponible", encoded.size);
+  return { id: Number(result.lastInsertRowid), code, created_at: now, checksum: encoded.checksum, size_bytes: encoded.size, tables: counts };
+}
+function haversineKm(aLat, aLon, bLat, bLon) {
+  const rad = (value) => Number(value) * Math.PI / 180;
+  const dLat = rad(bLat - aLat), dLon = rad(bLon - aLon);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function resolveShipmentStop(shipment) {
+  const point = shipment.collection_point_id ? db.prepare("SELECT * FROM collection_points WHERE id=?").get(Number(shipment.collection_point_id)) : null;
+  const client = shipment.client_id ? db.prepare("SELECT * FROM clients WHERE id=?").get(Number(shipment.client_id)) : null;
+  const latitude = Number(shipment.latitude ?? point?.latitude ?? client?.latitude);
+  const longitude = Number(shipment.longitude ?? point?.longitude ?? client?.longitude);
+  return { shipment_id: Number(shipment.id), client_id: shipment.client_id || null, collection_point_id: shipment.collection_point_id || null, client_name: client?.name || "Cliente sin nombre", address: shipment.address || point?.address || client?.address || "", city: shipment.delivery_city || point?.city || client?.city || "", latitude: Number.isFinite(latitude) && latitude !== 0 ? latitude : null, longitude: Number.isFinite(longitude) && longitude !== 0 ? longitude : null, status: shipment.status || "Pendiente" };
+}
+function optimizeStops(stops, originLat, originLon) {
+  const remaining = [...stops];
+  const ordered = [];
+  let currentLat = Number(originLat), currentLon = Number(originLon);
+  while (remaining.length) {
+    let nextIndex = 0;
+    if (Number.isFinite(currentLat) && Number.isFinite(currentLon)) {
+      remaining.forEach((stop, index) => {
+        const distance = haversineKm(currentLat, currentLon, stop.latitude, stop.longitude);
+        if (distance < haversineKm(currentLat, currentLon, remaining[nextIndex].latitude, remaining[nextIndex].longitude)) nextIndex = index;
+      });
+    }
+    const next = remaining.splice(nextIndex, 1)[0];
+    next.distance_km = Number.isFinite(currentLat) && Number.isFinite(currentLon) ? Number(haversineKm(currentLat, currentLon, next.latitude, next.longitude).toFixed(2)) : 0;
+    ordered.push(next);
+    currentLat = next.latitude; currentLon = next.longitude;
+  }
+  return ordered.map((stop, index) => ({ ...stop, position: index + 1 }));
+}
+try {
+  const automaticBackup = db.prepare("SELECT id FROM scheduled_tasks WHERE status='Activa' AND LOWER(title)=LOWER(?) LIMIT 1").get("Copia automática de Turso");
+  if (!automaticBackup) {
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO scheduled_tasks(title,action_text,schedule_type,recurrence,next_run,status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)").run("Copia automática de Turso", "backup: crear copia de seguridad", "Recurrente", "diaria", new Date(Date.now() + 86400000).toISOString(), "Activa", "Sistema", now, now);
+  }
+} catch {}
 // Auditoría común para todos los módulos: permite ordenar, filtrar y ejecutar
 // acciones temporales desde el asistente sin depender de nombres o suposiciones.
 if (!remoteMode) {
@@ -404,6 +489,10 @@ function recordAudit(actor, method, resource, action, details = "") {
 function executeScheduledTask(task) {
   const text = String(task.action_text || "").trim();
   let result = "Acción registrada";
+  if (/\bbackup\b|copia\s+de\s+seguridad/i.test(text)) {
+    const snapshot = createBackupSnapshot(task.created_by || "Sistema");
+    result = `Copia creada: ${snapshot.code}`;
+  }
   const note = text.match(/(?:nota|recordatorio)\s*[:\-]?\s*(.+?)(?:\s*\|\s*(.+))?$/i);
   if (note) {
     const title = note[1].trim(), content = (note[2] || "Tarea programada por el asistente").trim();
@@ -419,8 +508,9 @@ function executeScheduledTask(task) {
   let next = null, status = task.status;
   if (task.schedule_type === "Recurrente") {
     const recurrence = String(task.recurrence || "diaria").toLowerCase();
+    const intervalHours = recurrence.includes("12") || recurrence.includes("doce") ? 12 : null;
     const days = recurrence.includes("semana") || recurrence.includes("lunes") || recurrence.includes("martes") || recurrence.includes("miércoles") || recurrence.includes("miercoles") || recurrence.includes("jueves") || recurrence.includes("viernes") ? 7 : 1;
-    next = new Date(Date.now() + days * 86400000).toISOString();
+    next = new Date(Date.now() + (intervalHours ? intervalHours * 3600000 : days * 86400000)).toISOString();
   } else status = "Completada";
   db.prepare("UPDATE scheduled_tasks SET status=?,last_run=?,last_result=?,next_run=?,updated_at=? WHERE id=?").run(status, now, result, next, now, task.id);
   recordAudit(task.created_by || "Tareas programadas", "TASK", `scheduled_tasks/${task.id}`, "Ejecución", result);
@@ -429,6 +519,44 @@ function runScheduledTasks() {
   const now = new Date().toISOString();
   const due = db.prepare("SELECT * FROM scheduled_tasks WHERE status='Activa' AND next_run IS NOT NULL AND next_run<=?").all(now);
   for (const task of due) { try { executeScheduledTask(task); } catch (e) { db.prepare("UPDATE scheduled_tasks SET last_run=?,last_result=?,updated_at=? WHERE id=?").run(now, `Error: ${e.message}`, now, task.id); } }
+}
+function restoreSnapshotData(snapshot, actor) {
+  if (!snapshot || snapshot.format !== "excluvas-turso-backup" || !snapshot.tables || typeof snapshot.tables !== "object") throw new Error("La copia no tiene un formato válido");
+  const excluded = new Set(["users", "audit_logs"]);
+  const statements = [{ sql: "PRAGMA foreign_keys=OFF" }, ...[...backupTables].reverse().filter((table) => !excluded.has(table) && snapshot.tables[table]).map((table) => ({ sql: `DELETE FROM ${table}` }))];
+  let inserted = 0;
+  for (const table of backupTables) {
+    if (excluded.has(table) || !Array.isArray(snapshot.tables[table]) || !snapshot.tables[table].length) continue;
+    const available = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((item) => String(item.name || "")));
+    for (const row of snapshot.tables[table]) {
+      const columns = Object.keys(row).filter((column) => available.has(column));
+      if (!columns.length) continue;
+      statements.push({ sql: `INSERT INTO ${table} (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`, args: columns.map((column) => row[column]) });
+      inserted += 1;
+    }
+  }
+  statements.push({ sql: "PRAGMA foreign_keys=ON" });
+  if (remoteMode) db.batch([{ sql: "BEGIN" }, ...statements, { sql: "COMMIT" }]);
+  else {
+    db.exec("PRAGMA foreign_keys=OFF; BEGIN");
+    try {
+      for (const statement of statements) {
+        if (/^PRAGMA/i.test(statement.sql)) continue;
+        db.prepare(statement.sql).run(...(statement.args || []));
+      }
+      db.exec("COMMIT; PRAGMA foreign_keys=ON");
+    } catch (error) { try { db.exec("ROLLBACK; PRAGMA foreign_keys=ON"); } catch {} throw error; }
+  }
+  db.prepare("INSERT INTO audit_logs(actor,method,resource,action,details,created_at) VALUES(?,?,?,?,?,?)").run(actor, "POST", "backups", "Restauración de copia", JSON.stringify({ source: snapshot.source, tables: Object.keys(snapshot.tables).length, inserted }), new Date().toISOString());
+  return inserted;
+}
+function getRouteWithStops(id) {
+  const route = db.prepare("SELECT * FROM delivery_routes WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(Number(id));
+  if (!route) return null;
+  const stops = db.prepare("SELECT * FROM delivery_route_stops WHERE route_id=? ORDER BY position").all(Number(id));
+  const coordinates = stops.filter((stop) => stop.latitude != null && stop.longitude != null).map((stop) => `${stop.latitude},${stop.longitude}`);
+  const mapsUrl = coordinates.length ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(route.origin_address || coordinates[0])}&destination=${encodeURIComponent(coordinates[coordinates.length - 1])}${coordinates.length > 2 ? `&waypoints=${encodeURIComponent(coordinates.slice(0, -1).join("|"))}` : ""}` : "";
+  return { ...route, stops, maps_url: mapsUrl };
 }
 const read = (req) =>
   new Promise((ok) => {
@@ -454,23 +582,35 @@ export async function crmApiHandler(req, res) {
       // provocarían un ciclo de HMR (consulta -> cambio de DB -> recarga -> consulta).
       // Las consultas explícitas pueden marcarse con X-Audit-Query.
       if (p[1] !== "audit_logs" && !(req.method === "POST" && p[1] === "orders") && (req.method !== "GET" || req.headers["x-audit-query"] === "true")) recordAudit(actor, req.method, p.slice(1).join("/") || "inicio", req.method === "GET" ? "Consulta" : req.method === "POST" ? "Alta" : req.method === "PUT" ? "Edición" : req.method === "DELETE" ? "Borrado" : req.method, req.url);
+      if (p[1] === "backups" && req.method === "GET" && !p[2]) {
+        const rows = db.prepare("SELECT id,code,created_at,created_by,source,tables_json,checksum,status,restored_at,restored_by,size_bytes FROM backup_snapshots ORDER BY id DESC LIMIT 50").all().map((row) => ({ ...row, tables: JSON.parse(row.tables_json || "{}") }));
+        return send(res, 200, rows);
+      }
+      if (p[1] === "backups" && req.method === "POST" && !p[2]) {
+        const snapshot = createBackupSnapshot(actor);
+        return send(res, 201, { ok: true, snapshot });
+      }
+      if (p[1] === "backups" && req.method === "GET" && p[2]) {
+        const row = db.prepare("SELECT * FROM backup_snapshots WHERE id=?").get(Number(p[2]));
+        if (!row) return send(res, 404, { error: "Copia no encontrada" });
+        const snapshot = decodeBackupSnapshot(row.data_base64);
+        const payload = Buffer.from(JSON.stringify(snapshot, backupReplacer));
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Disposition": `attachment; filename=${row.code}.backup.json`, "Access-Control-Allow-Origin": "*" });
+        return res.end(payload);
+      }
+      if (p[1] === "backups" && p[3] === "restore" && req.method === "POST") {
+        const row = db.prepare("SELECT * FROM backup_snapshots WHERE id=?").get(Number(p[2]));
+        if (!row) return send(res, 404, { error: "Copia no encontrada" });
+        const body = await read(req);
+        if (body.confirm !== "RESTAURAR_TURSO") return send(res, 400, { error: "Confirma la restauración escribiendo RESTAURAR_TURSO" });
+        const inserted = restoreSnapshotData(decodeBackupSnapshot(row.data_base64), actor);
+        const now = new Date().toISOString();
+        db.prepare("UPDATE backup_snapshots SET status='Restaurada',restored_at=?,restored_by=? WHERE id=?").run(now, actor, Number(p[2]));
+        return send(res, 200, { ok: true, message: "Copia restaurada sobre los datos operativos. Usuarios e historial se han conservado.", inserted, restored_at: now });
+      }
       if (p[1] === "backup" && req.method === "GET") {
         if (remoteMode) {
-          const tableData = {};
-          const skippedTables = [];
-          for (const table of backupTables) {
-            try { tableData[table] = db.prepare(`SELECT * FROM ${table}`).all(); }
-            catch { tableData[table] = []; skippedTables.push(table); }
-          }
-          const snapshot = {
-            format: "excluvas-turso-backup",
-            version: 1,
-            created_at: new Date().toISOString(),
-            source: "Turso",
-            tables: tableData,
-            skipped_tables: skippedTables,
-          };
-          const payload = Buffer.from(JSON.stringify(snapshot));
+          const payload = Buffer.from(JSON.stringify(buildBackupSnapshot(actor), backupReplacer));
           res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Disposition": `attachment; filename=excluvas-${new Date().toISOString().slice(0, 10)}.backup.json`, "Access-Control-Allow-Origin": "*" });
           return res.end(payload);
         }
@@ -493,6 +633,43 @@ export async function crmApiHandler(req, res) {
         const due = db.prepare("SELECT * FROM scheduled_tasks WHERE status='Activa' AND next_run IS NOT NULL AND next_run<=?").all(now);
         runScheduledTasks();
         return send(res, 200, { ok: true, executed: due.length, executed_at: now });
+      }
+      if (p[1] === "routes" && req.method === "GET") {
+        if (p[2]) return send(res, 200, getRouteWithStops(p[2]) || { error: "Ruta no encontrada" });
+        const routeDate = new URL(req.url, "http://local").searchParams.get("date");
+        const routes = db.prepare(`SELECT * FROM delivery_routes WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 ${routeDate ? "AND route_date=?" : ""} ORDER BY route_date DESC,id DESC LIMIT 100`).all(...(routeDate ? [routeDate] : []));
+        return send(res, 200, routes.map((route) => getRouteWithStops(route.id)));
+      }
+      if (p[1] === "routes" && req.method === "POST" && !p[2]) {
+        const body = await read(req);
+        const shipmentIds = Array.isArray(body.shipment_ids) ? [...new Set(body.shipment_ids.map(Number).filter(Boolean))] : [];
+        if (!String(body.route_date || "").trim()) return send(res, 400, { error: "Indica la fecha de la ruta" });
+        if (!shipmentIds.length) return send(res, 400, { error: "Selecciona al menos un envío" });
+        const stops = shipmentIds.map((id) => db.prepare("SELECT * FROM shipments WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(id)).filter(Boolean).map(resolveShipmentStop);
+        const missing = stops.filter((stop) => stop.latitude == null || stop.longitude == null);
+        if (missing.length) return send(res, 400, { error: "Hay envíos sin geolocalizar", missing: missing.map((stop) => ({ shipment_id: stop.shipment_id, client_name: stop.client_name, address: stop.address })) });
+        const originLat = body.origin_latitude === undefined ? stops[0].latitude : Number(body.origin_latitude);
+        const originLon = body.origin_longitude === undefined ? stops[0].longitude : Number(body.origin_longitude);
+        const orderedStops = optimizeStops(stops, originLat, originLon);
+        const now = new Date().toISOString();
+        const routeCode = `RUT-${String(body.route_date).replace(/[^0-9]/g, "")}-${String(Date.now()).slice(-5)}`;
+        const route = db.prepare("INSERT INTO delivery_routes(code,route_date,driver,vehicle,status,radius_meters,origin_address,origin_latitude,origin_longitude,notes,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)").run(routeCode, String(body.route_date), String(body.driver || ""), String(body.vehicle || ""), "Planificada", Number(body.radius_meters || 150), String(body.origin_address || ""), originLat, originLon, String(body.notes || ""), actor, now, now);
+        for (const stop of orderedStops) db.prepare("INSERT INTO delivery_route_stops(route_id,position,shipment_id,client_id,collection_point_id,client_name,address,city,latitude,longitude,distance_km,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(Number(route.lastInsertRowid), stop.position, stop.shipment_id, stop.client_id, stop.collection_point_id, stop.client_name, stop.address, stop.city, stop.latitude, stop.longitude, stop.distance_km, "Pendiente", now, now);
+        recordAudit(actor, "POST", `routes/${Number(route.lastInsertRowid)}`, "Planificar ruta", JSON.stringify({ shipment_ids: shipmentIds, radius_meters: Number(body.radius_meters || 150) }));
+        return send(res, 201, getRouteWithStops(Number(route.lastInsertRowid)));
+      }
+      if (p[1] === "routes" && req.method === "PUT" && p[2]) {
+        const body = await read(req);
+        const allowed = ["driver", "vehicle", "status", "radius_meters", "notes", "origin_address", "origin_latitude", "origin_longitude"];
+        const changes = allowed.filter((key) => body[key] !== undefined);
+        if (!changes.length) return send(res, 400, { error: "No hay cambios para guardar" });
+        db.prepare(`UPDATE delivery_routes SET ${changes.map((key) => `${key}=?`).join(",")},updated_at=? WHERE id=?`).run(...changes.map((key) => body[key]), new Date().toISOString(), Number(p[2]));
+        return send(res, 200, getRouteWithStops(p[2]));
+      }
+      if (p[1] === "routes" && req.method === "DELETE" && p[2]) {
+        const now = new Date().toISOString();
+        db.prepare("UPDATE delivery_routes SET deleted='1',deleted_at=?,deleted_by=?,updated_at=? WHERE id=?").run(now, actor, now, Number(p[2]));
+        return send(res, 200, { ok: true, id: Number(p[2]) });
       }
       if (p[1] === "login" && req.method === "POST") {
         const d = await read(req),

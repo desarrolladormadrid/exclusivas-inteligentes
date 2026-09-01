@@ -2,7 +2,7 @@
 
 Última ejecución: 28/08/2026  ·  Producción: [exclusivas-inteligentes.vercel.app](https://exclusivas-inteligentes.vercel.app)
 
-Versión publicada en esta entrega: `2.0.19` · Filtro de facturación visible en Pedidos y relación persistente de facturas agrupadas.
+Versión preparada en esta entrega: `2.0.44` · Rutas, mapas integrados y copias de Turso con restauración controlada.
 
 ## Estado de la ejecución
 
@@ -14,11 +14,13 @@ Versión publicada en esta entrega: `2.0.19` · Filtro de facturación visible e
 | D · Almacén y compras | PASS | Reserva/liberación de stock, recepción de compra y gastos con justificante, devoluciones y prueba visual en producción de entrada y salida: el stock pasó 10→14→12 y la salida generó su hoja de carga. También se validaron desde la interfaz ajuste positivo, ajuste negativo y devolución, con stock 20→23→21→20, prioridad configurable y una compra recibida que incrementó stock 10→15. El justificante binario se guardó desde la interfaz y se recuperó mediante el endpoint de detalle con nombre, MIME y contenido. Compras inteligentes detectó un producto bajo mínimo, comparó proveedores por coste real y dejó una solicitud pendiente de envío sin automatizar el envío. Los costes avanzados de producto (transporte, manipulación, coste real y márgenes objetivo/mínimo) quedan visibles en la ficha y persistieron en producción.
 | E · Notas, administración y configuración | PASS (OCR aplazado) | Nota importante, completar, papelera/recuperación, auditoría y previsualización de plantillas. La edición/guardado/restauración de una plantilla ya está verificada; también se corrigió la presentación de saltos en el listado. Los roles Comercial, Almacén y Luis se probaron en sus rutas directas sin mostrar administración a los roles restringidos. Los botones de descarga e impresión están presentes y la descarga Blob funciona en Playwright (`TPL-CND-001.txt`). La ruta `/ocr` queda fuera de esta entrega por decisión del usuario; no se considera funcionalidad terminada. |
 | F · Transversales | PASS | Escritorio, tablet, móvil y tablet vertical comprobados; la vertical se corrigió para evitar solape del menú con la cabecera y pasó de nuevo en local y producción. También se verificaron nombres largos, importes decimales, el recorrido transversal con incidencia, interacción táctil y recuperación tras respuesta lenta. Consola, URL y endpoints de producción correctos. |
+| G · Rutas y continuidad de datos | PASS LOCAL · TURSO MIGRADO | Varias direcciones por cliente mediante lugares de recogida, mapa integrado con radio configurable de 150 m, creación de rutas con orden de paradas por proximidad y enlace de navegación a Google Maps. Histórico de snapshots comprimidos, descarga y restauración con confirmación explícita comprobados en local; las tablas de rutas y copias están migradas en Turso. |
 
 ## Baterías ejecutadas
 
 - `npm test`: 2/2 correctas.
 - `node --test --test-concurrency=1 tests/local-crm.test.mjs`: 27/27 correctas; se ejecutó en secuencial para evitar interferencias de Turso remoto.
+- `node --test tests/local-crm.test.mjs`: 34/34 correctas, incluyendo planificación de rutas y restauración de copia.
 - `tests/local-ui-check.mjs`: rutas de escritorio, tablet y móvil, APIs básicas y salud de consola correctas.
 - `tests/authenticated-ui-check.mjs`: inicio, preparación, stock en escritorio/tablet/móvil y modal de nuevo pedido correctos.
 - `tests/production-sections-check.mjs`: 28/28 secciones, búsqueda, previsualización de plantilla con saltos de línea, descarga de SVG/PNG de producto y consola limpia.

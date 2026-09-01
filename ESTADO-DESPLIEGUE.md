@@ -14,14 +14,23 @@
 - Servidor: `https://mcp.vercel.com`
 - Proyecto enlazado: `exclusivas-inteligentes`.
 - URL estable: `https://exclusivas-inteligentes.vercel.app`
-- Estado: desplegado en producción el 28/08/2026.
-- Último despliegue: `dpl_DhThsRkGeRE85qaujn7NE3HQXFEK`, listo y aliasado en la URL estable.
-- Versión publicada: `2.0.28`.
+- Estado: pendiente de publicar la entrega actual `2.0.44`.
+- Último despliegue verificado: `2.0.43`, listo y aliasado en la URL estable.
+- Versión preparada: `2.0.44`.
 
 ## Próximos pasos
 
 1. Decidir una implementación real de OCR cuando se retome ese alcance.
-2. Revisar progresivamente las incidencias heredadas del lint global.
+2. Valorar Vercel Pro o un programador externo si se necesita copia automática cada 12 horas; el plan Hobby solo permite una ejecución diaria.
+3. Revisar progresivamente las incidencias heredadas del lint global.
+
+## Entrega no web 2.0.44
+
+- Mapa integrado en las fichas de entrega y rutas, con radio operativo configurable por defecto a 150 metros.
+- Planificador de rutas para seleccionar envíos geolocalizados, ordenar paradas por proximidad y abrir la ruta en Google Maps.
+- Varias direcciones de entrega mediante Lugares de recogida vinculados al cliente.
+- Snapshots comprimidos de Turso con histórico, descarga, creación manual y restauración controlada.
+- Tarea automática de copia diaria compatible con el plan Hobby de Vercel.
 
 ## Verificación actual
 
