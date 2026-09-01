@@ -40,7 +40,9 @@ export function createRemoteDatabaseSync({ url, authToken }) {
   function executeBatch(statements) {
     const body = JSON.stringify({ requests: statements.map(({ sql, args = [] }) => ({ type: "execute", stmt: { sql, args: args.map(encodeValue) } })) });
     const curlBinary = process.platform === "win32" ? "curl.exe" : "curl";
-    const output = execFileSync(curlBinary, ["-sS", "--fail-with-body", "--connect-timeout", "10", "--max-time", "90", "-X", "POST", endpoint, "-H", `Authorization: Bearer ${authToken}`, "-H", "Content-Type: application/json", "--data-binary", body], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+    // No pasar el JSON como argumento: los snapshots pueden ocupar varios MB
+    // y Windows limita el tamaño total de la línea de comandos (E2BIG).
+    const output = execFileSync(curlBinary, ["-sS", "--fail-with-body", "--connect-timeout", "10", "--max-time", "90", "-X", "POST", endpoint, "-H", `Authorization: Bearer ${authToken}`, "-H", "Content-Type: application/json", "--data-binary", "@-"], { input: body, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
     const payload = JSON.parse(output);
     const results = payload.results || [];
     for (const item of results) {

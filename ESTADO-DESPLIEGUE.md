@@ -14,9 +14,9 @@
 - Servidor: `https://mcp.vercel.com`
 - Proyecto enlazado: `exclusivas-inteligentes`.
 - URL estable: `https://exclusivas-inteligentes.vercel.app`
-- Estado: pendiente de publicar la entrega actual `2.0.44`.
+- Estado: pendiente de publicar la entrega actual `2.0.45`.
 - Último despliegue verificado: `2.0.43`, listo y aliasado en la URL estable.
-- Versión preparada: `2.0.44`.
+- Versión preparada: `2.0.45`.
 
 ## Próximos pasos
 
@@ -24,7 +24,7 @@
 2. Valorar Vercel Pro o un programador externo si se necesita copia automática cada 12 horas; el plan Hobby solo permite una ejecución diaria.
 3. Revisar progresivamente las incidencias heredadas del lint global.
 
-## Entrega no web 2.0.44
+## Entrega no web 2.0.45
 
 - Mapa integrado en las fichas de entrega y rutas, con radio operativo configurable por defecto a 150 metros.
 - Planificador de rutas para seleccionar envíos geolocalizados, ordenar paradas por proximidad y abrir la ruta en Google Maps.

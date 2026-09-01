@@ -2,7 +2,7 @@
 
 Última ejecución: 28/08/2026  ·  Producción: [exclusivas-inteligentes.vercel.app](https://exclusivas-inteligentes.vercel.app)
 
-Versión preparada en esta entrega: `2.0.44` · Rutas, mapas integrados y copias de Turso con restauración controlada.
+Versión preparada en esta entrega: `2.0.45` · Rutas, mapas integrados y copias de Turso con restauración controlada.
 
 ## Estado de la ejecución
 
