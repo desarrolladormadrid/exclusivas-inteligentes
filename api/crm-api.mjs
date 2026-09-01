@@ -43,7 +43,7 @@ async function uploadProductImage(dataUrl, productId, productName) {
   const timestamp = Math.floor(Date.now() / 1000);
   const folder = "exclusivas-inteligentes/productos";
   const publicId = `producto-${Number(productId)}-${slugifyProductName(productName)}`;
-  const signed = { folder, public_id: publicId, timestamp };
+  const signed = { folder, overwrite: "true", public_id: publicId, timestamp };
   const signatureBase = Object.keys(signed).sort().map((key) => `${key}=${signed[key]}`).join("&");
   const signature = createHash("sha1").update(`${signatureBase}${process.env.CLOUDINARY_API_SECRET}`).digest("hex");
   const form = new FormData();
