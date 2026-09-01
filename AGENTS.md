@@ -69,6 +69,14 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 - Los documentos deben mostrar sus líneas, cantidades, importes, base imponible, IVA y total cuando corresponda.
 - Las acciones deben respetar el flujo: un pedido puede editarse mientras no esté enviado; una incidencia debe dejar trazabilidad de la resolución.
 
+## Archivos e imágenes externas
+
+- Las imágenes de productos, incidencias y documentos deben alojarse preferentemente en Cloudinary y guardar en la base de datos solo la URL segura, el `public_id`, nombre y MIME cuando exista integración configurada.
+- Las imágenes antiguas almacenadas como Base64 deben seguir siendo legibles durante la migración; no borrar el contenido anterior hasta comprobar la URL nueva y la recuperación desde el detalle.
+- Las credenciales de Cloudinary (`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` y, si procede, `CLOUDINARY_UPLOAD_PRESET`) solo viven en `.env.local` ignorado por Git y en las variables de entorno de Vercel. Nunca deben escribirse en este archivo, en documentación pública, en el navegador ni en commits.
+- El `API Secret` solo puede utilizarse en el servidor para firmar subidas o transformaciones. Si se usa un preset sin firma, debe limitarse a la carpeta y tipos de recurso permitidos.
+- Las pruebas deben comprobar subida, URL accesible, imagen visible en CRM y web cuando corresponda, error de configuración sin bloqueo de la ficha y compatibilidad con el fallback Base64.
+
 ## Asistente
 
 - El asistente solo debe afirmar que puede ejecutar una operación si existe un ejecutor real para ella.
