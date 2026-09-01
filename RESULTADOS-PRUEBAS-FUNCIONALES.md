@@ -1,6 +1,6 @@
 # Resultados de pruebas funcionales
 
-Última ejecución: 28/08/2026  ·  Producción: [exclusivas-inteligentes.vercel.app](https://exclusivas-inteligentes.vercel.app)
+Última ejecución: 01/09/2026  ·  Producción: [exclusivas-inteligentes.vercel.app](https://exclusivas-inteligentes.vercel.app)
 
 Versión preparada en esta entrega: `2.0.45` · Rutas, mapas integrados y copias de Turso con restauración controlada.
 
@@ -15,6 +15,8 @@ Versión preparada en esta entrega: `2.0.45` · Rutas, mapas integrados y copias
 | E · Notas, administración y configuración | PASS (OCR aplazado) | Nota importante, completar, papelera/recuperación, auditoría y previsualización de plantillas. La edición/guardado/restauración de una plantilla ya está verificada; también se corrigió la presentación de saltos en el listado. Los roles Comercial, Almacén y Luis se probaron en sus rutas directas sin mostrar administración a los roles restringidos. Los botones de descarga e impresión están presentes y la descarga Blob funciona en Playwright (`TPL-CND-001.txt`). La ruta `/ocr` queda fuera de esta entrega por decisión del usuario; no se considera funcionalidad terminada. |
 | F · Transversales | PASS | Escritorio, tablet, móvil y tablet vertical comprobados; la vertical se corrigió para evitar solape del menú con la cabecera y pasó de nuevo en local y producción. También se verificaron nombres largos, importes decimales, el recorrido transversal con incidencia, interacción táctil y recuperación tras respuesta lenta. Consola, URL y endpoints de producción correctos. |
 | G · Rutas y continuidad de datos | PASS LOCAL · TURSO MIGRADO | Varias direcciones por cliente mediante lugares de recogida, mapa integrado con radio configurable de 150 m, creación de rutas con orden de paradas por proximidad y enlace de navegación a Google Maps. Histórico de snapshots comprimidos, descarga y restauración con confirmación explícita comprobados en local; las tablas de rutas y copias están migradas en Turso. |
+
+Verificación final de producción 2.0.45: Vercel Ready, `/api/routes` y `/api/backups` responden 200, el programador queda protegido sin secreto (401), y se creó correctamente el snapshot `BKP-20260901081357-37658`.
 
 ## Baterías ejecutadas
 

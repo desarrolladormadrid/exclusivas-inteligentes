@@ -14,9 +14,10 @@
 - Servidor: `https://mcp.vercel.com`
 - Proyecto enlazado: `exclusivas-inteligentes`.
 - URL estable: `https://exclusivas-inteligentes.vercel.app`
-- Estado: pendiente de publicar la entrega actual `2.0.45`.
-- Último despliegue verificado: `2.0.43`, listo y aliasado en la URL estable.
-- Versión preparada: `2.0.45`.
+- Estado: `2.0.45` publicado y listo en producción.
+- Último despliegue verificado: `2.0.45`, listo y aliasado en la URL estable.
+- Despliegue: `https://exclusivas-inteligentes-afmu9aswx-desarrolladormadrids-projects.vercel.app`.
+- Versión publicada: `2.0.45`.
 
 ## Próximos pasos
 
@@ -36,7 +37,8 @@
 
 - Compilación correcta.
 - Pruebas automáticas y navegación local comprobadas.
-- Producción comprobada: `/`, `/almacen`, `/comercial`, `/crm` y los endpoints de resumen/listados responden correctamente; la vista principal carga sin error bloqueante.
+- Producción comprobada: `/`, `/almacen`, `/comercial`, `/crm`, `/Rutas` y Copias de seguridad, además de los endpoints de resumen/listados, responden correctamente; la vista principal carga sin error bloqueante.
+- Backup real comprobado en producción: `BKP-20260901081357-37658`, snapshot disponible en Turso con 252 clientes y 1.344 productos.
 - Rendimiento comprobado: Productos compactos 510 KB frente a 2,20 MB completos (77% menos); Inicio usa una única llamada `/api/summary`.
 - Entrega `2.0.22` publicada y verificada en producción: tablero de almacén reorganizado con prioridades visibles, filtros de preparación, exportación mediante icono y rejilla adaptable sin huecos vacíos, además de la vista `/comercial` para tablet.
 - Entrega `2.0.23` publicada y verificada en producción: accesos directos con iconos a `/comercial` y `/almacen` desde el CRM, también disponibles en el menú tablet/móvil y limitados por permisos.
