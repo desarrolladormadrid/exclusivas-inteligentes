@@ -507,12 +507,10 @@ try {
     next += 1;
   }
   if (updates.length) {
-    if (typeof db.batch === "function") db.batch(updates);
-    else {
-      const updatePicking = db.prepare("UPDATE products SET warehouse_location=?, picking_order=? WHERE id=?");
-      const normalizePicking = db.transaction(() => { for (const update of updates) updatePicking.run(...update.args); });
-      normalizePicking();
-    }
+    const ids = updates.map((update) => Number(update.args[2])).join(",");
+    const locations = updates.map((update) => "WHEN " + Number(update.args[2]) + " THEN '" + String(update.args[0]).replaceAll("'", "''") + "'").join(" ");
+    const orders = updates.map((update) => "WHEN " + Number(update.args[2]) + " THEN " + Number(update.args[1])).join(" ");
+    db.exec("UPDATE products SET warehouse_location=CASE id " + locations + " ELSE warehouse_location END, picking_order=CASE id " + orders + " ELSE picking_order END WHERE id IN (" + ids + ")");
   }
 } catch {}
 for (const column of ["order_id", "shipment_id", "client_id", "created_by"]) {
