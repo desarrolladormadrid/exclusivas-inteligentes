@@ -373,6 +373,27 @@ for (const column of [
 ]) {
   try { db.exec(`ALTER TABLE invoices ADD COLUMN ${column}`); } catch {}
 }
+// El adaptador remoto omite las migraciones DDL generales durante el arranque
+// para no ralentizar cada función serverless. Estas columnas son necesarias
+// para que las facturas puedan conservar su PDF y su enlace seguro en Turso,
+// así que las aplicamos explícitamente una sola vez por instancia fría.
+if (remoteMode) {
+  for (const column of [
+    "pdf_public_id TEXT",
+    "pdf_url TEXT",
+    "pdf_bytes INTEGER DEFAULT 0",
+    "pdf_sha256 TEXT",
+    "pdf_generated_at TEXT",
+    "pdf_status TEXT DEFAULT 'Pendiente'",
+    "share_token TEXT",
+    "pdf_email_sent_at TEXT",
+    "pdf_email_to TEXT",
+    "pdf_email_status TEXT",
+  ]) {
+    try { db.prepare(`ALTER TABLE invoices ADD COLUMN ${column}`).run(); } catch {}
+  }
+  try { db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_share_token ON invoices(share_token) WHERE share_token IS NOT NULL").run(); } catch {}
+}
 try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_share_token ON invoices(share_token) WHERE share_token IS NOT NULL"); } catch {}
 for (const column of ["quantity_requested", "quantity_unit", "units_factor"]) { try { db.exec(`ALTER TABLE order_lines ADD COLUMN ${column} TEXT`); } catch {} }
 try { db.exec("ALTER TABLE order_lines ADD COLUMN prepared INTEGER DEFAULT 0"); } catch {}
