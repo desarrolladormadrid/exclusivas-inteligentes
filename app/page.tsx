@@ -294,6 +294,8 @@ const cfg: any = {
       "email",
       "address",
       "city",
+      "opening_time",
+      "closing_time",
       "billing_address",
       "billing_city",
       "latitude",
@@ -312,6 +314,8 @@ const cfg: any = {
       "Email",
       "Dirección de entrega",
       "Ciudad de entrega",
+      "Hora de apertura",
+      "Hora de cierre",
       "Dirección fiscal",
       "Ciudad fiscal",
       "Latitud",
@@ -526,6 +530,8 @@ const cfg: any = {
       "preparation_date",
       "urgent",
       "address",
+      "delivery_window_start",
+      "delivery_window_end",
       "expected_delivery_at",
       "packages",
       "notes",
@@ -539,6 +545,8 @@ const cfg: any = {
       "Día de preparación",
       "Urgente",
       "Dirección de entrega",
+      "Apertura del cliente",
+      "Cierre del cliente",
       "Entrega prevista",
       "Bultos",
       "Observaciones",
@@ -557,6 +565,8 @@ const cfg: any = {
       "phone",
       "email",
       "opening_hours",
+      "opening_time",
+      "closing_time",
       "latitude",
       "longitude",
       "geocoding_status",
@@ -571,6 +581,8 @@ const cfg: any = {
       "Teléfono",
       "Email",
       "Horario",
+      "Hora de apertura",
+      "Hora de cierre",
       "Latitud",
       "Longitud",
       "Estado geolocalización",
@@ -1088,7 +1100,7 @@ function RoutesManager({ user }: { user: any }) {
       const enriched = (Array.isArray(shipmentRows) ? shipmentRows : []).filter((item) => !["Cancelado", "Entregado"].includes(String(item.status || ""))).map((item) => {
         const point = points.find((row: any) => Number(row.id) === Number(item.collection_point_id));
         const client = clients.find((row: any) => Number(row.id) === Number(item.client_id));
-        return { ...item, client_name: client?.name || "Cliente sin nombre", address: item.address || point?.address || client?.address || "", city: item.delivery_city || point?.city || client?.city || "", latitude: item.latitude ?? point?.latitude ?? client?.latitude, longitude: item.longitude ?? point?.longitude ?? client?.longitude };
+        return { ...item, client_name: client?.name || "Cliente sin nombre", address: item.address || point?.address || client?.address || "", city: item.delivery_city || point?.city || client?.city || "", opening_time: item.delivery_window_start || point?.opening_time || client?.opening_time || "", closing_time: item.delivery_window_end || point?.closing_time || client?.closing_time || "", latitude: item.latitude ?? point?.latitude ?? client?.latitude, longitude: item.longitude ?? point?.longitude ?? client?.longitude };
       });
       setShipments(enriched);
       setRoutes(routesResponse.ok ? await routesResponse.json() : []);
@@ -1096,7 +1108,7 @@ function RoutesManager({ user }: { user: any }) {
     finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, []);
-  const dayShipments = shipments.filter((item) => String(item.expected_delivery_at || item.delivery_date || "").slice(0, 10) === routeDate);
+  const dayShipments = shipments.filter((item) => String(item.expected_delivery_at || item.delivery_date || "").slice(0, 10) === routeDate).sort((a, b) => String(a.opening_time || "99:99").localeCompare(String(b.opening_time || "99:99")) || String(a.client_name || "").localeCompare(String(b.client_name || ""), "es"));
   const selectedLocations = dayShipments.filter((item) => selected.includes(Number(item.id)));
   async function createRoute() {
     if (!selected.length) { setMessage("Selecciona al menos un envío."); return; }
@@ -1109,7 +1121,7 @@ function RoutesManager({ user }: { user: any }) {
     } catch (error) { setMessage(error instanceof Error ? error.message : "No se ha podido crear la ruta."); }
     finally { setSaving(false); }
   }
-  return <section className="routes-manager"><div className="manager-head"><div><p className="eyebrow">LOGÍSTICA · PLANIFICACIÓN</p><h2>Rutas de reparto</h2><p className="muted">Agrupa entregas geolocalizadas y ordénalas por proximidad para abrirlas en Google Maps.</p></div><button type="button" className="button secondary" onClick={() => void load()}>Actualizar</button></div><div className="routes-toolbar"><label>Fecha de entrega<input type="date" value={routeDate} onChange={(event) => { setRouteDate(event.target.value); setSelected([]); setActiveRoute(null); }} /></label><label>Radio operativo (m)<input type="number" min="50" max="5000" step="50" value={radius} onChange={(event) => setRadius(Math.max(50, Number(event.target.value) || 150))} /></label><label>Repartidor<input value={driver} onChange={(event) => setDriver(event.target.value)} placeholder="Nombre" /></label><label>Vehículo<input value={vehicle} onChange={(event) => setVehicle(event.target.value)} placeholder="Matrícula o referencia" /></label></div>{message && <p className="routes-message" role="status">{message}</p>}<div className="routes-layout"><div className="routes-shipments panel"><div className="panel-head"><div><h3>Entregas disponibles</h3><p className="muted">{dayShipments.length} envíos para el {routeDate}</p></div><button type="button" className="button primary" disabled={saving || !selected.length} onClick={() => void createRoute()}>{saving ? "Planificando…" : `Crear ruta (${selected.length})`}</button></div>{loading ? <div className="data-loading" role="status">Cargando entregas…</div> : <div className="route-shipment-list">{dayShipments.length ? dayShipments.map((item) => { const located = Number.isFinite(Number(item.latitude)) && Number.isFinite(Number(item.longitude)); return <label className={`route-shipment${selected.includes(Number(item.id)) ? " selected" : ""}`} key={item.id}><input type="checkbox" checked={selected.includes(Number(item.id))} onChange={(event) => setSelected((current) => event.target.checked ? [...current, Number(item.id)] : current.filter((id) => id !== Number(item.id)))} /><span><b>{item.code}</b><strong>{item.client_name}</strong><small>{[item.address, item.city].filter(Boolean).join(" · ") || "Sin dirección"}</small></span><em className={located ? "located" : "not-located"}>{located ? "Geolocalizado" : "Sin coordenadas"}</em></label>; }) : <p className="empty-state">No hay envíos para esta fecha.</p>}</div>}</div><div className="routes-existing panel"><div className="panel-head"><div><h3>Rutas planificadas</h3><p className="muted">Histórico y seguimiento de paradas.</p></div></div>{routes.length ? routes.map((route) => <button type="button" className={`route-card${activeRoute?.id === route.id ? " active" : ""}`} key={route.id} onClick={() => setActiveRoute(route)}><span><b>{route.code}</b><small>{route.route_date} · {route.driver || "Sin repartidor"}</small></span><strong>{route.stops?.length || 0}</strong></button>) : <p className="empty-state">Todavía no hay rutas.</p>}</div></div>{activeRoute && <div className="route-detail panel"><div className="panel-head"><div><p className="eyebrow">{activeRoute.code}</p><h3>Orden de ruta · {activeRoute.route_date}</h3><p className="muted">{activeRoute.driver || "Sin repartidor"} · {activeRoute.vehicle || "Sin vehículo"} · Radio {activeRoute.radius_meters || 150} m</p></div>{activeRoute.maps_url && <a className="button primary" href={activeRoute.maps_url} target="_blank" rel="noreferrer">Navegar con Google Maps</a>}</div><IntegratedMap locations={activeRoute.stops || selectedLocations} radiusMeters={Number(activeRoute.radius_meters || 150)} /><ol className="route-stop-list">{(activeRoute.stops || []).map((stop: any) => <li key={stop.id}><b>{stop.position}. {stop.client_name}</b><span>{[stop.address, stop.city].filter(Boolean).join(" · ")}</span><small>{stop.distance_km ? `${stop.distance_km} km desde la parada anterior` : "Salida"}</small></li>)}</ol></div>}</section>;
+  return <section className="routes-manager"><div className="manager-head"><div><p className="eyebrow">LOGÍSTICA · PLANIFICACIÓN</p><h2>Rutas de reparto</h2><p className="muted">Agrupa entregas geolocalizadas y prioriza las franjas de apertura para preparar la ruta.</p></div><button type="button" className="button secondary" onClick={() => void load()}>Actualizar</button></div><div className="routes-toolbar"><label>Fecha de entrega<input type="date" value={routeDate} onChange={(event) => { setRouteDate(event.target.value); setSelected([]); setActiveRoute(null); }} /></label><label>Radio operativo (m)<input type="number" min="50" max="5000" step="50" value={radius} onChange={(event) => setRadius(Math.max(50, Number(event.target.value) || 150))} /></label><label>Repartidor<input value={driver} onChange={(event) => setDriver(event.target.value)} placeholder="Nombre" /></label><label>Vehículo<input value={vehicle} onChange={(event) => setVehicle(event.target.value)} placeholder="Matrícula o referencia" /></label></div>{message && <p className="routes-message" role="status">{message}</p>}<div className="routes-layout"><div className="routes-shipments panel"><div className="panel-head"><div><h3>Entregas disponibles</h3><p className="muted">{dayShipments.length} envíos para el {routeDate}</p></div><button type="button" className="button primary" disabled={saving || !selected.length} onClick={() => void createRoute()}>{saving ? "Planificando…" : `Crear ruta (${selected.length})`}</button></div>{loading ? <div className="data-loading" role="status">Cargando entregas…</div> : <div className="route-shipment-list">{dayShipments.length ? dayShipments.map((item) => { const located = Number.isFinite(Number(item.latitude)) && Number.isFinite(Number(item.longitude)); return <label className={`route-shipment${selected.includes(Number(item.id)) ? " selected" : ""}`} key={item.id}><input type="checkbox" checked={selected.includes(Number(item.id))} onChange={(event) => setSelected((current) => event.target.checked ? [...current, Number(item.id)] : current.filter((id) => id !== Number(item.id)))} /><span><b>{item.code}</b><strong>{item.client_name}</strong><small>{[item.address, item.city].filter(Boolean).join(" · ") || "Sin dirección"}</small><small>{item.opening_time && item.closing_time ? `Horario del cliente: ${item.opening_time}–${item.closing_time}` : "Horario pendiente de indicar"}</small></span><em className={located ? "located" : "not-located"}>{located ? "Geolocalizado" : "Sin coordenadas"}</em></label>; }) : <p className="empty-state">No hay envíos para esta fecha.</p>}</div>}</div><div className="routes-existing panel"><div className="panel-head"><div><h3>Rutas planificadas</h3><p className="muted">Histórico y seguimiento de paradas.</p></div></div>{routes.length ? routes.map((route) => <button type="button" className={`route-card${activeRoute?.id === route.id ? " active" : ""}`} key={route.id} onClick={() => setActiveRoute(route)}><span><b>{route.code}</b><small>{route.route_date} · {route.driver || "Sin repartidor"}</small></span><strong>{route.stops?.length || 0}</strong></button>) : <p className="empty-state">Todavía no hay rutas.</p>}</div></div>{activeRoute && <div className="route-detail panel"><div className="panel-head"><div><p className="eyebrow">{activeRoute.code}</p><h3>Orden de ruta · {activeRoute.route_date}</h3><p className="muted">{activeRoute.driver || "Sin repartidor"} · {activeRoute.vehicle || "Sin vehículo"} · Radio {activeRoute.radius_meters || 150} m</p></div>{activeRoute.maps_url && <a className="button primary" href={activeRoute.maps_url} target="_blank" rel="noreferrer">Navegar con Google Maps</a>}</div><IntegratedMap locations={activeRoute.stops || selectedLocations} radiusMeters={Number(activeRoute.radius_meters || 150)} /><ol className="route-stop-list">{(activeRoute.stops || []).map((stop: any) => <li key={stop.id}><b>{stop.position}. {stop.client_name}</b><span>{[stop.address, stop.city].filter(Boolean).join(" · ")}</span><small>{stop.opening_time && stop.closing_time ? `Horario ${stop.opening_time}–${stop.closing_time} · ` : "Horario pendiente · "}{stop.distance_km ? `${stop.distance_km} km desde la parada anterior` : "Salida"}</small></li>)}</ol></div>}</section>;
 }
 
 function BackupsManager({ user }: { user: any }) {
@@ -2237,6 +2249,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [preparationAnnotationError, setPreparationAnnotationError] = useState("");
   const [preparationAddressDraft, setPreparationAddressDraft] = useState("");
   const [preparationCityDraft, setPreparationCityDraft] = useState("");
+  const [preparationOpeningTimeDraft, setPreparationOpeningTimeDraft] = useState("");
+  const [preparationClosingTimeDraft, setPreparationClosingTimeDraft] = useState("");
   const [preparationAddressSaving, setPreparationAddressSaving] = useState(false);
   const [preparationAddressMessage, setPreparationAddressMessage] = useState("");
   const [preparationAddressError, setPreparationAddressError] = useState("");
@@ -2258,7 +2272,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [quoteLineDraft, setQuoteLineDraft] = useState({ product_id: "", quantity: "1", quantity_unit: "unidad", total_units: "", unit_price: "0", discount: "0", vat: "21" });
   const [quoteProductSearch, setQuoteProductSearch] = useState("");
   const [newShippingLocationOpen, setNewShippingLocationOpen] = useState(false);
-  const [newShippingLocation, setNewShippingLocation] = useState({ name: "", address: "", city: "", notes: "" });
+  const [newShippingLocation, setNewShippingLocation] = useState({ name: "", address: "", city: "", opening_time: "", closing_time: "", notes: "" });
   const [clientSearch, setClientSearch] = useState("");
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
@@ -2670,7 +2684,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     if (!response.ok) return alert(created.error || "No se pudo guardar la ubicación");
     setLookups((current: any) => ({ ...current, collection_points: [created, ...(current.collection_points || [])] }));
     setForm((current: any) => ({ ...current, collection_point_id: String(created.id) }));
-    setNewShippingLocation({ name: "", address: "", city: "", notes: "" });
+    setNewShippingLocation({ name: "", address: "", city: "", opening_time: "", closing_time: "", notes: "" });
     setNewShippingLocationOpen(false);
   }
   function addQuoteLine() {
@@ -2823,6 +2837,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
           name: "Dirección principal",
           address: d.address,
           city: d.city || "",
+          opening_time: d.opening_time || "",
+          closing_time: d.closing_time || "",
           latitude: d.latitude ?? null,
           longitude: d.longitude ?? null,
           geocoded_at: d.geocoded_at ?? null,
@@ -3039,6 +3055,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         preparation_date: row.preparation_date || deliveryDate,
         address: row.address || point?.address || client?.address || "",
         delivery_city: row.delivery_city || point?.city || client?.city || "",
+        delivery_window_start: row.delivery_window_start || point?.opening_time || client?.opening_time || null,
+        delivery_window_end: row.delivery_window_end || point?.closing_time || client?.closing_time || null,
         prepared_by: "",
         notes: row.notes || "Nota de carga creada desde el pedido.",
         urgent: Number(row.urgent || 0),
@@ -3213,6 +3231,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     if (field === "format" && active === "Documentos") return <select {...common}>{["HTML", "Texto plano", "PDF", "Word", "Correo electrónico"].map((option) => <option key={option}>{option}</option>)}</select>;
     if (["content", "description", "notes"].includes(field)) return <textarea className="inline-cell-input inline-cell-textarea" value={value} onChange={(event) => update(event.target.value)} />;
     if (field.endsWith("_date") || ["date", "issue_date", "order_date"].includes(field)) return <input {...common} type="date" />;
+    if (timeFields.has(field)) return <input {...common} type="time" />;
     if (field.endsWith("_at") || field.includes("time")) return <input {...common} type="datetime-local" />;
     if (["quantity", "amount", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "stock", "stock_reserved", "min_stock", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "picking_order", "target_margin_percent", "min_margin_percent", "freight_cost", "handling_cost", "real_cost", "tax_surcharge_percent", "extra_tax_percent", "packages", "vat", "discount"].includes(field)) return <input {...common} type="number" step="any" />;
     return <input {...common} />;
@@ -3636,6 +3655,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       const rowClient = (lookups.clients || []).find((item: any) => Number(item.id) === Number(row.client_id));
       setPreparationAddressDraft(String(row.address || rowLocation?.address || rowClient?.address || ""));
       setPreparationCityDraft(String(row.delivery_city || rowLocation?.city || rowClient?.city || ""));
+      setPreparationOpeningTimeDraft(String(row.delivery_window_start || rowLocation?.opening_time || rowClient?.opening_time || "").slice(0, 5));
+      setPreparationClosingTimeDraft(String(row.delivery_window_end || rowLocation?.closing_time || rowClient?.closing_time || "").slice(0, 5));
       setPreparationAddressMessage("");
       setPreparationAddressError("");
       setPreparationUpdateClient(false);
@@ -3802,8 +3823,15 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     if (!preview?.id || !isLoadPreparation) return;
     const address = preparationAddressDraft.trim();
     const city = preparationCityDraft.trim();
+    const openingTime = preparationOpeningTimeDraft.trim();
+    const closingTime = preparationClosingTimeDraft.trim();
     if (!address) {
       setPreparationAddressError("La dirección de entrega es obligatoria.");
+      setPreparationAddressMessage("");
+      return;
+    }
+    if ((openingTime && !closingTime) || (!openingTime && closingTime) || (openingTime && closingTime && openingTime >= closingTime)) {
+      setPreparationAddressError("Indica una franja válida: la apertura debe ser anterior al cierre.");
       setPreparationAddressMessage("");
       return;
     }
@@ -3815,12 +3843,12 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       const response = await fetch(`/api/shipments/${preview.id}`, {
         method: "PUT",
         headers: actorHeaders,
-        body: JSON.stringify({ address, delivery_city: city, ...geo, update_client_address: preparationUpdateClient ? 1 : 0 }),
+        body: JSON.stringify({ address, delivery_city: city, delivery_window_start: openingTime || null, delivery_window_end: closingTime || null, ...geo, update_client_address: preparationUpdateClient ? 1 : 0 }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "No se pudo guardar la dirección de entrega.");
-      setPreview((current: any) => current ? { ...current, address, delivery_city: city } : current);
-      setRows((current) => current.map((item) => item.id === preview.id ? { ...item, address, delivery_city: city } : item));
+      setPreview((current: any) => current ? { ...current, address, delivery_city: city, delivery_window_start: openingTime || null, delivery_window_end: closingTime || null } : current);
+      setRows((current) => current.map((item) => item.id === preview.id ? { ...item, address, delivery_city: city, delivery_window_start: openingTime || null, delivery_window_end: closingTime || null } : item));
       if (preview.collection_point_id) {
         setLookups((current: any) => ({
           ...current,
@@ -3831,8 +3859,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         setPreviewClient((current: any) => current ? { ...current, address, city } : current);
       }
       setPreparationAddressMessage(preparationUpdateClient
-        ? "Dirección guardada en el pedido, la nota de carga y la ficha del cliente."
-        : "Dirección guardada en el pedido y la nota de carga.");
+        ? "Dirección y horario guardados en el pedido, la nota de carga y la ficha del cliente."
+        : "Dirección y horario guardados en el pedido y la nota de carga.");
     } catch (error: any) {
       setPreparationAddressError(error?.message || "No se pudo guardar la dirección de entrega.");
     } finally {
@@ -3869,6 +3897,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         expected_delivery_at: row.expected_delivery_at || null,
         address: row.address || client?.address || "",
         delivery_city: row.delivery_city || client?.city || "",
+        delivery_window_start: row.delivery_window_start || client?.opening_time || null,
+        delivery_window_end: row.delivery_window_end || client?.closing_time || null,
         packages: row.packages || 1,
         urgent: Number(row.urgent || 0),
         notes: row.notes || "Preparación iniciada desde el pedido.",
@@ -4108,6 +4138,12 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   }
   function formatTableValue(field: string, value: any) {
     if (value === null || value === undefined || value === "") return "—";
+    if (["opening_time", "closing_time", "delivery_window_start", "delivery_window_end"].includes(field)) {
+      const text = String(value);
+      if (/^\d{2}:\d{2}/.test(text)) return text.slice(0, 5);
+      const timeMatch = text.match(/T(\d{2}:\d{2})/);
+      if (timeMatch) return timeMatch[1];
+    }
     if (active === "Documentos" && field === "content") return String(value).replaceAll("\\n", " ").replace(/\s+/g, " ").trim();
     const lookupSource = field === "client_id" ? lookups.clients
       : field === "product_id" ? lookups.products
@@ -4166,8 +4202,9 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     "date", "issue_date", "order_date", "expected_date", "return_date", "reviewed_at", "authorized_at",
     "movement_date", "delivery_date", "preparation_date", "shipping_date", "valid_until", "due_date",
     "payment_date", "expense_date", "created_at", "updated_at", "deleted_at", "departure_at", "prepared_at",
-    "shipped_at", "delivery_window_start", "delivery_window_end", "expected_delivery_at", "delivered_at",
+    "shipped_at", "expected_delivery_at", "delivered_at",
   ]);
+  const timeFields = new Set(["opening_time", "closing_time", "delivery_window_start", "delivery_window_end"]);
   const isDateField = (field: string) => dateFields.has(field) || field.endsWith("_date") || field.endsWith("_at");
   const isLoadPreparation = active === "Preparación de pedidos";
   const usesRecordModal = ["Clientes", "Proveedores", "Almacenes", "Lugares de recogida", "Productos"].includes(active);
@@ -4391,6 +4428,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             <input aria-label="Nombre de la ubicación" placeholder="Nombre (ej. Almacén secundario)" value={newShippingLocation.name} onChange={(e) => setNewShippingLocation({ ...newShippingLocation, name: e.target.value })} />
             <input aria-label="Dirección de envío" placeholder="Dirección de envío" value={newShippingLocation.address} onChange={(e) => setNewShippingLocation({ ...newShippingLocation, address: e.target.value })} />
             <input aria-label="Ciudad de la ubicación" placeholder="Ciudad" value={newShippingLocation.city} onChange={(e) => setNewShippingLocation({ ...newShippingLocation, city: e.target.value })} />
+            <label>Horario de apertura<input aria-label="Hora de apertura de la ubicación" type="time" value={newShippingLocation.opening_time} onChange={(e) => setNewShippingLocation({ ...newShippingLocation, opening_time: e.target.value })} /></label>
+            <label>Horario de cierre<input aria-label="Hora de cierre de la ubicación" type="time" value={newShippingLocation.closing_time} onChange={(e) => setNewShippingLocation({ ...newShippingLocation, closing_time: e.target.value })} /></label>
             <div><button type="button" className="button primary" onClick={createShippingLocation}>Guardar ubicación</button><button type="button" className="button secondary" onClick={() => setNewShippingLocationOpen(false)}>Cancelar</button></div>
           </div>}
         </>
@@ -4464,8 +4503,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             ? ["title", "content"].includes(f)
             : active === "Productos"
             ? f === "name"
-            : !["phone", "email", "address", "notes", "attachment_name", "sent_by", "delivered_by"].includes(f) && !(c.api === "expenses" && f === "code")}
-          type={["amount", "stock", "stock_reserved", "quantity", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "client_id", "product_id", "order_id", "invoice_id", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "picking_order", "target_margin_percent", "min_margin_percent", "freight_cost", "handling_cost", "real_cost", "tax_surcharge_percent", "extra_tax_percent", "cost_price", "last_direct_cost", "markup_percent"].includes(f) ? "number" : ["movement_date", "return_date", "reviewed_at", "authorized_at"].includes(f) ? "datetime-local" : ["expense_date", "delivery_date", "preparation_date", "shipping_date", "created_at"].includes(f) ? "date" : "text"}
+            : !["phone", "email", "address", "notes", "opening_time", "closing_time", "delivery_window_start", "delivery_window_end", "attachment_name", "sent_by", "delivered_by"].includes(f) && !(c.api === "expenses" && f === "code")}
+          type={["amount", "stock", "stock_reserved", "quantity", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "client_id", "product_id", "order_id", "invoice_id", "stock_min", "stock_target", "stock_safety", "units_per_case", "cases_per_pallet", "units_per_pallet", "weight_kg", "volume_m3", "picking_order", "target_margin_percent", "min_margin_percent", "freight_cost", "handling_cost", "real_cost", "tax_surcharge_percent", "extra_tax_percent", "cost_price", "last_direct_cost", "markup_percent"].includes(f) ? "number" : timeFields.has(f) ? "time" : ["movement_date", "return_date", "reviewed_at", "authorized_at"].includes(f) ? "datetime-local" : ["expense_date", "delivery_date", "preparation_date", "shipping_date", "created_at"].includes(f) ? "date" : "text"}
           step={["unit_price", "cost_price", "last_direct_cost", "markup_percent"].includes(f) ? "0.01" : undefined}
           value={form[f] ?? ""}
           readOnly={f === "created_by" || f === "category_code" || (f === "code" && isOrderForm && !editing)}
@@ -5183,7 +5222,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                   new Date().toLocaleDateString("es-ES")}
                 <br />
                 <b>Estado:</b> {preview.status}
-                {isLoadPreparation && <><br /><b>Preparado por:</b> {preview.prepared_by || "Pendiente de asignar"}</>}
+                {isLoadPreparation && <><br /><b>Preparado por:</b> {preview.prepared_by || "Pendiente de asignar"}<br /><b>Horario de entrega:</b> {preview.delivery_window_start && preview.delivery_window_end ? `${String(preview.delivery_window_start).slice(0, 5)}–${String(preview.delivery_window_end).slice(0, 5)}` : "Pendiente de indicar"}</>}
               </p>
             </div>
             {active === "Pedidos" && <OrderWorkflowPanel order={preview} shipment={getOrderShipment(preview)} billingStatus={getOrderBillingStatus(preview)} paymentStatus={getOrderPaymentStatus(preview)} invoice={previewInvoice || getOrderInvoice(preview)} onOpenPayment={() => openPaymentFromOrder(preview)} onNavigate={onNavigate} />}
@@ -5193,6 +5232,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               <div className="preparation-delivery-fields">
                 <label>Dirección de entrega<input aria-label="Dirección de entrega" value={preparationAddressDraft} onChange={(event) => { setPreparationAddressDraft(event.target.value); setPreparationAddressError(""); setPreparationAddressMessage(""); }} disabled={preparationAddressSaving} /></label>
                 <label>Ciudad<input aria-label="Ciudad de entrega" value={preparationCityDraft} onChange={(event) => { setPreparationCityDraft(event.target.value); setPreparationAddressError(""); setPreparationAddressMessage(""); }} disabled={preparationAddressSaving} /></label>
+                <label>Hora de apertura<input aria-label="Hora de apertura de entrega" type="time" value={preparationOpeningTimeDraft} onChange={(event) => { setPreparationOpeningTimeDraft(event.target.value); setPreparationAddressError(""); setPreparationAddressMessage(""); }} disabled={preparationAddressSaving} /></label>
+                <label>Hora de cierre<input aria-label="Hora de cierre de entrega" type="time" value={preparationClosingTimeDraft} onChange={(event) => { setPreparationClosingTimeDraft(event.target.value); setPreparationAddressError(""); setPreparationAddressMessage(""); }} disabled={preparationAddressSaving} /></label>
               </div>
               <label className="preparation-update-client"><input type="checkbox" checked={preparationUpdateClient} onChange={(event) => setPreparationUpdateClient(event.target.checked)} disabled={preparationAddressSaving} />Actualizar también la ficha del cliente</label>
               {preparationAddressError && <p className="preparation-address-error" role="alert">{preparationAddressError}</p>}

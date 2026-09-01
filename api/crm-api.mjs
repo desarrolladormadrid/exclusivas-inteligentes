@@ -393,8 +393,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS returns(id INTEGER PRIMARY KEY AUTOINCREMENT
 for (const column of ["stock_applied_at TEXT", "stock_applied_by TEXT", "warehouse_id INTEGER"]) {
   try { db.exec(`ALTER TABLE returns ADD COLUMN ${column}`); } catch {}
 }
-db.exec(`CREATE TABLE IF NOT EXISTS collection_points(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE,name TEXT NOT NULL,client_id INTEGER,address TEXT,city TEXT,contact TEXT,phone TEXT,email TEXT,opening_hours TEXT,notes TEXT);`);
+db.exec(`CREATE TABLE IF NOT EXISTS collection_points(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE,name TEXT NOT NULL,client_id INTEGER,address TEXT,city TEXT,contact TEXT,phone TEXT,email TEXT,opening_hours TEXT,opening_time TEXT,closing_time TEXT,notes TEXT);`);
 try { db.exec("ALTER TABLE collection_points ADD COLUMN client_id INTEGER"); } catch {}
+try { db.exec("ALTER TABLE collection_points ADD COLUMN opening_time TEXT"); } catch {}
+try { db.exec("ALTER TABLE collection_points ADD COLUMN closing_time TEXT"); } catch {}
 try { db.exec("ALTER TABLE collection_points ADD COLUMN latitude REAL"); } catch {}
 try { db.exec("ALTER TABLE collection_points ADD COLUMN longitude REAL"); } catch {}
 try { db.exec("ALTER TABLE collection_points ADD COLUMN geocoded_at TEXT"); } catch {}
@@ -403,7 +405,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY AUTOINCREM
 db.exec(`CREATE TABLE IF NOT EXISTS scheduled_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,action_text TEXT NOT NULL,schedule_type TEXT DEFAULT 'Unica',recurrence TEXT,next_run TEXT,status TEXT DEFAULT 'Activa',last_run TEXT,last_result TEXT,created_by TEXT DEFAULT 'Usuario local',created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS backup_snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,created_at TEXT NOT NULL,created_by TEXT,source TEXT DEFAULT 'Turso',tables_json TEXT NOT NULL,data_base64 TEXT NOT NULL,checksum TEXT NOT NULL,status TEXT DEFAULT 'Disponible',restored_at TEXT,restored_by TEXT,size_bytes INTEGER DEFAULT 0);`);
 db.exec(`CREATE TABLE IF NOT EXISTS delivery_routes(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,route_date TEXT NOT NULL,driver TEXT,vehicle TEXT,status TEXT DEFAULT 'Planificada',radius_meters REAL DEFAULT 150,origin_address TEXT,origin_latitude REAL,origin_longitude REAL,notes TEXT,created_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT);`);
-db.exec(`CREATE TABLE IF NOT EXISTS delivery_route_stops(id INTEGER PRIMARY KEY AUTOINCREMENT,route_id INTEGER NOT NULL,position INTEGER NOT NULL,shipment_id INTEGER,client_id INTEGER,collection_point_id INTEGER,client_name TEXT,address TEXT,city TEXT,latitude REAL,longitude REAL,distance_km REAL DEFAULT 0,status TEXT DEFAULT 'Pendiente',notes TEXT,created_at TEXT,updated_at TEXT);`);
+db.exec(`CREATE TABLE IF NOT EXISTS delivery_route_stops(id INTEGER PRIMARY KEY AUTOINCREMENT,route_id INTEGER NOT NULL,position INTEGER NOT NULL,shipment_id INTEGER,client_id INTEGER,collection_point_id INTEGER,client_name TEXT,address TEXT,city TEXT,opening_time TEXT,closing_time TEXT,latitude REAL,longitude REAL,distance_km REAL DEFAULT 0,status TEXT DEFAULT 'Pendiente',notes TEXT,created_at TEXT,updated_at TEXT);`);
+for (const column of ["opening_time TEXT", "closing_time TEXT"]) { try { db.exec(`ALTER TABLE delivery_route_stops ADD COLUMN ${column}`); } catch {} }
 try {
   const duplicateTasks = db.prepare(`SELECT id FROM scheduled_tasks WHERE status='Activa' AND id NOT IN (SELECT MIN(id) FROM scheduled_tasks WHERE status='Activa' GROUP BY LOWER(TRIM(title)),LOWER(TRIM(action_text)),schedule_type,COALESCE(recurrence,''))`).all();
   for (const task of duplicateTasks) db.prepare("UPDATE scheduled_tasks SET status='Pausada',last_result='Pausada automáticamente: tarea duplicada',updated_at=? WHERE id=?").run(new Date().toISOString(), task.id);
@@ -451,10 +454,14 @@ try { db.exec("ALTER TABLE inventory_movements ADD COLUMN receipt_id INTEGER"); 
 for (const [table, columns] of [
   ["products", ["photo_name TEXT", "photo_mime TEXT", "photo_data TEXT", "photo_url TEXT", "photo_public_id TEXT", "photo_thumbnail_url TEXT", "photo_web_url TEXT", "photo_bytes INTEGER DEFAULT 0", "photo_width INTEGER DEFAULT 0", "photo_height INTEGER DEFAULT 0", "photo_format TEXT", "description TEXT", "category_code TEXT", "warehouse_id INTEGER", "preorder INTEGER DEFAULT 1", "product_tracking_code TEXT DEFAULT 'Sin seguimiento'", "inventory_valuation_method TEXT DEFAULT 'FIFO'", "last_direct_cost REAL DEFAULT 0", "accounting_product_group TEXT DEFAULT 'Mercaderías'", "accounting_vat_group TEXT DEFAULT '21%'", "inventory_register_group TEXT DEFAULT 'Mercaderías'", "created_at TEXT", "created_by TEXT", "family TEXT", "subfamily TEXT", "purchase_format TEXT", "sale_format TEXT", "cases_per_pallet REAL DEFAULT 0", "units_per_pallet REAL DEFAULT 0", "weight_kg REAL DEFAULT 0", "volume_m3 REAL DEFAULT 0", "warehouse_location TEXT", "picking_order INTEGER DEFAULT 0", "product_status TEXT DEFAULT 'Activo'", "primary_supplier_id INTEGER", "fixed_supplier INTEGER DEFAULT 0", "target_margin_percent REAL DEFAULT 0", "min_margin_percent REAL DEFAULT 0", "stock_min REAL DEFAULT 0", "stock_target REAL DEFAULT 0", "stock_safety REAL DEFAULT 0", "lot_tracking INTEGER DEFAULT 0", "expiry_tracking INTEGER DEFAULT 0", "returnable_packaging INTEGER DEFAULT 0", "tax_surcharge_percent REAL DEFAULT 0", "extra_tax_name TEXT", "extra_tax_percent REAL DEFAULT 0", "freight_cost REAL DEFAULT 0", "handling_cost REAL DEFAULT 0", "real_cost REAL DEFAULT 0"]],
   ["suppliers", ["tax_id TEXT", "contact TEXT", "payment_terms TEXT", "city TEXT", "latitude REAL", "longitude REAL", "geocoding_status TEXT DEFAULT 'Pendiente'", "minimum_order REAL DEFAULT 0", "transport_cost REAL DEFAULT 0", "lead_time_days INTEGER DEFAULT 0", "reliability_percent REAL DEFAULT 0", "promotions TEXT", "rappel_percent REAL DEFAULT 0", "active INTEGER DEFAULT 1", "external_code TEXT", "source_system TEXT", "source_warehouse_code TEXT", "source_created_at TEXT", "source_closed_at TEXT", "source_balance REAL DEFAULT 0", "source_overdue_balance REAL DEFAULT 0", "source_payments REAL DEFAULT 0"]],
-  ["clients", ["external_code TEXT", "source_system TEXT", "active INTEGER DEFAULT 1", "billing_address TEXT", "billing_city TEXT", "latitude REAL", "longitude REAL", "geocoded_at TEXT", "geocoding_status TEXT DEFAULT 'Pendiente'", "payment_method_code TEXT", "payment_terms_code TEXT", "source_warehouse_code TEXT", "source_created_at TEXT", "source_closed_at TEXT", "source_balance REAL DEFAULT 0", "source_overdue_balance REAL DEFAULT 0", "source_sales REAL DEFAULT 0", "source_payments REAL DEFAULT 0"]],
+  ["clients", ["external_code TEXT", "source_system TEXT", "active INTEGER DEFAULT 1", "billing_address TEXT", "billing_city TEXT", "opening_time TEXT", "closing_time TEXT", "latitude REAL", "longitude REAL", "geocoded_at TEXT", "geocoding_status TEXT DEFAULT 'Pendiente'", "payment_method_code TEXT", "payment_terms_code TEXT", "source_warehouse_code TEXT", "source_created_at TEXT", "source_closed_at TEXT", "source_balance REAL DEFAULT 0", "source_overdue_balance REAL DEFAULT 0", "source_sales REAL DEFAULT 0", "source_payments REAL DEFAULT 0"]],
   ["products", ["external_code TEXT", "source_system TEXT", "active INTEGER DEFAULT 1", "source_type TEXT", "source_substitute TEXT", "assembly_item INTEGER DEFAULT 0", "cost_adjusted INTEGER DEFAULT 0", "default_split_template TEXT", "source_supplier_code TEXT", "source_created_at TEXT", "source_closed_at TEXT"]],
   ["purchase_orders", ["validation_status TEXT DEFAULT 'Pendiente de validar'", "request_id INTEGER", "supplier_ids TEXT", "comparison TEXT"]],
 ]) for (const column of columns) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`); } catch {} }
+// Horarios independientes de la dirección para planificar futuras rutas.
+for (const [table, columns] of [["clients", ["opening_time TEXT", "closing_time TEXT"]], ["collection_points", ["opening_time TEXT", "closing_time TEXT"]]]) {
+  for (const column of columns) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`); } catch {} }
+}
 // Conservamos los campos históricos de stock y rellenamos los nuevos umbrales
 // para que las instalaciones antiguas entren directamente en el motor de compras.
 try {
@@ -563,6 +570,13 @@ if (remoteMode) {
 }
 for (const table of ["orders", "quotes"]) {
   try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_share_token ON ${table}(share_token) WHERE share_token IS NOT NULL`); } catch {}
+}
+// El adaptador remoto no ejecuta las migraciones DDL genéricas del arranque.
+// Estas columnas se aplican explícitamente también en Turso.
+if (remoteMode) {
+  for (const [table, columns] of [["clients", ["opening_time TEXT", "closing_time TEXT"]], ["collection_points", ["opening_time TEXT", "closing_time TEXT"]], ["delivery_route_stops", ["opening_time TEXT", "closing_time TEXT"]]]) {
+    for (const column of columns) { try { db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column}`).run(); } catch {} }
+  }
 }
 for (const column of ["quantity_requested", "quantity_unit", "units_factor"]) { try { db.exec(`ALTER TABLE order_lines ADD COLUMN ${column} TEXT`); } catch {} }
 try { db.exec("ALTER TABLE order_lines ADD COLUMN prepared INTEGER DEFAULT 0"); } catch {}
@@ -679,7 +693,7 @@ function resolveShipmentStop(shipment) {
   const client = shipment.client_id ? db.prepare("SELECT * FROM clients WHERE id=?").get(Number(shipment.client_id)) : null;
   const latitude = Number(shipment.latitude ?? point?.latitude ?? client?.latitude);
   const longitude = Number(shipment.longitude ?? point?.longitude ?? client?.longitude);
-  return { shipment_id: Number(shipment.id), client_id: shipment.client_id || null, collection_point_id: shipment.collection_point_id || null, client_name: client?.name || "Cliente sin nombre", address: shipment.address || point?.address || client?.address || "", city: shipment.delivery_city || point?.city || client?.city || "", latitude: Number.isFinite(latitude) && latitude !== 0 ? latitude : null, longitude: Number.isFinite(longitude) && longitude !== 0 ? longitude : null, status: shipment.status || "Pendiente" };
+  return { shipment_id: Number(shipment.id), client_id: shipment.client_id || null, collection_point_id: shipment.collection_point_id || null, client_name: client?.name || "Cliente sin nombre", address: shipment.address || point?.address || client?.address || "", city: shipment.delivery_city || point?.city || client?.city || "", opening_time: shipment.delivery_window_start || point?.opening_time || client?.opening_time || "", closing_time: shipment.delivery_window_end || point?.closing_time || client?.closing_time || "", latitude: Number.isFinite(latitude) && latitude !== 0 ? latitude : null, longitude: Number.isFinite(longitude) && longitude !== 0 ? longitude : null, status: shipment.status || "Pendiente" };
 }
 function optimizeStops(stops, originLat, originLon) {
   const remaining = [...stops];
@@ -688,9 +702,16 @@ function optimizeStops(stops, originLat, originLon) {
   while (remaining.length) {
     let nextIndex = 0;
     if (Number.isFinite(currentLat) && Number.isFinite(currentLon)) {
+      const openingMinutes = (value) => {
+        const match = String(value || "").match(/(?:T|^|\s)(\d{1,2}):(\d{2})/);
+        return match ? Number(match[1]) * 60 + Number(match[2]) : Number.POSITIVE_INFINITY;
+      };
       remaining.forEach((stop, index) => {
         const distance = haversineKm(currentLat, currentLon, stop.latitude, stop.longitude);
-        if (distance < haversineKm(currentLat, currentLon, remaining[nextIndex].latitude, remaining[nextIndex].longitude)) nextIndex = index;
+        const candidateOpening = openingMinutes(stop.opening_time);
+        const selectedOpening = openingMinutes(remaining[nextIndex].opening_time);
+        const selectedDistance = haversineKm(currentLat, currentLon, remaining[nextIndex].latitude, remaining[nextIndex].longitude);
+        if (candidateOpening < selectedOpening || (candidateOpening === selectedOpening && distance < selectedDistance)) nextIndex = index;
       });
     }
     const next = remaining.splice(nextIndex, 1)[0];
@@ -864,13 +885,13 @@ function hasColumn(resource, column) {
   return schemaColumnsCache.get(key);
 }
 const lookupFields = {
-  clients: ["id", "name", "city", "address", "billing_address", "billing_city", "latitude", "longitude", "geocoding_status", "phone", "email", "active", "external_code"],
+  clients: ["id", "name", "city", "address", "billing_address", "billing_city", "opening_time", "closing_time", "latitude", "longitude", "geocoding_status", "phone", "email", "active", "external_code"],
   suppliers: ["id", "name", "tax_id", "contact", "phone", "email", "address", "city", "latitude", "longitude", "geocoding_status", "active", "minimum_order", "transport_cost", "lead_time_days", "reliability_percent", "rappel_percent", "external_code"],
   warehouses: ["id", "name", "address"],
-  collection_points: ["id", "code", "name", "client_id", "address", "city", "contact", "phone", "email", "geocoding_status", "latitude", "longitude"],
+  collection_points: ["id", "code", "name", "client_id", "address", "city", "contact", "phone", "email", "opening_hours", "opening_time", "closing_time", "geocoding_status", "latitude", "longitude"],
   products: ["id", "name", "sku", "unit", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "vat", "stock", "stock_reserved", "min_stock", "stock_min", "category", "brand", "format", "active", "product_status", "warehouse_id", "supplier_id", "primary_supplier_id", "warehouse_location", "cost_price", "photo_url", "photo_thumbnail_url", "photo_web_url"],
   orders: ["id", "code", "client_id", "status", "amount", "created_at", "updated_at", "delivery_date", "preparation_date", "shipping_date", "address", "delivery_city", "collection_point_id", "urgent", "stock_alert"],
-  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "delivery_city", "carrier", "packages", "incidents", "notes"],
+  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "delivery_city", "delivery_window_start", "delivery_window_end", "carrier", "packages", "incidents", "notes"],
   invoices: ["id", "code", "order_id", "client_id", "amount", "status", "created_at", "issue_date", "due_date"],
   purchase_orders: ["id", "code", "supplier_id", "status", "order_date", "expected_date", "amount", "validation_status"],
   goods_receipts: ["id", "code", "supplier_id", "purchase_order_id", "purchase_invoice_id", "warehouse_id", "receipt_date", "status", "validation_status", "validated_by", "validated_at", "line_count", "incident_count", "received_by", "notes"],
@@ -1160,7 +1181,7 @@ export async function crmApiHandler(req, res) {
         const now = new Date().toISOString();
         const routeCode = `RUT-${String(body.route_date).replace(/[^0-9]/g, "")}-${String(Date.now()).slice(-5)}`;
         const route = db.prepare("INSERT INTO delivery_routes(code,route_date,driver,vehicle,status,radius_meters,origin_address,origin_latitude,origin_longitude,notes,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)").run(routeCode, String(body.route_date), String(body.driver || ""), String(body.vehicle || ""), "Planificada", Number(body.radius_meters || 150), String(body.origin_address || ""), originLat, originLon, String(body.notes || ""), actor, now, now);
-        for (const stop of orderedStops) db.prepare("INSERT INTO delivery_route_stops(route_id,position,shipment_id,client_id,collection_point_id,client_name,address,city,latitude,longitude,distance_km,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(Number(route.lastInsertRowid), stop.position, stop.shipment_id, stop.client_id, stop.collection_point_id, stop.client_name, stop.address, stop.city, stop.latitude, stop.longitude, stop.distance_km, "Pendiente", now, now);
+        for (const stop of orderedStops) db.prepare("INSERT INTO delivery_route_stops(route_id,position,shipment_id,client_id,collection_point_id,client_name,address,city,opening_time,closing_time,latitude,longitude,distance_km,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(Number(route.lastInsertRowid), stop.position, stop.shipment_id, stop.client_id, stop.collection_point_id, stop.client_name, stop.address, stop.city, stop.opening_time, stop.closing_time, stop.latitude, stop.longitude, stop.distance_km, "Pendiente", now, now);
         recordAudit(actor, "POST", `routes/${Number(route.lastInsertRowid)}`, "Planificar ruta", JSON.stringify({ shipment_ids: shipmentIds, radius_meters: Number(body.radius_meters || 150) }));
         return send(res, 201, getRouteWithStops(Number(route.lastInsertRowid)));
       }
@@ -2183,12 +2204,13 @@ export async function crmApiHandler(req, res) {
           }
         }
         if (t === "orders") {
-          const client = d.client_id ? db.prepare("SELECT address FROM clients WHERE id=?").get(Number(d.client_id)) : null;
+          const client = d.client_id ? db.prepare("SELECT address,opening_time,closing_time FROM clients WHERE id=?").get(Number(d.client_id)) : null;
           const shippingLocation = d.collection_point_id
-            ? db.prepare("SELECT address FROM collection_points WHERE id=? AND (client_id=? OR client_id IS NULL)").get(Number(d.collection_point_id), Number(d.client_id || 0))
+            ? db.prepare("SELECT address,opening_time,closing_time FROM collection_points WHERE id=? AND (client_id=? OR client_id IS NULL)").get(Number(d.collection_point_id), Number(d.client_id || 0))
             : null;
           const shipmentCode = `ENV-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`;
-          db.prepare("INSERT INTO shipments(code,order_id,client_id,collection_point_id,status,preparation_date,urgent,expected_delivery_at,address,packages,incidents,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(shipmentCode, Number(r.lastInsertRowid), d.client_id || null, d.collection_point_id || null, "Preparando", d.preparation_date || null, Number(d.urgent || 0), d.shipping_date || d.delivery_date || null, shippingLocation?.address || d.address || client?.address || null, 1, "", d.urgent ? "PEDIDO URGENTE · Revisar todas las líneas antes de preparar." : "Preparación pendiente de revisión.", now, now);
+          const createdShipment = db.prepare("INSERT INTO shipments(code,order_id,client_id,collection_point_id,status,preparation_date,urgent,expected_delivery_at,address,packages,incidents,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(shipmentCode, Number(r.lastInsertRowid), d.client_id || null, d.collection_point_id || null, "Preparando", d.preparation_date || null, Number(d.urgent || 0), d.shipping_date || d.delivery_date || null, shippingLocation?.address || d.address || client?.address || null, 1, "", d.urgent ? "PEDIDO URGENTE · Revisar todas las líneas antes de preparar." : "Preparación pendiente de revisión.", now, now);
+          db.prepare("UPDATE shipments SET delivery_window_start=?,delivery_window_end=? WHERE id=?").run(d.delivery_window_start || shippingLocation?.opening_time || client?.opening_time || null, d.delivery_window_end || shippingLocation?.closing_time || client?.closing_time || null, Number(createdShipment.lastInsertRowid));
         }
         if (t === "orders" && stockShortages.length) {
           recordAudit(actor, "POST", `orders/${Number(r.lastInsertRowid)}`, "Alerta stock", JSON.stringify(stockShortages));
@@ -2389,25 +2411,27 @@ export async function crmApiHandler(req, res) {
           }
         }
         if (t === "orders") {
-          const linkedShipment = db.prepare("SELECT id FROM shipments WHERE order_id=? ORDER BY id DESC LIMIT 1").get(p[2]);
+          const linkedShipment = db.prepare("SELECT id,delivery_window_start,delivery_window_end FROM shipments WHERE order_id=? ORDER BY id DESC LIMIT 1").get(p[2]);
           if (linkedShipment) {
             const currentOrder = db.prepare("SELECT client_id,collection_point_id,address,delivery_date,preparation_date,shipping_date,urgent FROM orders WHERE id=?").get(p[2]);
             const clientId = d.client_id ?? currentOrder?.client_id ?? null;
             const collectionPointId = d.collection_point_id ?? currentOrder?.collection_point_id ?? null;
             const client = clientId
-              ? db.prepare("SELECT address FROM clients WHERE id=?").get(clientId)
+              ? db.prepare("SELECT address,opening_time,closing_time FROM clients WHERE id=?").get(clientId)
               : null;
             const shippingLocation = collectionPointId
-              ? db.prepare("SELECT address FROM collection_points WHERE id=? AND (client_id=? OR client_id IS NULL)").get(Number(collectionPointId), Number(clientId || 0))
+              ? db.prepare("SELECT address,opening_time,closing_time FROM collection_points WHERE id=? AND (client_id=? OR client_id IS NULL)").get(Number(collectionPointId), Number(clientId || 0))
               : null;
             const shipmentAddress = shippingLocation?.address || d.address || client?.address || currentOrder?.address || null;
-            db.prepare("UPDATE shipments SET client_id=?,collection_point_id=?,preparation_date=?,urgent=?,expected_delivery_at=?,address=? WHERE id=?").run(
+            db.prepare("UPDATE shipments SET client_id=?,collection_point_id=?,preparation_date=?,urgent=?,expected_delivery_at=?,address=?,delivery_window_start=?,delivery_window_end=? WHERE id=?").run(
               clientId,
               collectionPointId,
               d.preparation_date ?? currentOrder?.preparation_date ?? null,
               Number(d.urgent ?? currentOrder?.urgent ?? 0),
               d.shipping_date ?? currentOrder?.shipping_date ?? d.delivery_date ?? currentOrder?.delivery_date ?? null,
               shipmentAddress,
+              d.delivery_window_start ?? shippingLocation?.opening_time ?? client?.opening_time ?? linkedShipment.delivery_window_start ?? null,
+              d.delivery_window_end ?? shippingLocation?.closing_time ?? client?.closing_time ?? linkedShipment.delivery_window_end ?? null,
               linkedShipment.id,
             );
           }
