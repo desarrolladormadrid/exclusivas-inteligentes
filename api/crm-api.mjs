@@ -224,6 +224,141 @@ function invoiceShareUrl(req, token) {
   const protocol = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
   return `${protocol}://${host}/api/invoices/share/${encodeURIComponent(token)}`;
 }
+const commercialPdfConfigs = {
+  order: { table: "orders", lines: "order_lines", foreignKey: "order_id", label: "PEDIDO", folder: "pedidos", prefix: "pedido", dateFields: ["order_date", "delivery_date", "created_at"] },
+  quote: { table: "quotes", lines: "quote_lines", foreignKey: "quote_id", label: "PRESUPUESTO", folder: "presupuestos", prefix: "presupuesto", dateFields: ["quote_date", "created_at"] },
+};
+function commercialPdfConfig(type) {
+  const config = commercialPdfConfigs[String(type || "").toLowerCase()];
+  if (!config) throw new Error("Tipo de documento no válido");
+  return config;
+}
+function commercialDocumentPdfData(type, documentId) {
+  const config = commercialPdfConfig(type);
+  const document = db.prepare(`SELECT d.*,c.name client_name,c.address client_address,c.city client_city,c.email client_email,c.phone client_phone FROM ${config.table} d LEFT JOIN clients c ON c.id=d.client_id WHERE d.id=? AND CAST(COALESCE(d.deleted,0) AS INTEGER)=0`).get(Number(documentId));
+  if (!document) return null;
+  const lines = db.prepare(`SELECT l.*,p.name product_name,p.sku FROM ${config.lines} l LEFT JOIN products p ON p.id=l.product_id WHERE l.${config.foreignKey}=? ORDER BY l.id`).all(Number(documentId));
+  return { ...document, lines };
+}
+function createCommercialDocumentPdf(document, type) {
+  const config = commercialPdfConfig(type);
+  const lineRows = Array.isArray(document.lines) ? document.lines : [];
+  const lineTotal = lineRows.reduce((sum, line) => sum + Number(line.amount || Number(line.quantity || line.quantity_requested || 0) * Number(line.unit_price || 0)), 0);
+  const vatRate = Number(document.vat || 21);
+  const total = lineTotal || Number(document.amount || 0);
+  const base = lineTotal ? total / (1 + vatRate / 100) : total / (1 + vatRate / 100);
+  const vat = total - base;
+  const date = config.dateFields.map((field) => document[field]).find(Boolean) || new Date().toISOString();
+  const lines = [
+    "EXCLUSIVAS INTELIGENTES",
+    "DISTRIBUIDORA DE BEBIDAS",
+    "",
+    `${config.label} ${document.code || `#${document.id}`}`,
+    `Fecha: ${String(date).slice(0, 10)}`,
+    `Estado: ${document.status || "Pendiente"}`,
+    "",
+    `Cliente: ${document.client_name || "Cliente no indicado"}`,
+    `Direccion: ${document.client_address || document.address || "No indicada"}`,
+    `Ciudad: ${document.client_city || document.city || "No indicada"}`,
+    `Correo: ${document.client_email || "No indicado"}`,
+    "",
+    "CONCEPTOS",
+    ...(lineRows.length ? lineRows.flatMap((line) => {
+      const description = line.product_name || `Producto #${line.product_id || ""}`;
+      const quantity = Number(line.quantity || line.quantity_requested || 0);
+      const amount = Number(line.amount || quantity * Number(line.unit_price || 0));
+      return [`${description} · ${quantity} uds. · ${amount.toFixed(2)} EUR`];
+    }) : ["Sin líneas de producto asociadas"]),
+    "",
+    `Base imponible: ${base.toFixed(2)} EUR`,
+    `IVA (${vatRate.toFixed(0)}%): ${vat.toFixed(2)} EUR`,
+    `TOTAL: ${total.toFixed(2)} EUR`,
+    "",
+    "Documento generado por Exclusivas Inteligentes.",
+  ];
+  const wrapped = [];
+  for (const line of lines) {
+    const text = pdfSafeText(line);
+    if (!text) { wrapped.push(""); continue; }
+    for (let offset = 0; offset < text.length; offset += 92) wrapped.push(text.slice(offset, offset + 92));
+  }
+  const pages = [];
+  for (let offset = 0; offset < wrapped.length; offset += 38) pages.push(wrapped.slice(offset, offset + 38));
+  if (!pages.length) pages.push([`${config.label} sin contenido`]);
+  const objects = [];
+  const addObject = (value) => { objects.push(value); return objects.length; };
+  const catalogId = addObject("");
+  const pagesId = addObject("");
+  const fontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const pageIds = [];
+  for (const pageLines of pages) {
+    const commands = ["BT", "/F1 10 Tf", "50 790 Td"];
+    pageLines.forEach((line, index) => {
+      if (index) commands.push("0 -18 Td");
+      commands.push(`${pdfLiteral(line)} Tj`);
+    });
+    commands.push("ET");
+    const contentId = addObject(`<< /Length ${Buffer.byteLength(commands.join("\n"), "ascii")} >>\nstream\n${commands.join("\n")}\nendstream`);
+    const pageId = addObject("");
+    objects[pageId - 1] = `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`;
+    pageIds.push(pageId);
+  }
+  objects[catalogId - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+  objects[pagesId - 1] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`;
+  let pdf = "%PDF-1.4\n%âãÏÓ\n";
+  const offsets = [0];
+  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf, "binary")); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = Buffer.byteLength(pdf, "binary");
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => { pdf += `${String(offset).padStart(10, "0")} 00000 n \n`; });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(pdf, "binary");
+}
+async function uploadCommercialDocumentPdf(buffer, document, type) {
+  if (!cloudinaryReady()) return null;
+  const config = commercialPdfConfig(type);
+  const cloud = String(process.env.CLOUDINARY_CLOUD_NAME).trim();
+  const timestamp = Math.floor(Date.now() / 1000);
+  const folder = `exclusivas-inteligentes/${config.folder}`;
+  const publicId = `${config.prefix}-${Number(document.id)}-${slugifyProductName(document.code || "documento")}.pdf`;
+  const form = new FormData();
+  form.append("file", new Blob([buffer], { type: "application/pdf" }), publicId);
+  form.append("timestamp", String(timestamp));
+  form.append("folder", folder);
+  form.append("public_id", publicId);
+  form.append("overwrite", "true");
+  const credentials = Buffer.from(`${String(process.env.CLOUDINARY_API_KEY).trim()}:${String(process.env.CLOUDINARY_API_SECRET).trim()}`).toString("base64");
+  const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloud)}/raw/upload`, { method: "POST", headers: { Authorization: `Basic ${credentials}` }, body: form });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.secure_url) throw new Error(body?.error?.message || "No se pudo subir el documento a Cloudinary");
+  return { public_id: body.public_id || publicId, secure_url: body.secure_url, bytes: Number(body.bytes || buffer.length) };
+}
+async function ensureCommercialDocumentPdf(type, documentId, actor = "Sistema", force = false) {
+  const config = commercialPdfConfig(type);
+  const current = commercialDocumentPdfData(type, documentId);
+  if (!current) throw new Error(`${config.label[0] + config.label.slice(1).toLowerCase()} no encontrado`);
+  if (!force && current.pdf_status === "Generado" && current.pdf_generated_at && current.share_token) return current;
+  const pdf = createCommercialDocumentPdf(current, type);
+  const uploaded = await uploadCommercialDocumentPdf(pdf, current, type);
+  const now = new Date().toISOString();
+  const shareToken = current.share_token || randomBytes(24).toString("hex");
+  const status = uploaded ? "Generado" : "Generado local · Cloudinary no configurado";
+  db.prepare(`UPDATE ${config.table} SET pdf_public_id=?,pdf_url=?,pdf_bytes=?,pdf_sha256=?,pdf_generated_at=?,pdf_status=?,share_token=?,updated_at=? WHERE id=?`).run(uploaded?.public_id || current.pdf_public_id || null, uploaded?.secure_url || current.pdf_url || null, uploaded?.bytes || pdf.length, createHash("sha256").update(pdf).digest("hex"), now, status, shareToken, now, Number(documentId));
+  recordAudit(actor, "POST", `${config.table}/${Number(documentId)}/pdf`, `Generar PDF de ${config.label.toLowerCase()}`, JSON.stringify({ document_id: Number(documentId), code: current.code, storage: uploaded ? "Cloudinary" : "local" }));
+  invalidateReadCache(config.table);
+  return { ...current, pdf_public_id: uploaded?.public_id || current.pdf_public_id || null, pdf_url: uploaded?.secure_url || current.pdf_url || null, pdf_bytes: uploaded?.bytes || pdf.length, pdf_sha256: createHash("sha256").update(pdf).digest("hex"), pdf_generated_at: now, pdf_status: status, share_token: shareToken, _pdf: pdf };
+}
+function markCommercialDocumentPdfStale(type, documentId) {
+  const config = commercialPdfConfig(type);
+  if (!documentId || !hasColumn(config.table, "pdf_status")) return;
+  db.prepare(`UPDATE ${config.table} SET pdf_status='Pendiente de regenerar',updated_at=? WHERE id=?`).run(new Date().toISOString(), Number(documentId));
+  invalidateReadCache(config.table);
+}
+function documentShareUrl(req, type, token) {
+  const host = String(req.headers.host || "exclusivas-inteligentes.vercel.app");
+  const protocol = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
+  return `${protocol}://${host}/api/documents/${encodeURIComponent(type)}/share/${encodeURIComponent(token)}`;
+}
 const remoteMode = process.env.DATABASE_MODE === "remote";
 const db = remoteMode
   ? createRemoteDatabaseSync({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN })
@@ -395,6 +530,40 @@ if (remoteMode) {
   try { db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_share_token ON invoices(share_token) WHERE share_token IS NOT NULL").run(); } catch {}
 }
 try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_share_token ON invoices(share_token) WHERE share_token IS NOT NULL"); } catch {}
+for (const table of ["orders", "quotes"]) {
+  for (const column of [
+    "pdf_public_id TEXT",
+    "pdf_url TEXT",
+    "pdf_bytes INTEGER DEFAULT 0",
+    "pdf_sha256 TEXT",
+    "pdf_generated_at TEXT",
+    "pdf_status TEXT DEFAULT 'Pendiente'",
+    "share_token TEXT",
+  ]) {
+    try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`); } catch {}
+  }
+}
+// Igual que en facturas, el adaptador Turso no ejecuta DDL genérico durante el
+// arranque; estas columnas se aplican de forma explícita en la primera instancia.
+if (remoteMode) {
+  for (const table of ["orders", "quotes"]) {
+    for (const column of [
+      "pdf_public_id TEXT",
+      "pdf_url TEXT",
+      "pdf_bytes INTEGER DEFAULT 0",
+      "pdf_sha256 TEXT",
+      "pdf_generated_at TEXT",
+      "pdf_status TEXT DEFAULT 'Pendiente'",
+      "share_token TEXT",
+    ]) {
+      try { db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column}`).run(); } catch {}
+    }
+    try { db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_share_token ON ${table}(share_token) WHERE share_token IS NOT NULL`).run(); } catch {}
+  }
+}
+for (const table of ["orders", "quotes"]) {
+  try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_share_token ON ${table}(share_token) WHERE share_token IS NOT NULL`); } catch {}
+}
 for (const column of ["quantity_requested", "quantity_unit", "units_factor"]) { try { db.exec(`ALTER TABLE order_lines ADD COLUMN ${column} TEXT`); } catch {} }
 try { db.exec("ALTER TABLE order_lines ADD COLUMN prepared INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE order_lines ADD COLUMN prepared_quantity REAL DEFAULT 0"); } catch {}
@@ -872,6 +1041,22 @@ export async function crmApiHandler(req, res) {
       .filter(Boolean);
     try {
       const actor = req.headers["x-actor"] || "Usuario local";
+      if (p[1] === "documents" && p[2] && p[3] === "share" && p[4] && req.method === "GET") {
+        const type = String(p[2]).toLowerCase();
+        const config = commercialPdfConfig(type);
+        const document = db.prepare(`SELECT id,code,share_token FROM ${config.table} WHERE share_token=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0`).get(String(p[4]));
+        if (!document) return send(res, 404, { error: "Enlace de documento no válido o caducado" });
+        const prepared = await ensureCommercialDocumentPdf(type, document.id, "Consulta mediante enlace");
+        const current = commercialDocumentPdfData(type, document.id);
+        const pdf = prepared._pdf || createCommercialDocumentPdf(current, type);
+        return sendPdf(res, pdf, `${String(document.code || `${config.prefix}-${document.id}`).replace(/[^a-zA-Z0-9._-]+/g, "-")}.pdf`, "inline");
+      }
+      if (p[1] === "documents" && p[2] && p[3] && p[4] === "pdf" && req.method === "POST") {
+        const type = String(p[2]).toLowerCase();
+        const body = await read(req);
+        const prepared = await ensureCommercialDocumentPdf(type, Number(p[3]), actor, body.force === true);
+        return send(res, 200, { id: prepared.id, code: prepared.code, document_type: type, pdf_url: prepared.pdf_url, pdf_bytes: prepared.pdf_bytes, pdf_generated_at: prepared.pdf_generated_at, pdf_status: prepared.pdf_status, share_token: prepared.share_token, share_url: documentShareUrl(req, type, prepared.share_token) });
+      }
       if (p[1] === "invoices" && p[2] === "share" && p[3] && req.method === "GET") {
         const invoice = db.prepare("SELECT id,code,share_token FROM invoices WHERE share_token=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(String(p[3]));
         if (!invoice) return send(res, 404, { error: "Enlace de factura no válido o caducado" });
@@ -1058,7 +1243,10 @@ export async function crmApiHandler(req, res) {
           invalidateReadCache("order_lines");
           invalidateReadCache("shipments");
           invalidateReadCache("products");
-          return send(res, 201, { id: orderId, code, client_id: Number(client.id), amount, status: "Pendiente", source_quote_id: quoteId, source_quote_code: quote.code, stock_alerts: stockShortages });
+          markCommercialDocumentPdfStale("quote", quoteId);
+          let orderPdf = null;
+          try { orderPdf = await ensureCommercialDocumentPdf("order", orderId, actor); } catch (error) { orderPdf = { pdf_status: "Pendiente · PDF no generado", pdf_error: error?.message || "No se pudo generar el PDF" }; }
+          return send(res, 201, { id: orderId, code, client_id: Number(client.id), amount, status: "Pendiente", source_quote_id: quoteId, source_quote_code: quote.code, stock_alerts: stockShortages, pdf_status: orderPdf.pdf_status, pdf_generated_at: orderPdf.pdf_generated_at || null, share_url: orderPdf.share_token ? documentShareUrl(req, "order", orderPdf.share_token) : null, pdf_error: orderPdf.pdf_error || null });
         } catch (error) {
           if (!remoteMode) { try { db.exec("ROLLBACK"); } catch {} }
           return send(res, 500, { error: error?.message || "No se pudo convertir el presupuesto en pedido" });
@@ -2014,9 +2202,20 @@ export async function crmApiHandler(req, res) {
           db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,completed,created_at) VALUES(?,?,?,?,?,?,?,?)").run(`Revisar stock · ${d.code || "Nuevo pedido"}`, `El pedido queda reservado, pero ${names.join(", ")} quedará por debajo del stock mínimo o sin unidades suficientes. Revisa reposición antes de preparar.`, stockShortages.length ? "Urgente" : "Alta", "Stock", Number(r.lastInsertRowid), 1, 0, now);
         }
         if (t === "invoice_lines" && d.invoice_id) markInvoicePdfStale(d.invoice_id);
+        if (t === "order_lines" && d.order_id) markCommercialDocumentPdfStale("order", d.order_id);
+        if (t === "quote_lines" && d.quote_id) markCommercialDocumentPdfStale("quote", d.quote_id);
         const createdRecord = { id: Number(r.lastInsertRowid), ...d };
         if (t === "products") Object.assign(createdRecord, db.prepare("SELECT photo_url,photo_public_id,photo_thumbnail_url,photo_web_url,photo_bytes,photo_width,photo_height,photo_format FROM products WHERE id=?").get(Number(r.lastInsertRowid)) || {});
         if (t === "orders") createdRecord.stock_alerts = [...stockShortages, ...stockAlerts];
+        if (t === "orders" || t === "quotes") {
+          try {
+            const pdf = await ensureCommercialDocumentPdf(t === "orders" ? "order" : "quote", Number(r.lastInsertRowid), actor);
+            Object.assign(createdRecord, { pdf_public_id: pdf.pdf_public_id, pdf_url: pdf.pdf_url, pdf_bytes: pdf.pdf_bytes, pdf_generated_at: pdf.pdf_generated_at, pdf_status: pdf.pdf_status, share_token: pdf.share_token, share_url: documentShareUrl(req, t === "orders" ? "order" : "quote", pdf.share_token) });
+          } catch (error) {
+            createdRecord.pdf_status = "Pendiente · PDF no generado";
+            createdRecord.pdf_error = error?.message || "No se pudo generar el PDF";
+          }
+        }
         return send(res, 201, createdRecord);
       }
       if (req.method === "DELETE") {
@@ -2042,6 +2241,14 @@ export async function crmApiHandler(req, res) {
         if (t === "invoice_lines") {
           const line = db.prepare("SELECT invoice_id FROM invoice_lines WHERE id=?").get(Number(p[2]));
           if (line?.invoice_id) markInvoicePdfStale(line.invoice_id);
+        }
+        if (t === "order_lines") {
+          const line = db.prepare("SELECT order_id FROM order_lines WHERE id=?").get(Number(p[2]));
+          if (line?.order_id) markCommercialDocumentPdfStale("order", line.order_id);
+        }
+        if (t === "quote_lines") {
+          const line = db.prepare("SELECT quote_id FROM quote_lines WHERE id=?").get(Number(p[2]));
+          if (line?.quote_id) markCommercialDocumentPdfStale("quote", line.quote_id);
         }
         if (t === "invoices") invalidateReadCache("invoices");
         return send(res, 200, { ok: true, deleted: 1 });
@@ -2282,6 +2489,16 @@ export async function crmApiHandler(req, res) {
           if (line?.invoice_id) markInvoicePdfStale(line.invoice_id);
         }
         if (t === "invoices") markInvoicePdfStale(Number(p[2]));
+        if (t === "order_lines") {
+          const line = db.prepare("SELECT order_id FROM order_lines WHERE id=?").get(Number(p[2]));
+          if (line?.order_id) markCommercialDocumentPdfStale("order", line.order_id);
+        }
+        if (t === "quote_lines") {
+          const line = db.prepare("SELECT quote_id FROM quote_lines WHERE id=?").get(Number(p[2]));
+          if (line?.quote_id) markCommercialDocumentPdfStale("quote", line.quote_id);
+        }
+        if (t === "orders") markCommercialDocumentPdfStale("order", Number(p[2]));
+        if (t === "quotes") markCommercialDocumentPdfStale("quote", Number(p[2]));
         return send(res, 200, { id: Number(p[2]), ...d });
       }
       return send(res, 405, { error: "Método no permitido" });

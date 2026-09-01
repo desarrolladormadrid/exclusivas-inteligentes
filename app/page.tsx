@@ -3516,6 +3516,27 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     const link = data.share_url || `${window.location.origin}/api/invoices/share/${encodeURIComponent(data.share_token)}`;
     try { await navigator.clipboard.writeText(link); alert("Enlace seguro de la factura copiado."); } catch { window.prompt("Copia este enlace seguro de factura:", link); }
   }
+  async function prepareCommercialDocumentPdf(row: any, type: "order" | "quote", force = false) {
+    const label = type === "order" ? "pedido" : "presupuesto";
+    const response = await fetch(`/api/documents/${type}/${row.id}/pdf`, { method: "POST", headers: actorHeaders, body: JSON.stringify({ force }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { alert(data.error || `No se pudo generar el PDF del ${label}`); return null; }
+    setRows((current) => current.map((item) => Number(item.id) === Number(data.id) ? { ...item, ...data } : item));
+    setPreview((current: any) => current && Number(current.id) === Number(data.id) ? { ...current, ...data } : current);
+    return data;
+  }
+  async function openCommercialDocumentPdf(row: any, type: "order" | "quote") {
+    const data = await prepareCommercialDocumentPdf(row, type);
+    if (!data) return;
+    window.open(data.share_url || `/api/documents/${type}/share/${encodeURIComponent(data.share_token)}`, "_blank", "noopener,noreferrer");
+  }
+  async function copyCommercialDocumentLink(row: any, type: "order" | "quote") {
+    const label = type === "order" ? "pedido" : "presupuesto";
+    const data = await prepareCommercialDocumentPdf(row, type);
+    if (!data) return;
+    const link = data.share_url || `${window.location.origin}/api/documents/${type}/share/${encodeURIComponent(data.share_token)}`;
+    try { await navigator.clipboard.writeText(link); alert(`Enlace seguro del ${label} copiado.`); } catch { window.prompt(`Copia este enlace seguro de ${label}:`, link); }
+  }
   async function sendInvoiceEmail(row: any) {
     const response = await fetch(`/api/invoices/${row.id}/email`, { method: "POST", headers: actorHeaders, body: JSON.stringify({}) });
     const data = await response.json().catch(() => ({}));
@@ -4992,6 +5013,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                             <button type="button" className="row-action primary" onClick={() => { if (isOrderSent(r)) void openPreview(r); else void openRecordModal(r); }}>
                               Ver detalle
                             </button>
+                            <button type="button" className="row-action workflow" onClick={() => void openCommercialDocumentPdf(r, "order")}>Ver PDF</button>
+                            <button type="button" className="row-action" onClick={() => void copyCommercialDocumentLink(r, "order")}>Compartir enlace</button>
                             {getOrderShipment(r) ? <button type="button" className="row-action workflow" onClick={() => void openOrderLoadNote(r)}>
                               Abrir nota de carga
                             </button> : <button type="button" className="row-action workflow" onClick={() => void createOrderLoadNote(r)} disabled={String(r.status || "") === "Cancelado"}>
@@ -5002,6 +5025,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                         {active === "Presupuestos" && (
                           <>
                             <button type="button" className="row-action primary" onClick={() => void openPreview(r)}>Vista previa / PDF</button>
+                            <button type="button" className="row-action workflow" onClick={() => void openCommercialDocumentPdf(r, "quote")}>Ver PDF</button>
+                            <button type="button" className="row-action" onClick={() => void copyCommercialDocumentLink(r, "quote")}>Compartir enlace</button>
                             <button type="button" className="row-action workflow" onClick={() => void sendQuoteToClient(r)}>Enviar al cliente</button>
                             <button type="button" className="row-action workflow" disabled={r.status === "Convertido"} onClick={() => void convertQuoteToOrder(r)}>{r.status === "Convertido" ? "Convertido" : "Convertir a pedido"}</button>
                           </>
@@ -5370,8 +5395,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               Imprimir / guardar PDF
             </button>
             {active === "Facturas" && <div className="invoice-document-actions"><button type="button" className="button workflow" onClick={() => void openInvoicePdf(preview)}>Ver PDF generado</button><button type="button" className="button secondary" onClick={() => void copyInvoiceLink(preview)}>Copiar enlace seguro</button><button type="button" className="button workflow" onClick={() => void sendInvoiceEmail(preview)}>Enviar por email</button><button type="button" className="button secondary" onClick={() => void prepareInvoicePdf(preview, true)}>Regenerar PDF</button></div>}
-            {active === "Pedidos" && <div className="order-preview-actions"><button type="button" className="button workflow" onClick={() => void (getOrderShipment(preview) ? openOrderLoadNote(preview) : createOrderLoadNote(preview))}>{getOrderShipment(preview) ? "Abrir nota de carga" : "Crear nota de carga"}</button>{!isOrderSent(preview) && <button type="button" className="button secondary" onClick={() => { setPreview(null); beginInline(preview); }}>Editar pedido</button>}<button type="button" className="button secondary" onClick={() => void convertOrder(preview, "delivery")}>Crear albarán</button><button type="button" className="button primary" onClick={() => void convertOrder(preview, "invoice")}>Crear factura</button></div>}
-            {active === "Presupuestos" && <div className="quote-preview-actions"><button type="button" className="button secondary" onClick={() => void sendQuoteToClient(preview)}>Enviar al cliente</button><button type="button" className="button primary" disabled={preview.status === "Convertido"} onClick={() => void convertQuoteToOrder(preview)}>{preview.status === "Convertido" ? "Convertido a pedido" : "Convertir a pedido"}</button></div>}
+            {active === "Pedidos" && <><div className="document-pdf-actions"><button type="button" className="button workflow" onClick={() => void openCommercialDocumentPdf(preview, "order")}>Ver PDF generado</button><button type="button" className="button secondary" onClick={() => void copyCommercialDocumentLink(preview, "order")}>Copiar enlace seguro</button><button type="button" className="button secondary" onClick={() => void prepareCommercialDocumentPdf(preview, "order", true)}>Regenerar PDF</button></div><div className="order-preview-actions"><button type="button" className="button workflow" onClick={() => void (getOrderShipment(preview) ? openOrderLoadNote(preview) : createOrderLoadNote(preview))}>{getOrderShipment(preview) ? "Abrir nota de carga" : "Crear nota de carga"}</button>{!isOrderSent(preview) && <button type="button" className="button secondary" onClick={() => { setPreview(null); beginInline(preview); }}>Editar pedido</button>}<button type="button" className="button secondary" onClick={() => void convertOrder(preview, "delivery")}>Crear albarán</button><button type="button" className="button primary" onClick={() => void convertOrder(preview, "invoice")}>Crear factura</button></div></>}
+            {active === "Presupuestos" && <><div className="document-pdf-actions"><button type="button" className="button workflow" onClick={() => void openCommercialDocumentPdf(preview, "quote")}>Ver PDF generado</button><button type="button" className="button secondary" onClick={() => void copyCommercialDocumentLink(preview, "quote")}>Copiar enlace seguro</button><button type="button" className="button secondary" onClick={() => void prepareCommercialDocumentPdf(preview, "quote", true)}>Regenerar PDF</button></div><div className="quote-preview-actions"><button type="button" className="button secondary" onClick={() => void sendQuoteToClient(preview)}>Enviar al cliente</button><button type="button" className="button primary" disabled={preview.status === "Convertido"} onClick={() => void convertQuoteToOrder(preview)}>{preview.status === "Convertido" ? "Convertido a pedido" : "Convertir a pedido"}</button></div></>}
           </div>
         </div>
       )}
