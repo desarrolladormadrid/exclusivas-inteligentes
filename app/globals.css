@@ -1332,6 +1332,9 @@ select option:hover { background-color: #d1d5db; color: #1f2937; }
 .appbar { position: fixed !important; inset: 0 0 auto 0; z-index: 55; }
 .appbar .global-loading-status { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .error-message { margin: 8px 0; padding: 9px 12px; border-left: 3px solid #b91c1c; background: #fff1f2; color: #991b1b; font-size: 11px; }
+.balance-load-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.balance-load-error .button { flex: 0 0 auto; }
+.balance-results.is-hidden { visibility: hidden; min-height: 360px; }
 .loading-spinner {
   width: 16px;
   height: 16px;

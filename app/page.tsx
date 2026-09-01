@@ -5724,32 +5724,60 @@ function Balance() {
     expenseTickets: [],
   });
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
+  const [loadError, setLoadError] = useState("");
+  const loadFinancialData = async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
     setLoading(true);
-    Promise.all(
-      ["invoices", "payments", "purchase_orders", "expenses"].map((resource) =>
-        fetch(`/api/${resource}?view=lookup&limit=5000`).then((response) =>
-          response.json(),
-        ),
-      ),
-    )
-      .then(([invoices, payments, purchases, expenseTickets]) =>
-        setRows({
-          invoices: Array.isArray(invoices) ? invoices : [],
-          payments: Array.isArray(payments) ? payments : [],
-          purchases: Array.isArray(purchases) ? purchases : [],
-          expenseTickets: Array.isArray(expenseTickets) ? expenseTickets : [],
+    setLoadError("");
+    try {
+      const resources = ["invoices", "payments", "purchase_orders", "expenses"];
+      const results = await Promise.allSettled(
+        resources.map(async (resource) => {
+          const response = await fetch(
+            `/api/${resource}?view=lookup&limit=5000`,
+            { signal: controller.signal },
+          );
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.json();
         }),
-      )
-      .catch(() =>
-        setRows({
-          invoices: [],
-          payments: [],
-          purchases: [],
-          expenseTickets: [],
-        }),
-      )
-      .finally(() => setLoading(false));
+      );
+      const values = results.map((result) =>
+        result.status === "fulfilled" && Array.isArray(result.value)
+          ? result.value
+          : [],
+      );
+      const failed = results.filter((result) => result.status === "rejected").length;
+      setRows({
+        invoices: values[0],
+        payments: values[1],
+        purchases: values[2],
+        expenseTickets: values[3],
+      });
+      if (failed) {
+        setLoadError(
+          "No se han podido cargar todos los datos financieros. Puedes reintentarlo.",
+        );
+      }
+    } catch {
+      setRows({
+        invoices: [],
+        payments: [],
+        purchases: [],
+        expenseTickets: [],
+      });
+      setLoadError(
+        controller.signal.aborted
+          ? "La carga financiera ha tardado demasiado. Puedes reintentarlo."
+          : "No se han podido cargar los datos financieros. Puedes reintentarlo.",
+      );
+    } finally {
+      clearTimeout(timeout);
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    void loadFinancialData();
   }, []);
   const inRange = (value: any) => {
     const day = String(value || "").slice(0, 10);
@@ -5788,6 +5816,9 @@ function Balance() {
   const balance = income - expenses;
   const money = (value: number) =>
     value.toLocaleString("es-ES", { style: "currency", currency: "EUR" });
+  const hasFinancialData = Object.values(rows).some(
+    (items: any) => Array.isArray(items) && items.length > 0,
+  );
   const setPreset = (preset: "week" | "month" | "year") => {
     const end = new Date();
     const start =
@@ -5812,6 +5843,7 @@ function Balance() {
         <span className="db-badge">● Datos reales</span>
       </div>
       {loading && <div className="data-loading" role="status"><span className="loading-spinner" aria-hidden="true" /><LoadingIndicator label="Cargando datos financieros…" /></div>}
+      {loadError && <div className="error-message balance-load-error" role="alert"><span>{loadError}</span><button type="button" className="button secondary" onClick={() => void loadFinancialData()}>Reintentar</button></div>}
       <div className="panel report-range-panel">
         <div>
           <b>Periodo del balance</b>
@@ -5851,6 +5883,7 @@ function Balance() {
           </button>
         </div>
       </div>
+      <div className={`balance-results${loading || (loadError && !hasFinancialData) ? " is-hidden" : ""}`}>
       <div className="report-range-cards balance-cards">
         <article>
           <span>INGRESOS / VENTAS</span>
@@ -5937,6 +5970,7 @@ function Balance() {
             )}
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
