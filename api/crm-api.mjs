@@ -478,6 +478,38 @@ try {
   db.exec("UPDATE suppliers SET tax_id=COALESCE(NULLIF(tax_id,''),'B' || printf('%08d',id)), contact=COALESCE(NULLIF(contact,''),'Departamento comercial'), payment_terms=COALESCE(NULLIF(payment_terms,''),'30 días'), minimum_order=COALESCE(NULLIF(minimum_order,0),1), transport_cost=COALESCE(transport_cost,0), lead_time_days=COALESCE(NULLIF(lead_time_days,0),2), reliability_percent=COALESCE(NULLIF(reliability_percent,0),92), active=COALESCE(active,1)");
   db.exec("UPDATE products SET family=COALESCE(NULLIF(family,''),COALESCE(NULLIF(category,''),'Bebidas')), subfamily=COALESCE(NULLIF(subfamily,''),COALESCE(NULLIF(format,''),'Distribución')), purchase_format=COALESCE(NULLIF(purchase_format,''),COALESCE(NULLIF(format,''),'caja')), sale_format=COALESCE(NULLIF(sale_format,''),COALESCE(NULLIF(unit,''),'unidad')), units_per_case=COALESCE(NULLIF(units_per_case,0),1), cases_per_pallet=COALESCE(NULLIF(cases_per_pallet,0),40), units_per_pallet=COALESCE(NULLIF(units_per_pallet,0),COALESCE(NULLIF(units_per_case,0),1)*COALESCE(NULLIF(cases_per_pallet,0),40)), warehouse_location=COALESCE(NULLIF(warehouse_location,''),'Almacén central · Pasillo 01'), product_status=COALESCE(NULLIF(product_status,''),'Activo'), stock_min=COALESCE(NULLIF(stock_min,0),NULLIF(min_stock,0),10), stock_target=COALESCE(NULLIF(stock_target,0),MAX(COALESCE(NULLIF(min_stock,0),10)*2,COALESCE(stock,0)+10)), stock_safety=COALESCE(NULLIF(stock_safety,0),5), target_margin_percent=COALESCE(NULLIF(target_margin_percent,0),30), min_margin_percent=COALESCE(NULLIF(min_margin_percent,0),18), real_cost=COALESCE(NULLIF(real_cost,0),COALESCE(cost_price,0)+COALESCE(freight_cost,0)+COALESCE(handling_cost,0)), tax_surcharge_percent=COALESCE(tax_surcharge_percent,0), extra_tax_percent=COALESCE(extra_tax_percent,0)");
 } catch {}
+// Normaliza ubicaciones históricas al formato de picking: una zona (A-Z) y una
+// posición de tres cifras. Las posiciones ya válidas se conservan.
+try {
+  const pickingRows = db.prepare("SELECT id, warehouse_location, picking_order FROM products ORDER BY id").all();
+  const validLocation = /^([A-Z])-(?:0*)?([1-9]|[1-9]\d|[1-9]\d\d|200)$/;
+  const used = new Set();
+  for (const row of pickingRows) {
+    const match = String(row.warehouse_location || "").trim().toUpperCase().match(validLocation);
+    if (match) used.add((match[1].charCodeAt(0) - 65) * 200 + Number(match[2]));
+  }
+  const updatePicking = db.prepare("UPDATE products SET warehouse_location=?, picking_order=? WHERE id=?");
+  const normalizePicking = db.transaction(() => {
+    let next = 1;
+    for (const row of pickingRows) {
+      const current = String(row.warehouse_location || "").trim().toUpperCase().match(validLocation);
+      if (current) {
+        const order = (current[1].charCodeAt(0) - 65) * 200 + Number(current[2]);
+        const normalized = current[1] + "-" + String(Number(current[2])).padStart(3, "0");
+        if (Number(row.picking_order || 0) !== order || String(row.warehouse_location || "") !== normalized) updatePicking.run(normalized, order, row.id);
+        continue;
+      }
+      while (used.has(next)) next += 1;
+      if (next > 26 * 200) break;
+      const zone = String.fromCharCode(65 + Math.floor((next - 1) / 200));
+      const position = ((next - 1) % 200) + 1;
+      updatePicking.run(zone + "-" + String(position).padStart(3, "0"), next, row.id);
+      used.add(next);
+      next += 1;
+    }
+  });
+  normalizePicking();
+} catch {}
 for (const column of ["order_id", "shipment_id", "client_id", "created_by"]) {
   try { db.exec(`ALTER TABLE inventory_movements ADD COLUMN ${column} TEXT`); } catch {}
 }
