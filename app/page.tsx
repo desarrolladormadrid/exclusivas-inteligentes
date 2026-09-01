@@ -1057,6 +1057,15 @@ function IntegratedMap({ locations, radiusMeters = 150 }: { locations: any[]; ra
   </div>;
 }
 
+function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number) {
+  const earthRadiusKm = 6371;
+  const toRadians = (value: number) => value * Math.PI / 180;
+  const latitudeDelta = toRadians(bLat - aLat);
+  const longitudeDelta = toRadians(bLon - aLon);
+  const a = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(toRadians(aLat)) * Math.cos(toRadians(bLat)) * Math.sin(longitudeDelta / 2) ** 2;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function RoutesManager({ user }: { user: any }) {
   const [shipments, setShipments] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
@@ -2195,6 +2204,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [previewClient, setPreviewClient] = useState<any>(null);
   const [previewInvoice, setPreviewInvoice] = useState<any>(null);
   const [previewSupplier, setPreviewSupplier] = useState<any>(null);
+  const [previewWarehouseCoordinates, setPreviewWarehouseCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [previewWarehouseDistanceKm, setPreviewWarehouseDistanceKm] = useState<number | null>(null);
   const [notePreview, setNotePreview] = useState<any>(null);
   const [noteIncidentOrder, setNoteIncidentOrder] = useState<any>(null);
   const [noteIncidentOrderLoading, setNoteIncidentOrderLoading] = useState(false);
@@ -2630,12 +2641,16 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     setForm({ ...form, [field]: value, ...(field === "created_by" ? { created_by: user?.username || "Usuario local" } : {}) });
   }
   async function geocodeAddress(address: string, city: string) {
+    let timeout = 0;
     try {
       const query = encodeURIComponent([address, city, "España"].filter(Boolean).join(", "));
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${query}`, { headers: { Accept: "application/json" } });
+      const request = fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${query}`, { headers: { Accept: "application/json" } });
+      const deadline = new Promise<Response>((_, reject) => { timeout = window.setTimeout(() => reject(new Error("Geocodificación agotada")), 6000); });
+      const response = await Promise.race([request, deadline]);
       const result = await response.json();
       if (Array.isArray(result) && result[0]) return { latitude: Number(result[0].lat), longitude: Number(result[0].lon), geocoded_at: new Date().toISOString(), geocoding_status: "Geolocalizada" };
     } catch {}
+    finally { if (timeout) window.clearTimeout(timeout); }
     return { latitude: null, longitude: null, geocoded_at: null, geocoding_status: "Pendiente" };
   }
   async function createShippingLocation() {
@@ -4141,6 +4156,48 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const previewAddress = preview?.address || previewLocation?.address || previewClient?.address || "";
   const previewCity = preview?.delivery_city || previewLocation?.city || previewClient?.city || preview?.city || "";
   const previewMapQuery = [previewAddress, previewCity, previewLocation?.name, previewClient?.name, "España"].filter(Boolean).join(", ");
+  const previewWarehouse = (lookups.warehouses || []).find((item: any) => Number(item.id) === Number(preview?.warehouse_id))
+    || (lookups.warehouses || []).find((item: any) => /principal/i.test(String(item.name || "")))
+    || (lookups.warehouses || [])[0]
+    || { name: "Almacén principal", address: "Madrid" };
+  const previewWarehouseAddress = previewWarehouse ? [previewWarehouse.address, previewWarehouse.name, "España"].filter(Boolean).join(", ") : "";
+  const previewNavigationOrigin = previewWarehouseCoordinates
+    ? `${previewWarehouseCoordinates.latitude},${previewWarehouseCoordinates.longitude}`
+    : previewWarehouseAddress;
+  const previewNavigationUrl = `https://www.google.com/maps/dir/?api=1${previewNavigationOrigin ? `&origin=${encodeURIComponent(previewNavigationOrigin)}` : ""}&destination=${encodeURIComponent(previewLat && previewLon ? `${previewLat},${previewLon}` : previewMapQuery)}`;
+  useEffect(() => {
+    let cancelled = false;
+    setPreviewWarehouseCoordinates(null);
+    setPreviewWarehouseDistanceKm(null);
+    if (!preview || !Number.isFinite(previewLat) || !Number.isFinite(previewLon) || !previewLat || !previewLon || !previewWarehouseAddress) return () => { cancelled = true; };
+    const knownLatitude = Number(previewWarehouse?.latitude);
+    const knownLongitude = Number(previewWarehouse?.longitude);
+    if (Number.isFinite(knownLatitude) && Number.isFinite(knownLongitude) && knownLatitude && knownLongitude) {
+      setPreviewWarehouseCoordinates({ latitude: knownLatitude, longitude: knownLongitude });
+      setPreviewWarehouseDistanceKm(Number(haversineKm(knownLatitude, knownLongitude, previewLat, previewLon).toFixed(1)));
+      return () => { cancelled = true; };
+    }
+    // Mientras el almacén no tenga coordenadas propias, usamos el centro de
+    // su municipio para mostrar una estimación útil inmediatamente y dejamos
+    // que la geocodificación la refine si el callejero reconoce la dirección.
+    const fallbackCoordinates = /getafe/i.test(previewWarehouseAddress) ? { latitude: 40.3083, longitude: -3.7327 } : { latitude: 40.4168, longitude: -3.7038 };
+    setPreviewWarehouseCoordinates(fallbackCoordinates);
+    setPreviewWarehouseDistanceKm(Number(haversineKm(fallbackCoordinates.latitude, fallbackCoordinates.longitude, previewLat, previewLon).toFixed(1)));
+    void geocodeAddress(String(previewWarehouse?.address || previewWarehouse?.name || ""), "Madrid").then(async (geo) => {
+      // Algunos datos históricos tienen una dirección interna de almacén que
+      // no existe en el callejero. En ese caso damos una estimación desde la
+      // ciudad del almacén, sin dejar el indicador bloqueado indefinidamente.
+      if (!Number.isFinite(Number(geo.latitude)) || !Number.isFinite(Number(geo.longitude))) geo = await geocodeAddress("", "Madrid");
+      if (cancelled || !Number.isFinite(Number(geo.latitude)) || !Number.isFinite(Number(geo.longitude))) {
+        return;
+      }
+      const latitude = Number(geo.latitude);
+      const longitude = Number(geo.longitude);
+      setPreviewWarehouseCoordinates({ latitude, longitude });
+      setPreviewWarehouseDistanceKm(Number(haversineKm(latitude, longitude, previewLat, previewLon).toFixed(1)));
+    });
+    return () => { cancelled = true; };
+  }, [preview?.id, previewLat, previewLon, previewWarehouse?.id, previewWarehouse?.address, previewWarehouse?.latitude, previewWarehouse?.longitude]);
   const incompletePreparationLines = previewLines.filter((line: any) => Number(line.prepared_quantity || 0) < Number(line.quantity || 0));
   const actionableIncompletePreparationLines = incompletePreparationLines.filter((line: any) => line.preparation_status !== "Incidencia" && !String(line.incident_resolution || "").trim());
   const isProducts = active === "Productos";
@@ -5105,7 +5162,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               </p>
             </div>
             {active === "Pedidos" && <OrderWorkflowPanel order={preview} shipment={getOrderShipment(preview)} billingStatus={getOrderBillingStatus(preview)} paymentStatus={getOrderPaymentStatus(preview)} invoice={previewInvoice || getOrderInvoice(preview)} onOpenPayment={() => openPaymentFromOrder(preview)} onNavigate={onNavigate} />}
-            {(previewLocation || previewAddress || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewAddress || "Dirección no indicada"}</span>{(previewLocation?.geocoding_status === "Geolocalizada" || previewClient?.geocoding_status === "Geolocalizada") ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.google.com/maps/search/?api=1&query=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a><a className="button secondary" href={`https://www.google.com/maps/dir/?api=1&destination=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Navegar con Google Maps</a><IntegratedMap locations={[{ latitude: previewLat, longitude: previewLon, name: previewLocation?.name || previewClient?.name }]} /></> : <a className="button secondary icon-action map-action" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(previewMapQuery)}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en Google Maps" title="Buscar dirección en Google Maps"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</section>}
+            {(previewLocation || previewAddress || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div className="delivery-map-info"><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewAddress || "Dirección no indicada"}</span>{(previewLocation?.geocoding_status === "Geolocalizada" || previewClient?.geocoding_status === "Geolocalizada") ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}{previewLat && previewLon && <small className="delivery-distance">{previewWarehouseDistanceKm === null ? "Calculando distancia desde el almacén…" : previewWarehouseDistanceKm >= 0 ? `${previewWarehouseDistanceKm.toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km estimados desde ${previewWarehouse?.name || "el almacén"}` : "Distancia no disponible: completa las coordenadas del almacén."}</small>}</div><div className="delivery-map-visual">{previewLat && previewLon ? <><IntegratedMap locations={[{ latitude: previewLat, longitude: previewLon, name: previewLocation?.name || previewClient?.name }]} /><a className="button primary delivery-map-navigation" href={previewNavigationUrl} target="_blank" rel="noreferrer"><ToolbarIcon name="map" /> Navegar con Google Maps</a></> : <a className="button secondary icon-action map-action" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(previewMapQuery)}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en Google Maps" title="Buscar dirección en Google Maps"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</div></section>}
             {isLoadPreparation && <section className="preparation-delivery-panel" aria-label="Editar dirección de entrega">
               <div className="preparation-delivery-head"><div><b>Dirección de entrega</b><small>Se guarda en este pedido y en su nota de carga.</small></div></div>
               <div className="preparation-delivery-fields">

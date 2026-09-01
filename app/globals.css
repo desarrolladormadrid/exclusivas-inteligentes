@@ -3499,11 +3499,17 @@ footer span {
 .product-confirm-grid small { color: #71808a; font-size: 10px; }
 .product-confirm-grid b { overflow-wrap: anywhere; font-size: 12px; }
 .product-confirm-card .preview-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 14px; }
-.delivery-map-panel { display:flex; align-items:center; gap:8px; border:1px solid #d1d5db; background:#f8fafc; padding:10px 12px; margin:12px 0; color:#374151; }
-.delivery-map-panel > div { display:flex; flex-direction:column; gap:2px; flex:1; min-width:0; }
+.delivery-map-panel { display:grid; grid-template-columns:minmax(180px,1fr) minmax(0,3fr); align-items:stretch; gap:16px; border:1px solid #d1d5db; background:#f8fafc; padding:12px; margin:12px 0; color:#374151; }
+.delivery-map-info { display:flex; flex-direction:column; justify-content:center; gap:4px; min-width:0; }
 .delivery-map-panel span, .delivery-map-panel small { color:#64748b; overflow-wrap:anywhere; }
 .delivery-map-panel small { font-size:11px; }
-@media (max-width: 640px) { .delivery-map-panel { align-items:stretch; flex-wrap:wrap; } .delivery-map-panel > div { flex-basis:100%; } }
+.delivery-distance { margin-top:4px; padding-top:7px; border-top:1px solid #dbe3e6; color:#26343d !important; font-weight:700; }
+.delivery-map-visual { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:end; min-width:0; }
+.delivery-map-visual .integrated-map { grid-column:1/-1; width:100%; min-height:230px; margin-top:0; }
+.delivery-map-visual .integrated-map iframe { height:230px; }
+.delivery-map-navigation { display:inline-flex; align-items:center; justify-content:center; gap:7px; white-space:nowrap; }
+.delivery-map-visual .map-action { align-self:center; justify-self:start; }
+@media (max-width: 640px) { .delivery-map-panel { grid-template-columns:1fr; gap:10px; } .delivery-map-visual { grid-template-columns:1fr; } .delivery-map-navigation { width:100%; } .delivery-map-visual .integrated-map { min-height:200px; } .delivery-map-visual .integrated-map iframe { height:200px; } }
 @media (max-width: 640px) { .preparation-delivery-fields { grid-template-columns: 1fr; } .preparation-delivery-actions .button { width: 100%; } }
 /* Facturación agrupada: lista compacta, legible y usable con teclado/tacto. */
 .billing-modal{position:relative;width:min(980px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;background:#fff;border:1px solid #d1d5db;padding:24px;color:#374151}
