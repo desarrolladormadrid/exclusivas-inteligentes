@@ -584,9 +584,13 @@ const cfg: any = {
       "code",
       "supplier_id",
       "purchase_order_id",
+      "purchase_invoice_id",
       "warehouse_id",
       "receipt_date",
       "status",
+      "validation_status",
+      "validated_by",
+      "economic_difference",
       "line_count",
       "incident_count",
       "received_by",
@@ -596,9 +600,13 @@ const cfg: any = {
       "Código",
       "Proveedor",
       "Pedido de compra",
+      "Factura de compra",
       "Almacén",
       "Fecha de recepción",
       "Estado",
+      "Validación",
+      "Validado por",
+      "Diferencia económica",
       "Líneas",
       "Incidencias",
       "Recepcionado por",
@@ -651,6 +659,7 @@ const cfg: any = {
       "amount",
       "status",
       "billing_status",
+      "payment_status",
       "shipping_status",
       "delivery_date",
       "preparation_date",
@@ -673,6 +682,7 @@ const cfg: any = {
       "Importe",
       "Estado",
       "Facturación",
+      "Cobro",
       "Envío",
       "Fecha de entrega",
       "Día de preparación",
@@ -1835,7 +1845,6 @@ function SmartPurchasing({ user }: { user?: any }) {
     const orderResponse = await fetch("/api/purchase_orders", { method: "POST", headers, body: JSON.stringify({ code: `PRE-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`, supplier_id: provider.supplier_id, status: "Borrador", validation_status: "Pendiente de validar", order_date: today, expected_date: expected, amount: Number(row.suggested_quantity) * Number(provider.real_cost || 0), notes: `Propuesta automática para ${row.name}. Requiere validación antes de enviar.` }) });
     const order = await orderResponse.json().catch(() => ({}));
     if (!orderResponse.ok) return alert(order.error || "No se pudo crear el prepedido");
-    await fetch("/api/purchase_order_lines", { method: "POST", headers, body: JSON.stringify({ purchase_order_id: order.id, product_id: row.product_id, quantity: row.suggested_quantity, unit_cost: provider.real_cost || 0, amount: Number(row.suggested_quantity) * Number(provider.real_cost || 0) }) });
     await fetch(`/api/purchase_suggestions/${row.suggestion_id}`, { method: "PUT", headers, body: JSON.stringify({ status: "Aprobada" }) });
     setMessage(`Prepedido ${order.code} creado como borrador. No se ha enviado al proveedor.`); void load();
   }
@@ -1851,10 +1860,27 @@ function SmartPurchasing({ user }: { user?: any }) {
   function publicLink(request: any, supplierId: number) { return `${window.location.origin}/portal-ofertas?token=${encodeURIComponent(request.public_token || "")}&supplier=${supplierId}`; }
   function mailLink(request: any, supplier: any) { const link = publicLink(request, Number(supplier.id)); return `mailto:${supplier.email || ""}?subject=${encodeURIComponent(`Solicitud de precios ${request.code}`)}&body=${encodeURIComponent(`Buenos días, necesitamos completar esta solicitud de precios: ${link}`)}`; }
   function whatsappLink(request: any, supplier: any) { const link = publicLink(request, Number(supplier.id)); const phone = String(supplier.phone || "").replace(/\D/g, ""); return `https://wa.me/${phone}?text=${encodeURIComponent(`Solicitud de precios ${request.code}: ${link}`)}`; }
+  async function applyOffer(offer: any) {
+    if (!detailRequest || !offer?.id) return;
+    if (!window.confirm("¿Aplicar esta oferta a las fichas de productos y dejarla como oferta seleccionada?")) return;
+    const response = await fetch(`/api/purchase_requests/${detailRequest.id}/apply-offer`, { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify({ offer_id: offer.id }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(result.error || "No se pudo aplicar la oferta.");
+    setMessage(`Oferta aplicada: ${result.applied_lines} líneas actualizadas.`); setDetailRequest(null); void load();
+  }
+  async function createOrderFromOffer(offer: any) {
+    if (!detailRequest || !offer?.id) return;
+    if (!window.confirm("¿Crear un pedido de compra en borrador con esta oferta?")) return;
+    const response = await fetch(`/api/purchase_requests/${detailRequest.id}/create-order`, { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify({ offer_id: offer.id }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(result.error || "No se pudo crear el pedido de compra.");
+    setMessage(`Pedido de compra ${result.code} creado como borrador.`); setDetailRequest(null); void load();
+  }
   const statusOptions = ["Todos", "Borrador", "Preparada para enviar", "Enviada", "Respuestas recibidas", "Cerrada", "Cancelada"];
   const [statusFilter, setStatusFilter] = useState("Todos");
   const visibleRequests = requests.filter((request) => statusFilter === "Todos" || request.status === statusFilter);
-  return <div className="smart-purchasing"><div className="manager-head"><div><p className="eyebrow">ABASTECIMIENTO CONTROLADO</p><h2>Compras inteligentes</h2><p className="muted">Solicita precios a varios proveedores y compara referencias, costes, plazos y condiciones en un único lugar.</p></div><div><button type="button" className="button secondary" onClick={() => void load()}>Actualizar</button><button type="button" className="button primary" onClick={() => setRequestOpen(true)}>Nueva solicitud de precios</button></div></div>{loading && <div className="data-loading" role="status"><span className="loading-spinner" aria-hidden="true" /><LoadingIndicator label="Cargando compras inteligentes…" /></div>}{loadError && <div className="error-message">{loadError}</div>}{message && <div className="success-message">{message}</div>}<section className="smart-purchasing-panel"><div className="smart-panel-head"><div><b>Artículos que necesitan compra</b><small>Selecciona productos para preparar una solicitud con sus referencias y precios.</small></div><span>{loading ? "—" : `${suggestions.length} propuestas`}</span></div>{!loading && !suggestions.length ? <p className="empty-state">No hay productos bajo mínimos ahora mismo. Puedes crear una solicitud desde el botón superior.</p> : <div className="smart-suggestion-list">{suggestions.map((row) => <article key={row.suggestion_id} className={selectedProducts.includes(Number(row.product_id)) ? "smart-suggestion selected" : "smart-suggestion"}><input type="checkbox" checked={selectedProducts.includes(Number(row.product_id))} onChange={() => toggleValue("products", Number(row.product_id))} aria-label={`Seleccionar ${row.name}`} /><div className="smart-suggestion-main"><b>{row.name}</b><small>{row.sku || "Sin referencia"} · Disponible {row.available_stock} · Mínimo {row.stock_min || row.min_stock || 0} · Proponer {row.suggested_quantity}</small><p>{row.reason}</p></div><div className="smart-supplier-compare">{row.comparisons?.slice(0, 3).map((offer: any) => <span key={offer.id} className={row.recommended_supplier?.supplier_id === offer.supplier_id ? "recommended" : ""}>{offer.supplier_name} · {Number(offer.real_cost || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })} · {offer.lead_time_days || 0} días · {offer.promotion || "Sin promoción"}</span>)}{!row.comparisons?.length && <span>Sin ofertas alternativas registradas</span>}</div><button type="button" className="button secondary" onClick={() => void approve(row)}>Aprobar propuesta</button></article>)}</div>}</section><section className="smart-suppliers-panel"><div><b>Proveedores destinatarios</b><small>Selecciona uno o varios proveedores para la misma solicitud.</small></div><div className="smart-supplier-checks">{suppliers.map((supplier) => <label key={supplier.id}><input type="checkbox" checked={selectedSuppliers.includes(Number(supplier.id))} onChange={() => toggleValue("suppliers", Number(supplier.id))} />{supplier.name}<small>{supplier.email || "Sin email"}</small></label>)}</div></section><section className="smart-requests-panel"><div className="smart-panel-head"><div><b>Solicitudes y respuestas</b><small>Control de estados y comparativa de ofertas recibidas.</small></div><label className="smart-status-filter">Estado<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>{statusOptions.map((status) => <option key={status}>{status}</option>)}</select></label></div>{visibleRequests.length ? <div className="smart-request-list">{visibleRequests.map((request) => { const requestSuppliers = parseList(request.supplier_ids).map((id) => suppliers.find((supplier) => Number(supplier.id) === id)).filter(Boolean); const responseCount = offers.filter((offer) => Number(offer.request_id) === Number(request.id)).length; return <article className="smart-request-card" key={request.id}><div><b>{request.code}</b><span>{request.status}</span><small>{parseList(request.product_ids).length} productos · {requestSuppliers.length} proveedores · {responseCount} respuestas · {request.created_at?.slice(0, 10) || ""}</small></div><div className="smart-request-actions"><button type="button" className="button secondary" onClick={() => setDetailRequest(request)}>Comparar respuestas</button>{requestSuppliers.map((supplier: any) => <span className="smart-share-links" key={supplier.id}>{request.channels?.includes("email") && <a href={mailLink(request, supplier)} title={`Enviar por email a ${supplier.name}`}>✉ {supplier.name}</a>}{request.channels?.includes("web") && <a href={publicLink(request, Number(supplier.id))} target="_blank" rel="noreferrer">↗ Web</a>}{request.channels?.includes("whatsapp") && <a href={whatsappLink(request, supplier)} target="_blank" rel="noreferrer">☏ WhatsApp</a>}</span>)}</div></article>; })}</div> : <p className="empty-state">No hay solicitudes con ese estado.</p>}</section>{requestOpen && <div className="preview-overlay smart-request-overlay" onClick={(event) => event.target === event.currentTarget && setRequestOpen(false)}><form className="smart-request-modal" onSubmit={(event) => void createRequest(event)}><header><div><p className="eyebrow">NUEVA SOLICITUD</p><h2>Solicitar precios y referencias</h2><small>Se generará un formulario por proveedor con los campos de compra comparables.</small></div><button type="button" onClick={() => setRequestOpen(false)} aria-label="Cerrar">×</button></header><div className="smart-request-modal-grid"><fieldset><legend>Productos</legend><div className="smart-request-check-list">{products.map((product) => <label key={product.id}><input type="checkbox" checked={selectedProducts.includes(Number(product.id))} onChange={() => toggleValue("products", Number(product.id))} /><span><b>{product.name}</b><small>{product.sku || product.external_code || "Sin referencia"} · {product.unit || product.format || "unidad"}</small></span></label>)}</div></fieldset><fieldset><legend>Proveedores</legend><div className="smart-request-check-list">{suppliers.map((supplier) => <label key={supplier.id}><input type="checkbox" checked={selectedSuppliers.includes(Number(supplier.id))} onChange={() => toggleValue("suppliers", Number(supplier.id))} /><span><b>{supplier.name}</b><small>{supplier.email || "Sin email"} · {supplier.phone || "Sin teléfono"}</small></span></label>)}</div></fieldset></div><div className="smart-request-channel-fields"><fieldset><legend>Canales</legend><label><input type="checkbox" checked={draft.channels.includes("email")} onChange={() => toggleChannel("email")} /> Email (abrir mensaje preparado)</label><label><input type="checkbox" checked={draft.channels.includes("web")} onChange={() => toggleChannel("web")} /> Formulario web</label><label><input type="checkbox" checked={draft.channels.includes("whatsapp")} onChange={() => toggleChannel("whatsapp")} /> Enlace WhatsApp</label></fieldset><label>Fecha límite para responder<input type="date" value={draft.valid_until || ""} onChange={(event) => setDraft({ ...draft, valid_until: event.target.value })} /></label></div><label>Mensaje para el proveedor<textarea value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label><footer><button type="button" className="button secondary" onClick={() => setRequestOpen(false)}>Cancelar</button><button type="submit" className="button primary">Generar solicitud</button></footer></form></div>}{detailRequest && <div className="preview-overlay smart-request-overlay" onClick={(event) => event.target === event.currentTarget && setDetailRequest(null)}><section className="smart-request-modal smart-comparison-modal"><header><div><p className="eyebrow">COMPARATIVA DE PROVEEDORES</p><h2>{detailRequest.code}</h2><small>Compara las respuestas recibidas por producto, referencia y coste.</small></div><button type="button" onClick={() => setDetailRequest(null)} aria-label="Cerrar">×</button></header><div className="smart-comparison-table"><div className="smart-comparison-row smart-comparison-head"><b>Producto</b><b>Proveedor</b><b>Referencia</b><b>Coste</b><b>Plazo</b></div>{offers.filter((offer) => Number(offer.request_id) === Number(detailRequest.id)).flatMap((offer) => { let lines: any[] = []; try { lines = JSON.parse(String(offer.lines_json || "[]")); } catch {} const supplier = suppliers.find((item) => Number(item.id) === Number(offer.supplier_id)); return lines.map((line) => <div className="smart-comparison-row" key={`${offer.id}-${line.product_id}`}><span>{products.find((product) => Number(product.id) === Number(line.product_id))?.name || `Producto #${line.product_id}`}</span><span>{supplier?.name || `Proveedor #${offer.supplier_id}`}</span><span>{line.supplier_ref || "—"}</span><strong>{line.unit_cost ? Number(line.unit_cost).toLocaleString("es-ES", { style: "currency", currency: "EUR" }) : "—"}</strong><span>{line.lead_time_days || offer.delivery_days || 0} días</span></div>); })}</div>{!offers.some((offer) => Number(offer.request_id) === Number(detailRequest.id)) && <p className="empty-state">Aún no hay respuestas recibidas. Comparte los enlaces con los proveedores.</p>}<footer><button type="button" className="button secondary" onClick={() => setDetailRequest(null)}>Cerrar</button></footer></section></div>}</div>;
+  const detailOffers = detailRequest ? offers.filter((offer) => Number(offer.request_id) === Number(detailRequest.id)) : [];
+  return <div className="smart-purchasing"><div className="manager-head"><div><p className="eyebrow">ABASTECIMIENTO CONTROLADO</p><h2>Compras inteligentes</h2><p className="muted">Solicita precios a varios proveedores y compara referencias, costes, plazos y condiciones en un único lugar.</p></div><div><button type="button" className="button secondary" onClick={() => void load()}>Actualizar</button><button type="button" className="button primary" onClick={() => setRequestOpen(true)}>Nueva solicitud de precios</button></div></div>{loading && <div className="data-loading" role="status"><span className="loading-spinner" aria-hidden="true" /><LoadingIndicator label="Cargando compras inteligentes…" /></div>}{loadError && <div className="error-message">{loadError}</div>}{message && <div className="success-message">{message}</div>}<section className="smart-purchasing-panel"><div className="smart-panel-head"><div><b>Artículos que necesitan compra</b><small>Selecciona productos para preparar una solicitud con sus referencias y precios.</small></div><span>{loading ? "—" : `${suggestions.length} propuestas`}</span></div>{!loading && !suggestions.length ? <p className="empty-state">No hay productos bajo mínimos ahora mismo. Puedes crear una solicitud desde el botón superior.</p> : <div className="smart-suggestion-list">{suggestions.map((row) => <article key={row.suggestion_id} className={selectedProducts.includes(Number(row.product_id)) ? "smart-suggestion selected" : "smart-suggestion"}><input type="checkbox" checked={selectedProducts.includes(Number(row.product_id))} onChange={() => toggleValue("products", Number(row.product_id))} aria-label={`Seleccionar ${row.name}`} /><div className="smart-suggestion-main"><b>{row.name}</b><small>{row.sku || "Sin referencia"} · Disponible {row.available_stock} · Mínimo {row.stock_min || row.min_stock || 0} · Proponer {row.suggested_quantity}</small><p>{row.reason}</p></div><div className="smart-supplier-compare">{row.comparisons?.slice(0, 3).map((offer: any) => <span key={offer.id} className={row.recommended_supplier?.supplier_id === offer.supplier_id ? "recommended" : ""}>{offer.supplier_name} · {Number(offer.real_cost || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })} · {offer.lead_time_days || 0} días · {offer.promotion || "Sin promoción"}</span>)}{!row.comparisons?.length && <span>Sin ofertas alternativas registradas</span>}</div><button type="button" className="button secondary" onClick={() => void approve(row)}>Aprobar propuesta</button></article>)}</div>}</section><section className="smart-suppliers-panel"><div><b>Proveedores destinatarios</b><small>Selecciona uno o varios proveedores para la misma solicitud.</small></div><div className="smart-supplier-checks">{suppliers.map((supplier) => <label key={supplier.id}><input type="checkbox" checked={selectedSuppliers.includes(Number(supplier.id))} onChange={() => toggleValue("suppliers", Number(supplier.id))} />{supplier.name}<small>{supplier.email || "Sin email"}</small></label>)}</div></section><section className="smart-requests-panel"><div className="smart-panel-head"><div><b>Solicitudes y respuestas</b><small>Control de estados y comparativa de ofertas recibidas.</small></div><label className="smart-status-filter">Estado<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>{statusOptions.map((status) => <option key={status}>{status}</option>)}</select></label></div>{visibleRequests.length ? <div className="smart-request-list">{visibleRequests.map((request) => { const requestSuppliers = parseList(request.supplier_ids).map((id) => suppliers.find((supplier) => Number(supplier.id) === id)).filter(Boolean); const responseCount = offers.filter((offer) => Number(offer.request_id) === Number(request.id)).length; return <article className="smart-request-card" key={request.id}><div><b>{request.code}</b><span>{request.status}</span><small>{parseList(request.product_ids).length} productos · {requestSuppliers.length} proveedores · {responseCount} respuestas · {request.created_at?.slice(0, 10) || ""}</small></div><div className="smart-request-actions"><button type="button" className="button secondary" onClick={() => setDetailRequest(request)}>Comparar respuestas</button>{requestSuppliers.map((supplier: any) => <span className="smart-share-links" key={supplier.id}>{request.channels?.includes("email") && <a href={mailLink(request, supplier)} title={`Enviar por email a ${supplier.name}`}>✉ {supplier.name}</a>}{request.channels?.includes("web") && <a href={publicLink(request, Number(supplier.id))} target="_blank" rel="noreferrer">↗ Web</a>}{request.channels?.includes("whatsapp") && <a href={whatsappLink(request, supplier)} target="_blank" rel="noreferrer">☏ WhatsApp</a>}</span>)}</div></article>; })}</div> : <p className="empty-state">No hay solicitudes con ese estado.</p>}</section>{requestOpen && <div className="preview-overlay smart-request-overlay" onClick={(event) => event.target === event.currentTarget && setRequestOpen(false)}><form className="smart-request-modal" onSubmit={(event) => void createRequest(event)}><header><div><p className="eyebrow">NUEVA SOLICITUD</p><h2>Solicitar precios y referencias</h2><small>Se generará un formulario por proveedor con los campos de compra comparables.</small></div><button type="button" onClick={() => setRequestOpen(false)} aria-label="Cerrar">×</button></header><div className="smart-request-modal-grid"><fieldset><legend>Productos</legend><div className="smart-request-check-list">{products.map((product) => <label key={product.id}><input type="checkbox" checked={selectedProducts.includes(Number(product.id))} onChange={() => toggleValue("products", Number(product.id))} /><span><b>{product.name}</b><small>{product.sku || product.external_code || "Sin referencia"} · {product.unit || product.format || "unidad"}</small></span></label>)}</div></fieldset><fieldset><legend>Proveedores</legend><div className="smart-request-check-list">{suppliers.map((supplier) => <label key={supplier.id}><input type="checkbox" checked={selectedSuppliers.includes(Number(supplier.id))} onChange={() => toggleValue("suppliers", Number(supplier.id))} /><span><b>{supplier.name}</b><small>{supplier.email || "Sin email"} · {supplier.phone || "Sin teléfono"}</small></span></label>)}</div></fieldset></div><div className="smart-request-channel-fields"><fieldset><legend>Canales</legend><label><input type="checkbox" checked={draft.channels.includes("email")} onChange={() => toggleChannel("email")} /> Email (abrir mensaje preparado)</label><label><input type="checkbox" checked={draft.channels.includes("web")} onChange={() => toggleChannel("web")} /> Formulario web</label><label><input type="checkbox" checked={draft.channels.includes("whatsapp")} onChange={() => toggleChannel("whatsapp")} /> Enlace WhatsApp</label></fieldset><label>Fecha límite para responder<input type="date" value={draft.valid_until || ""} onChange={(event) => setDraft({ ...draft, valid_until: event.target.value })} /></label></div><label>Mensaje para el proveedor<textarea value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label><footer><button type="button" className="button secondary" onClick={() => setRequestOpen(false)}>Cancelar</button><button type="submit" className="button primary">Generar solicitud</button></footer></form></div>}{detailRequest && <div className="preview-overlay smart-request-overlay" onClick={(event) => event.target === event.currentTarget && setDetailRequest(null)}><section className="smart-request-modal smart-comparison-modal"><header><div><p className="eyebrow">COMPARATIVA DE PROVEEDORES</p><h2>{detailRequest.code}</h2><small>Compara las respuestas recibidas por producto, referencia y coste.</small></div><button type="button" onClick={() => setDetailRequest(null)} aria-label="Cerrar">×</button></header><div className="smart-comparison-table"><div className="smart-comparison-row smart-comparison-head"><b>Producto</b><b>Proveedor</b><b>Referencia</b><b>Coste</b><b>Plazo</b></div>{detailOffers.flatMap((offer) => { let lines: any[] = []; try { lines = JSON.parse(String(offer.lines_json || "[]")); } catch {} const supplier = suppliers.find((item) => Number(item.id) === Number(offer.supplier_id)); return lines.map((line) => <div className="smart-comparison-row" key={`${offer.id}-${line.product_id}`}><span>{products.find((product) => Number(product.id) === Number(line.product_id))?.name || `Producto #${line.product_id}`}</span><span>{supplier?.name || `Proveedor #${offer.supplier_id}`}</span><span>{line.supplier_ref || "—"}</span><strong>{line.unit_cost ? Number(line.unit_cost).toLocaleString("es-ES", { style: "currency", currency: "EUR" }) : "—"}</strong><span>{line.lead_time_days || offer.delivery_days || 0} días</span></div>); })}</div>{!detailOffers.length && <p className="empty-state">Aún no hay respuestas recibidas. Comparte los enlaces con los proveedores.</p>}{detailOffers.length > 0 && <section className="smart-offer-actions"><b>Acciones sobre una oferta completa</b>{detailOffers.map((offer) => <div key={offer.id}><span>{suppliers.find((item) => Number(item.id) === Number(offer.supplier_id))?.name || `Proveedor #${offer.supplier_id}`} · {offer.valid_until || "Sin validez indicada"}</span><button type="button" className="button secondary" onClick={() => void applyOffer(offer)}>Aplicar oferta</button><button type="button" className="button primary" onClick={() => void createOrderFromOffer(offer)}>Crear pedido de compra</button></div>)}</section>}<footer><button type="button" className="button secondary" onClick={() => setDetailRequest(null)}>Cerrar</button></footer></section></div>}</div>;
 }
 
 export function SupplierOfferPortal() {
@@ -1981,8 +2007,31 @@ function BusinessRelatedPanels({ active, rows, lookups, onNavigate }: { active: 
   </section>;
 }
 
+function OrderWorkflowPanel({ order, shipment, billingStatus, paymentStatus, invoice, onOpenPayment, onNavigate }: { order: any; shipment: any; billingStatus: string; paymentStatus: string; invoice: any; onOpenPayment: () => void; onNavigate?: (module: string) => void }) {
+  const shippingStatus = String(shipment?.status || order?.status || "Pendiente");
+  const phase = shippingStatus === "Entregado" ? 5 : shippingStatus === "En reparto" ? 4 : shippingStatus === "Enviado" ? 3 : ["Preparado", "Preparado con incidencia"].includes(shippingStatus) ? 2 : ["Preparando", "Pendiente", "Nuevo"].includes(shippingStatus) ? 1 : 0;
+  const steps = [
+    { label: "Pedido", done: true, value: order?.created_at, person: order?.created_by },
+    { label: "Confirmado", done: phase >= 1 && !["Nuevo", "Borrador"].includes(String(order?.status || "")), value: order?.confirmed_at, person: order?.confirmed_by },
+    { label: "Preparado", done: phase >= 2, value: shipment?.prepared_at || order?.preparation_date, person: shipment?.prepared_by || order?.prepared_by },
+    { label: "Enviado", done: phase >= 3, value: shipment?.shipped_at || order?.shipping_date, person: shipment?.shipped_by || order?.shipped_by },
+    { label: "En reparto", done: phase >= 4, value: shipment?.departure_at, person: shipment?.carrier },
+    { label: "Entregado", done: phase >= 5, value: shipment?.delivered_at, person: shipment?.delivered_by },
+  ];
+  const formatDate = (value: any) => value ? String(value).slice(0, 16).replace("T", " ") : "Pendiente";
+  const paymentAction = paymentStatus === "Pendiente de cobro" || paymentStatus === "Cobro parcial" ? onOpenPayment : undefined;
+  return <section className="order-workflow" aria-label="Seguimiento del pedido">
+    <div className="order-workflow-head"><div><b>Seguimiento del pedido</b><small>Logística, facturación y cobro en bloques independientes.</small></div><span className={`order-workflow-state${shippingStatus === "Entregado" ? " complete" : ""}`}>{shippingStatus}</span></div>
+    <div className="order-workflow-track">{steps.map((step, index) => <div className={`order-workflow-step${step.done ? " done" : ""}${index > 0 && steps[index - 1].done && !step.done ? " next" : ""}`} key={step.label}><span className="order-workflow-check" aria-hidden="true">{step.done ? "✓" : index + 1}</span><b>{step.label}</b><small>{step.done ? formatDate(step.value) : "Pendiente"}</small>{step.person && <em>{step.person}</em>}</div>)}</div>
+    <div className="order-accounting-track">
+      <article className={`order-accounting-card${billingStatus === "Facturado" ? " done" : " pending"}`}><div><span className="order-accounting-icon">€</span><div><b>Facturación</b><strong>{billingStatus}</strong></div></div>{invoice ? <small>{invoice.code} · {Number(invoice.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</small> : <small>Sin factura vinculada</small>}{invoice && <button type="button" className="link-button" onClick={() => onNavigate?.("Facturas")}>Ir a facturas</button>}</article>
+      <article className={`order-accounting-card${paymentStatus === "Cobrado" ? " done" : paymentStatus === "No facturado" ? " pending" : " attention"}`}><div><span className="order-accounting-icon">✓</span><div><b>Cobro</b><strong>{paymentStatus}</strong></div></div><small>{paymentStatus === "Cobrado" ? "No queda importe pendiente" : invoice ? "Revisa el importe pendiente y registra el cobro." : "Se habilitará cuando exista una factura."}</small>{paymentAction && <button type="button" className="button primary" onClick={paymentAction}>Registrar cobro</button>}</article>
+    </div>
+  </section>;
+}
+
 function GoodsReceiptForm({ lookups, actor, onCreated }: { lookups: any; actor: string; onCreated: (receipt: any) => void }) {
-  const [header, setHeader] = useState({ code: `ENT-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`, supplier_id: "", purchase_order_id: "", warehouse_id: "", receipt_date: tabletTodayInput(), notes: "" });
+  const [header, setHeader] = useState({ code: `ENT-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`, supplier_id: "", purchase_order_id: "", purchase_invoice_id: "", warehouse_id: "", receipt_date: tabletTodayInput(), validation_status: "Pendiente", validated_by: "", notes: "" });
   const [productSearch, setProductSearch] = useState("");
   const [lines, setLines] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
@@ -1999,21 +2048,27 @@ function GoodsReceiptForm({ lookups, actor, onCreated }: { lookups: any; actor: 
     : [];
   function addProduct(product: any) {
     if (!product || lines.some((line) => Number(line.product_id) === Number(product.id))) return;
-    setLines((current) => [...current, { product_id: String(product.id), product_name: product.name, sku: product.sku || "", expected_quantity: "0", received_quantity: "1", unit_cost: String(Number(product.cost_price || 0)), status: "Correcta", notes: "", incident_description: "", attachment_name: "", attachment_mime: "", attachment_data: "" }]);
+    setLines((current) => [...current, { product_id: String(product.id), product_name: product.name, sku: product.sku || "", expected_quantity: "0", received_quantity: "1", damaged_quantity: "0", substituted_quantity: "0", substitute_product_id: "", unit_cost: String(Number(product.cost_price || 0)), status: "Correcta", notes: "", incident_description: "", attachments: [] }]);
     setProductSearch("");
     setMessage("");
   }
   function updateLine(index: number, field: string, value: any) {
     setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, [field]: value } : line));
   }
-  function attachLinePhoto(index: number, file: File) {
-    if (file.size > 4 * 1024 * 1024) { setMessage("La foto de la incidencia no puede superar 4 MB."); return; }
-    const reader = new FileReader();
-    reader.onload = () => updateLine(index, "attachment_data", String(reader.result || ""));
-    reader.readAsDataURL(file);
-    updateLine(index, "attachment_name", file.name);
-    updateLine(index, "attachment_mime", file.type || "image/jpeg");
-    setMessage("");
+  async function attachLinePhotos(index: number, files: FileList | null) {
+    const selected = Array.from(files || []);
+    if (!selected.length) return;
+    if (selected.some((file) => file.size > 4 * 1024 * 1024)) { setMessage("Cada foto de la incidencia no puede superar 4 MB."); return; }
+    try {
+      const attachments = await Promise.all(selected.map((file) => new Promise<any>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ name: file.name, mime: file.type || "image/jpeg", data: String(reader.result || "") });
+        reader.onerror = () => reject(new Error("No se pudo leer una de las fotografías."));
+        reader.readAsDataURL(file);
+      })));
+      setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, attachments: [...(line.attachments || []), ...attachments] } : line));
+      setMessage("");
+    } catch (error: any) { setMessage(error?.message || "No se pudieron adjuntar las fotografías."); }
   }
   async function createProduct() {
     if (!newProduct.name.trim()) return;
@@ -2034,11 +2089,11 @@ function GoodsReceiptForm({ lookups, actor, onCreated }: { lookups: any; actor: 
     if (!lines.length) { setMessage("Busca y añade al menos un producto."); return; }
     setSaving(true); setMessage("");
     try {
-      const response = await fetch("/api/goods_receipts/receive", { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify({ ...header, supplier_id: Number(header.supplier_id), purchase_order_id: header.purchase_order_id ? Number(header.purchase_order_id) : null, warehouse_id: Number(header.warehouse_id), lines: lines.map((line) => ({ ...line, product_id: Number(line.product_id), expected_quantity: Number(line.expected_quantity || 0), received_quantity: Number(line.received_quantity || 0), unit_cost: Number(line.unit_cost || 0) })) }) });
+      const response = await fetch("/api/goods_receipts/receive", { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify({ ...header, supplier_id: Number(header.supplier_id), purchase_order_id: header.purchase_order_id ? Number(header.purchase_order_id) : null, purchase_invoice_id: header.purchase_invoice_id ? Number(header.purchase_invoice_id) : null, warehouse_id: Number(header.warehouse_id), validated_by: header.validated_by || (header.validation_status === "Validada" ? actor : null), lines: lines.map((line) => ({ ...line, product_id: Number(line.product_id), substitute_product_id: line.substitute_product_id ? Number(line.substitute_product_id) : null, expected_quantity: Number(line.expected_quantity || 0), received_quantity: Number(line.received_quantity || 0), damaged_quantity: Number(line.damaged_quantity || 0), substituted_quantity: Number(line.substituted_quantity || 0), unit_cost: Number(line.unit_cost || 0) })) }) });
       const created = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(created.error || "No se pudo registrar la entrada");
       onCreated(created);
-      setHeader({ code: `ENT-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`, supplier_id: "", purchase_order_id: "", warehouse_id: "", receipt_date: tabletTodayInput(), notes: "" });
+      setHeader({ code: `ENT-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`, supplier_id: "", purchase_order_id: "", purchase_invoice_id: "", warehouse_id: "", receipt_date: tabletTodayInput(), validation_status: "Pendiente", validated_by: "", notes: "" });
       setLines([]); setProductSearch("");
     } catch (error: any) { setMessage(error.message || "No se pudo registrar la entrada"); }
     finally { setSaving(false); }
@@ -2049,19 +2104,55 @@ function GoodsReceiptForm({ lookups, actor, onCreated }: { lookups: any; actor: 
       <label>Código de entrada<input value={header.code} onChange={(event) => setHeader({ ...header, code: event.target.value })} /></label>
       <label>Proveedor *<select required value={header.supplier_id} onChange={(event) => setHeader({ ...header, supplier_id: event.target.value, purchase_order_id: "" })}><option value="">Seleccionar proveedor…</option>{suppliers.map((item: any) => <option key={item.id} value={item.id}>{item.name}{item.external_code ? ` · ${item.external_code}` : ""}</option>)}</select></label>
       <label>Pedido de compra relacionado<select value={header.purchase_order_id} onChange={(event) => setHeader({ ...header, purchase_order_id: event.target.value })}><option value="">Sin pedido de compra</option>{purchaseOrders.map((item: any) => <option key={item.id} value={item.id}>{item.code} · {item.status}</option>)}</select></label>
+      <label>Factura de compra relacionada<select value={header.purchase_invoice_id} onChange={(event) => setHeader({ ...header, purchase_invoice_id: event.target.value })}><option value="">Sin factura vinculada</option>{(lookups.invoices || []).map((item: any) => <option key={item.id} value={item.id}>{item.code} · {item.status || "Pendiente"}</option>)}</select></label>
       <label>Almacén de destino *<select required value={header.warehouse_id} onChange={(event) => setHeader({ ...header, warehouse_id: event.target.value })}><option value="">Seleccionar almacén…</option>{warehouses.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>Fecha de recepción *<input required type="date" value={header.receipt_date} onChange={(event) => setHeader({ ...header, receipt_date: event.target.value })} /></label>
+      <label>Validación del responsable<select value={header.validation_status} onChange={(event) => setHeader({ ...header, validation_status: event.target.value, validated_by: event.target.value === "Validada" ? actor : header.validated_by })}><option>Pendiente</option><option>Validada</option><option>Rechazada</option></select></label>
+      <label>Responsable<input value={header.validated_by} onChange={(event) => setHeader({ ...header, validated_by: event.target.value })} placeholder="Pendiente de validar" /></label>
       <label>Recepcionado por<input value={actor} readOnly /></label>
       <label className="goods-receipt-wide">Notas generales<textarea value={header.notes} onChange={(event) => setHeader({ ...header, notes: event.target.value })} placeholder="Observaciones de la recepción…" /></label>
     </div>
     <section className="goods-receipt-lines"><div className="goods-receipt-lines-head"><div><b>Productos recibidos</b><small>Busca por nombre, SKU, marca o categoría y añade las líneas que correspondan.</small></div><span>{lines.length} añadidas</span></div>
       <div className="goods-receipt-product-picker"><input aria-label="Buscar producto para la entrada" autoComplete="off" placeholder="Buscar producto por nombre o referencia…" value={productSearch} onChange={(event) => setProductSearch(event.target.value)} />{productSearch.trim() && <div className="goods-receipt-suggestions">{matchingProducts.map((item: any) => <button type="button" key={item.id} onClick={() => addProduct(item)}><b>{item.name}</b><small>{[item.sku, item.unit, item.category].filter(Boolean).join(" · ") || "Sin referencia"}</small></button>)}{!matchingProducts.length && <span>No hay productos. <button type="button" className="link-button" onClick={() => setNewProductOpen(true)}>Dar de alta producto</button></span>}</div>}</div>
       {newProductOpen && <div className="goods-receipt-new-product"><b>Alta rápida de producto</b><input autoFocus placeholder="Nombre del producto *" value={newProduct.name} onChange={(event) => setNewProduct({ ...newProduct, name: event.target.value })} /><input placeholder="SKU o referencia" value={newProduct.sku} onChange={(event) => setNewProduct({ ...newProduct, sku: event.target.value })} /><select value={newProduct.unit} onChange={(event) => setNewProduct({ ...newProduct, unit: event.target.value })}><option value="unidad">Unidad</option><option value="caja">Caja</option><option value="botella">Botella</option><option value="kg">Kg</option></select><input type="number" min="0" step="any" placeholder="Coste unitario" value={newProduct.cost_price} onChange={(event) => setNewProduct({ ...newProduct, cost_price: event.target.value })} /><button type="button" className="button primary" disabled={newProductSaving} onClick={() => void createProduct()}>{newProductSaving ? "Guardando…" : "Crear y añadir"}</button><button type="button" className="button secondary" onClick={() => setNewProductOpen(false)}>Cancelar</button></div>}
-      {lines.length ? <div className="goods-receipt-line-list">{lines.map((line, index) => <article key={`${line.product_id}-${index}`} className="goods-receipt-line"><div className="goods-receipt-line-product"><b>{line.product_name}</b><small>{line.sku || "Sin referencia"}</small><button type="button" className="link-button" onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}>Quitar</button></div><label>Esperadas<input type="number" min="0" step="any" value={line.expected_quantity} onChange={(event) => updateLine(index, "expected_quantity", event.target.value)} /></label><label>Recibidas<input type="number" min="0" step="any" value={line.received_quantity} onChange={(event) => updateLine(index, "received_quantity", event.target.value)} /></label><label>Coste unitario<input type="number" min="0" step="any" value={line.unit_cost} onChange={(event) => updateLine(index, "unit_cost", event.target.value)} /></label><label>Resultado<select value={line.status} onChange={(event) => updateLine(index, "status", event.target.value)}><option>Correcta</option><option>Diferencia</option><option>Producto equivocado</option><option>Dañado</option></select></label><label className="goods-receipt-line-wide">Observación o incidencia<textarea value={line.incident_description} onChange={(event) => updateLine(index, "incident_description", event.target.value)} placeholder="Ej. 2 cajas rotas o referencia incorrecta…" /></label><label className="goods-receipt-photo">Foto de la incidencia<input type="file" accept="image/*" capture="environment" onChange={(event) => { const file = event.target.files?.[0]; if (file) attachLinePhoto(index, file); }} /><small>{line.attachment_name ? `Adjunta: ${line.attachment_name}` : "Opcional"}</small></label></article>)}</div> : <p className="goods-receipt-empty">Todavía no hay líneas. Busca un producto arriba para añadirlo.</p>}
+      {lines.length ? <div className="goods-receipt-line-list">{lines.map((line, index) => <article key={`${line.product_id}-${index}`} className="goods-receipt-line"><div className="goods-receipt-line-product"><b>{line.product_name}</b><small>{line.sku || "Sin referencia"}</small><button type="button" className="link-button" onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}>Quitar</button></div><label>Esperadas<input type="number" min="0" step="any" value={line.expected_quantity} onChange={(event) => updateLine(index, "expected_quantity", event.target.value)} /></label><label>Recibidas<input type="number" min="0" step="any" value={line.received_quantity} onChange={(event) => updateLine(index, "received_quantity", event.target.value)} /></label><label>Coste unitario<input type="number" min="0" step="any" value={line.unit_cost} onChange={(event) => updateLine(index, "unit_cost", event.target.value)} /></label><label>Resultado<select value={line.status} onChange={(event) => updateLine(index, "status", event.target.value)}><option>Correcta</option><option>Diferencia</option><option>Producto equivocado</option><option>Dañado</option><option>Sustituido</option></select></label><label>Unidades dañadas<input type="number" min="0" step="any" value={line.damaged_quantity} onChange={(event) => updateLine(index, "damaged_quantity", event.target.value)} /></label><label>Unidades sustituidas<input type="number" min="0" step="any" value={line.substituted_quantity} onChange={(event) => updateLine(index, "substituted_quantity", event.target.value)} /></label><label>Producto sustituto<select value={line.substitute_product_id} onChange={(event) => updateLine(index, "substitute_product_id", event.target.value)}><option value="">No aplica</option>{products.filter((item: any) => Number(item.id) !== Number(line.product_id)).map((item: any) => <option key={item.id} value={item.id}>{item.name}{item.sku ? ` · ${item.sku}` : ""}</option>)}</select></label><div className="goods-receipt-line-difference"><span>Diferencia económica</span><strong className={Number(line.received_quantity || 0) === Number(line.expected_quantity || 0) ? "" : "goods-receipt-incident-text"}>{((Number(line.received_quantity || 0) - Number(line.expected_quantity || 0)) * Number(line.unit_cost || 0)).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong><small>Recibido − esperado</small></div><label className="goods-receipt-line-wide">Observación o incidencia<textarea value={line.incident_description} onChange={(event) => updateLine(index, "incident_description", event.target.value)} placeholder="Ej. 2 cajas rotas o referencia incorrecta…" /></label><label className="goods-receipt-photo">Fotografías de la incidencia<input type="file" accept="image/*" capture="environment" multiple onChange={(event) => { void attachLinePhotos(index, event.target.files); event.currentTarget.value = ""; }} /><small>{(line.attachments || []).length ? `${line.attachments.length} fotografía${line.attachments.length === 1 ? "" : "s"} adjunta${line.attachments.length === 1 ? "" : "s"}` : "Puedes adjuntar varias fotografías · máximo 4 MB cada una"}</small></label>{(line.attachments || []).length > 0 && <div className="goods-receipt-attachment-preview">{line.attachments.map((attachment: any, attachmentIndex: number) => <div key={`${attachment.name}-${attachmentIndex}`}><img src={attachment.data} alt={attachment.name || "Fotografía de incidencia"} /><button type="button" className="link-button" aria-label={`Quitar ${attachment.name || "fotografía"}`} onClick={() => updateLine(index, "attachments", (line.attachments || []).filter((_: any, currentIndex: number) => currentIndex !== attachmentIndex))}>×</button></div>)}</div>}</article>)}</div> : <p className="goods-receipt-empty">Todavía no hay líneas. Busca un producto arriba para añadirlo.</p>}
     </section>
     {message && <div className="error-message" role="alert">{message}</div>}
     <div className="goods-receipt-submit"><button type="button" className="button primary" disabled={saving} onClick={(event) => void receive(event)}>{saving ? "Registrando entrada…" : "Registrar entrada y actualizar stock"}</button><small>Las incidencias quedarán como nota pendiente vinculada a esta entrada y al proveedor.</small></div>
   </div>;
+}
+
+function GoodsReceiptEditModal({ receipt, lookups, actor, onClose, onSaved }: { receipt: any; lookups: any; actor: string; onClose: () => void; onSaved: (receipt: any) => void }) {
+  const [form, setForm] = useState({
+    code: receipt.code || "",
+    supplier_id: String(receipt.supplier_id || ""),
+    purchase_order_id: String(receipt.purchase_order_id || ""),
+    purchase_invoice_id: String(receipt.purchase_invoice_id || ""),
+    warehouse_id: String(receipt.warehouse_id || ""),
+    receipt_date: String(receipt.receipt_date || "").slice(0, 10),
+    notes: receipt.notes || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const suppliers = lookups.suppliers || [];
+  const warehouses = lookups.warehouses || [];
+  const purchaseOrders = (lookups.purchase_orders || []).filter((item: any) => !form.supplier_id || Number(item.supplier_id) === Number(form.supplier_id));
+  async function save(event: any) {
+    event.preventDefault();
+    if (!form.code.trim() || !form.supplier_id || !form.warehouse_id || !form.receipt_date) { setError("Código, proveedor, almacén y fecha son obligatorios."); return; }
+    setSaving(true); setError("");
+    try {
+      const response = await fetch(`/api/goods_receipts/${receipt.id}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify({ ...form, supplier_id: Number(form.supplier_id), purchase_order_id: form.purchase_order_id ? Number(form.purchase_order_id) : null, purchase_invoice_id: form.purchase_invoice_id ? Number(form.purchase_invoice_id) : null, warehouse_id: Number(form.warehouse_id) }) });
+      const updated = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(updated.error || "No se pudieron guardar los datos de la entrada.");
+      const supplier = suppliers.find((item: any) => Number(item.id) === Number(form.supplier_id));
+      const warehouse = warehouses.find((item: any) => Number(item.id) === Number(form.warehouse_id));
+      onSaved({ ...receipt, ...updated, supplier_name: supplier?.name || receipt.supplier_name, warehouse_name: warehouse?.name || receipt.warehouse_name, purchase_order_code: purchaseOrders.find((item: any) => Number(item.id) === Number(form.purchase_order_id))?.code || null, purchase_invoice_code: (lookups.invoices || []).find((item: any) => Number(item.id) === Number(form.purchase_invoice_id))?.code || null });
+      onClose();
+    } catch (caught: any) { setError(caught?.message || "No se pudieron guardar los datos de la entrada."); }
+    finally { setSaving(false); }
+  }
+  return <div className="preview-overlay" role="dialog" aria-modal="true" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}><form className="goods-receipt-edit-modal" onSubmit={save} onClick={(event) => event.stopPropagation()}><header className="preview-header"><div><b>Editar entrada · {receipt.code}</b><small>Actualiza los datos generales sin alterar las cantidades ya incorporadas al stock.</small></div><button type="button" className="preview-close" aria-label="Cerrar" onClick={() => !saving && onClose()}>×</button></header><div className="goods-receipt-edit-grid"><label>Código de entrada<input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} /></label><label>Proveedor<select value={form.supplier_id} onChange={(event) => setForm({ ...form, supplier_id: event.target.value, purchase_order_id: "" })}><option value="">Seleccionar proveedor…</option>{suppliers.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Pedido de compra<select value={form.purchase_order_id} onChange={(event) => setForm({ ...form, purchase_order_id: event.target.value })}><option value="">Sin pedido vinculado</option>{purchaseOrders.map((item: any) => <option key={item.id} value={item.id}>{item.code} · {item.status}</option>)}</select></label><label>Factura de compra<select value={form.purchase_invoice_id} onChange={(event) => setForm({ ...form, purchase_invoice_id: event.target.value })}><option value="">Sin factura vinculada</option>{(lookups.invoices || []).map((item: any) => <option key={item.id} value={item.id}>{item.code} · {item.status || "Pendiente"}</option>)}</select></label><label>Almacén<select value={form.warehouse_id} onChange={(event) => setForm({ ...form, warehouse_id: event.target.value })}><option value="">Seleccionar almacén…</option>{warehouses.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Fecha de recepción<input type="date" value={form.receipt_date} onChange={(event) => setForm({ ...form, receipt_date: event.target.value })} /></label><label className="goods-receipt-wide">Notas generales<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Observaciones de la recepción…" /></label></div>{error && <p className="error-message" role="alert">{error}</p>}<footer className="preview-actions"><button type="button" className="button secondary" onClick={onClose} disabled={saving}>Cancelar</button><button type="submit" className="button primary" disabled={saving}>{saving ? "Guardando…" : "Guardar cambios"}</button></footer></form></div>;
 }
 
 function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFormConsumed }: { active: string; user?: any; onNavigate?: (module: string) => void; assistantFormIntent?: any; onAssistantFormConsumed?: () => void }) {
@@ -2088,7 +2179,9 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [search, setSearch] = useState("");
   const [preview, setPreview] = useState<any>(null);
   const [entryDetail, setEntryDetail] = useState<any>(null);
+  const [entryEdit, setEntryEdit] = useState<any>(null);
   const [entryIncidentSaving, setEntryIncidentSaving] = useState<number | null>(null);
+  const [entryValidationSaving, setEntryValidationSaving] = useState(false);
   const [labelProduct, setLabelProduct] = useState<any>(null);
   const [productDetail, setProductDetail] = useState<any>(null);
   const [batchLabelProducts, setBatchLabelProducts] = useState<any[]>([]);
@@ -2159,8 +2252,17 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const formInitialSnapshot = useRef("{}");
+  const quoteLinesInitialSnapshot = useRef("[]");
+  const [formDirty, setFormDirty] = useState(false);
+  const [deletedUndo, setDeletedUndo] = useState<any>(null);
+  const undoTimerRef = useRef<number | null>(null);
+  const [quickView, setQuickView] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [listSupplier, setListSupplier] = useState("");
   const [visibleFields, setVisibleFields] = useState<string[]>(c.fields);
-  const orderListFields = ["code", "client_id", "status", "billing_status", "shipping_status", "preparation_date", "delivery_date"];
+  const orderListFields = ["code", "client_id", "status", "billing_status", "payment_status", "shipping_status", "preparation_date", "delivery_date"];
   const stockListFields = ["product_id", "unit", "warehouse_name", "stock", "stock_reserved", "available_stock", "min_stock", "stock_status"];
   useEffect(() => {
     if (inlineEditing === null) return;
@@ -2180,7 +2282,65 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     setListDateTo("");
     setListClient("");
     setListStatus("Todos");
+    setListSupplier("");
+    setQuickView("all");
+    setPage(1);
   }, [active]);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`excluvas.quick-view.${c.api}`);
+      setQuickView(saved || "all");
+    } catch { setQuickView("all"); }
+  }, [active]);
+  useEffect(() => {
+    if (!formOpen) {
+      setFormDirty(false);
+      return;
+    }
+    setFormDirty(JSON.stringify(formRef.current || {}) !== formInitialSnapshot.current || JSON.stringify(quoteLines || []) !== quoteLinesInitialSnapshot.current);
+  }, [form, formOpen, quoteLines]);
+  useEffect(() => {
+    if (!formOpen || !formDirty) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [formOpen, formDirty]);
+  function snapshotForm(value: any) {
+    return JSON.stringify(value || {});
+  }
+  function beginForm(value: any, record: any = null, lines: any[] = []) {
+    formInitialSnapshot.current = snapshotForm(value);
+    quoteLinesInitialSnapshot.current = JSON.stringify(lines || []);
+    setFormDirty(false);
+    setForm(value);
+    setEditing(record);
+  }
+  useEffect(() => {
+    if (active !== "Cobros" || formOpen) return;
+    try {
+      const raw = sessionStorage.getItem("excluvas.pending-payment");
+      if (!raw) return;
+      sessionStorage.removeItem("excluvas.pending-payment");
+      const pending = JSON.parse(raw);
+      const invoice = (lookups.invoices || []).find((item: any) => Number(item.id) === Number(pending.invoice_id));
+      if (!invoice) return setError("No se ha encontrado la factura para preparar el cobro.");
+      beginForm({ invoice_id: String(invoice.id), amount: String(pending.amount || invoice.amount || ""), payment_date: tabletTodayInput(), method: "Transferencia" });
+      setFormOpen(true);
+    } catch { /* La pantalla de cobros sigue disponible aunque no se pueda recuperar el contexto. */ }
+  }, [active, formOpen, lookups.invoices]);
+  function closeForm(force = false) {
+    if (!force && formDirty && !window.confirm("Hay cambios sin guardar. Si cierras ahora se perderán. ¿Quieres continuar?")) return false;
+    setEditing(null);
+    setForm({});
+    setQuoteLines([]);
+    quoteLinesInitialSnapshot.current = "[]";
+    setFormDirty(false);
+    setFormOpen(false);
+    return true;
+  }
   useEffect(() => {
     try {
     if (c.api === "orders") {
@@ -2286,11 +2446,11 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     delete next.customer_name;
     delete next.customer;
     delete next.client;
-    setEditing(null);
     setInlineEditing(null);
     setError("");
-    setForm(next);
-    setQuoteLines(Array.isArray(assistantFormIntent.lines) ? assistantFormIntent.lines : []);
+    const assistantLines = Array.isArray(assistantFormIntent.lines) ? assistantFormIntent.lines : [];
+    beginForm(next, null, assistantLines);
+    setQuoteLines(assistantLines);
     setFormOpen(true);
     onAssistantFormConsumed?.();
   }, [assistantFormIntent, active, lookups]);
@@ -2356,7 +2516,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       Almacenes: ["warehouses", "products"],
       "Preparación de pedidos": ["clients", "orders", "products", "collection_points", "shipments"],
       "Lugares de recogida": ["clients", "collection_points"],
-      Entradas: ["products", "warehouses", "suppliers", "purchase_orders"],
+      Entradas: ["products", "warehouses", "suppliers", "purchase_orders", "invoices"],
       Salidas: ["clients", "orders", "collection_points", "shipments"],
       Pedidos: ["clients", "products", "collection_points", "shipments", "orders", "invoices"],
       Presupuestos: ["clients", "products", "quotes"],
@@ -2619,9 +2779,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       }
       if (!created.length) return alert("El pedido no tiene productos válidos para registrar la salida");
       setRows((current) => [...created, ...current]);
-      setForm({});
-      setEditing(null);
-      setFormOpen(false);
+      closeForm(true);
       return;
     }
     try {
@@ -2670,10 +2828,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     }
     setDbError("");
     setRows(editing ? rows.map((x) => (x.id === d.id ? d : x)) : [d, ...rows]);
-    setForm({});
-    setQuoteLines([]);
-    setEditing(null);
-    setFormOpen(false);
+    closeForm(true);
     if (active === "Productos") setProductSaveMessage(editing ? "Producto actualizado correctamente." : "Producto creado y guardado correctamente.");
   }
   async function save(e: any) {
@@ -2685,11 +2840,35 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     await saveRecord(e);
   }
   async function remove(id: number) {
-    await fetch("/api/" + c.api + "/" + id, {
+    if (user?.role !== "admin") return alert("Solo un administrador puede eliminar registros.");
+    const current = rows.find((row) => Number(row.id) === Number(id));
+    if (!current) return;
+    const label = current.name || current.code || current.title || `registro #${id}`;
+    if (!window.confirm(`Vas a enviar a la papelera “${label}”. Podrás recuperarlo durante esta sesión. ¿Continuar?`)) return;
+    const response = await fetch("/api/" + c.api + "/" + id, {
       method: "DELETE",
       headers: actorHeaders,
     });
-    setRows(rows.filter((x) => x.id !== id));
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(body.error || "No se pudo eliminar el registro.");
+    setRows((currentRows) => currentRows.filter((x) => x.id !== id));
+    if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
+    setDeletedUndo({ row: current, api: c.api, label });
+    undoTimerRef.current = window.setTimeout(() => setDeletedUndo(null), 10000);
+  }
+  async function undoDelete() {
+    if (!deletedUndo || deletedUndo.api !== c.api) return;
+    const { row } = deletedUndo;
+    const response = await fetch(`/api/${c.api}/${row.id}`, {
+      method: "PUT",
+      headers: actorHeaders,
+      body: JSON.stringify({ ...row, deleted: 0, deleted_at: null, deleted_by: null }),
+    });
+    const restored = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(restored.error || "No se pudo deshacer la eliminación.");
+    setRows((currentRows) => [restored, ...currentRows]);
+    if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
+    setDeletedUndo(null);
   }
   async function restore(id: number) {
     const current = rows.find((row) => Number(row.id) === Number(id));
@@ -2744,8 +2923,14 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   async function deleteSelectedProducts() {
     if (user?.role !== "admin") return alert("Solo un administrador puede eliminar productos.");
     if (!selectedProductIds.length) return alert("Selecciona al menos un producto.");
-    if (!window.confirm(`¿Eliminar ${selectedProductIds.length} productos seleccionados?`)) return;
-    for (const id of selectedProductIds) await fetch(`/api/products/${id}`, { method: "DELETE", headers: actorHeaders });
+    const selected = rows.filter((row) => selectedProductIds.includes(Number(row.id)));
+    const names = selected.slice(0, 3).map((row) => row.name || row.code || `#${row.id}`).join(", ");
+    const suffix = selected.length > 3 ? ` y ${selected.length - 3} más` : "";
+    if (!window.confirm(`Vas a enviar ${selected.length} productos a la papelera (${names}${suffix}). Podrás recuperarlos desde “Mostrar eliminados”. ¿Continuar?`)) return;
+    for (const id of selectedProductIds) {
+      const response = await fetch(`/api/products/${id}`, { method: "DELETE", headers: actorHeaders });
+      if (!response.ok) return alert("Algunos productos no se pudieron eliminar. Revisa el listado.");
+    }
     setRows((current) => current.filter((row) => !selectedProductIds.includes(Number(row.id))));
     setSelectedProductIds([]);
   }
@@ -2772,11 +2957,86 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     return (lookups.shipments || []).find((item: any) => Number(item.order_id) === Number(row.id));
   }
   function getOrderShippingStatus(row: any) {
-    const shipmentStatus = String(getOrderShipment(row)?.status || "").trim();
+    const shipment = getOrderShipment(row);
+    if (!shipment) return "Sin nota de carga";
+    const shipmentStatus = String(shipment.status || "").trim();
     if (["Enviado", "En reparto", "Entregado"].includes(shipmentStatus)) return shipmentStatus;
     if (shipmentStatus === "Preparado" || String(row.status || "") === "Preparado") return "Preparado";
     if (shipmentStatus === "Cancelado" || String(row.status || "") === "Cancelado") return "Cancelado";
     return "Pendiente de enviar";
+  }
+  function getOrderInvoice(row: any) {
+    const invoices = lookups.invoices || [];
+    if (row?.invoice_id) return invoices.find((item: any) => Number(item.id) === Number(row.invoice_id)) || null;
+    return invoices.find((item: any) => Number(item.order_id) === Number(row?.id)) || null;
+  }
+  function getOrderBillingStatus(row: any) {
+    return String(row?.billing_status || (row?.status === "Facturado" ? "Facturado" : "Sin facturar"));
+  }
+  function getOrderPaymentStatus(row: any) {
+    if (row?.payment_status) return String(row.payment_status);
+    if (getOrderBillingStatus(row) !== "Facturado") return "No facturado";
+    const invoice = getOrderInvoice(row);
+    if (!invoice) return "Pendiente de cobro";
+    const paid = (lookups.payments || [])
+      .filter((payment: any) => Number(payment.invoice_id) === Number(invoice.id))
+      .reduce((total: number, payment: any) => total + Number(payment.amount || 0), 0);
+    if (["Cobrada", "Pagada"].includes(String(invoice.status || "")) || paid >= Number(invoice.amount || 0) - 0.01) return "Cobrado";
+    return paid > 0 ? "Cobro parcial" : "Pendiente de cobro";
+  }
+  function openPaymentFromOrder(row: any) {
+    const invoice = getOrderInvoice(row);
+    if (!invoice) {
+      setError("Este pedido figura como facturado, pero no tiene una factura vinculada disponible para registrar el cobro.");
+      return;
+    }
+    const paid = (lookups.payments || [])
+      .filter((payment: any) => Number(payment.invoice_id) === Number(invoice.id))
+      .reduce((total: number, payment: any) => total + Number(payment.amount || 0), 0);
+    const remaining = Math.max(0, Number(invoice.amount || 0) - paid);
+    try {
+      sessionStorage.setItem("excluvas.pending-payment", JSON.stringify({ invoice_id: invoice.id, amount: remaining.toFixed(2) }));
+    } catch { /* La navegación sigue siendo útil aunque el navegador bloquee sessionStorage. */ }
+    onNavigate?.("Cobros");
+  }
+  async function createOrderLoadNote(row: any) {
+    if (!row?.id) return;
+    const existing = getOrderShipment(row);
+    if (existing) return openOrderLoadNote(row);
+    if (String(row.status || "") === "Cancelado") {
+      setError("Un pedido cancelado no puede pasar a preparación.");
+      return;
+    }
+    const client = (lookups.clients || []).find((item: any) => Number(item.id) === Number(row.client_id));
+    const point = (lookups.collection_points || []).find((item: any) => Number(item.id) === Number(row.collection_point_id));
+    const deliveryDate = String(row.delivery_date || "").slice(0, 10) || null;
+    const response = await fetch("/api/shipments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...actorHeaders },
+      body: JSON.stringify({
+        code: `ENV-${new Date().getFullYear()}-${String(Date.now()).slice(-8)}`,
+        order_id: Number(row.id),
+        client_id: row.client_id ? Number(row.client_id) : null,
+        collection_point_id: row.collection_point_id ? Number(row.collection_point_id) : null,
+        status: "Preparando",
+        expected_delivery_at: deliveryDate ? `${deliveryDate}T12:00:00.000Z` : null,
+        preparation_date: row.preparation_date || deliveryDate,
+        address: row.address || point?.address || client?.address || "",
+        delivery_city: row.delivery_city || point?.city || client?.city || "",
+        prepared_by: "",
+        notes: row.notes || "Nota de carga creada desde el pedido.",
+        urgent: Number(row.urgent || 0),
+      }),
+    });
+    const created = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setError(created.error || "No se pudo crear la nota de carga.");
+      return;
+    }
+    setLookups((current: any) => ({ ...current, shipments: [created, ...(current.shipments || [])] }));
+    setRows((current) => current.map((item) => Number(item.id) === Number(row.id) ? { ...item, shipping_status: "Pendiente de enviar" } : item));
+    onNavigate?.("Preparación de pedidos");
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-preparacion", { detail: created.id })), 120);
   }
   async function openOrderLoadNote(row: any) {
     const shipment = getOrderShipment(row);
@@ -2787,15 +3047,46 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     }
     alert("Este pedido todavía no tiene una nota de carga asociada.");
   }
+  async function sendQuoteToClient(row: any) {
+    const client = (lookups.clients || []).find((item: any) => Number(item.id) === Number(row?.client_id));
+    if (!client?.email) {
+      setError("El cliente no tiene un correo electrónico para enviarle el presupuesto.");
+      return;
+    }
+    const allLines = await fetch("/api/quote_lines").then((response) => response.ok ? response.json() : []).catch(() => []);
+    const productRows = lookups.products || [];
+    const lines = (Array.isArray(allLines) ? allLines : []).filter((line: any) => Number(line.quote_id) === Number(row.id));
+    const lineText = lines.map((line: any) => {
+      const product = productRows.find((item: any) => Number(item.id) === Number(line.product_id));
+      return `- ${product?.name || `Producto #${line.product_id}`}: ${line.quantity_requested || line.quantity} ${quantityUnitLabel(line.quantity_unit)} · ${Number(line.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}`;
+    }).join("\n");
+    const subject = `Presupuesto ${row.code || ""} · Exclusivas Inteligentes`;
+    const body = `Hola ${client.contact || client.name || ""},\n\nTe enviamos el presupuesto ${row.code || ""}.\n\n${lineText || "Consulta el detalle del presupuesto adjunto."}\n\nTotal: ${Number(row.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}\nVálido hasta: ${row.valid_until || "según condiciones indicadas"}\n\nUn saludo,\nExclusivas Inteligentes`;
+    window.location.href = `mailto:${encodeURIComponent(client.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    setError("");
+  }
+  async function convertQuoteToOrder(row: any) {
+    if (!row?.id || row.status === "Convertido") return;
+    if (!window.confirm(`¿Convertir el presupuesto ${row.code} en un pedido? Se conservará el presupuesto y se creará un pedido nuevo con sus líneas.`)) return;
+    const response = await fetch(`/api/quotes/convert-order/${row.id}`, { method: "POST", headers: actorHeaders });
+    const created = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setError(created.error || "No se pudo convertir el presupuesto en pedido.");
+      return;
+    }
+    setRows((current) => current.map((item) => Number(item.id) === Number(row.id) ? { ...item, status: "Convertido", converted_order_id: created.id } : item));
+    closeForm(true);
+    alert(`Pedido ${created.code} creado correctamente a partir del presupuesto ${row.code}.`);
+    onNavigate?.("Pedidos");
+  }
   async function openRecordModal(row: any) {
     setInlineEditing(null);
     setInlineDraft({});
-    setForm({ ...row });
+    beginForm({ ...row }, row);
     if (active === "Pedidos") {
       const selectedClient = (lookups.clients || []).find((item: any) => Number(item.id) === Number(row.client_id));
       setClientSearch(selectedClient ? `${selectedClient.name}${selectedClient.city ? ` · ${selectedClient.city}` : ""}` : "");
     }
-    setEditing(row);
     setFormOpen(true);
     if (!["Presupuestos", "Pedidos"].includes(active)) return;
     const lineApi = active === "Pedidos" ? "order_lines" : "quote_lines";
@@ -2804,10 +3095,13 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     const parentKey = active === "Pedidos" ? "order_id" : "quote_id";
     const lines = Array.isArray(allLines) ? allLines.filter((line: any) => Number(line[parentKey]) === Number(row.id)) : [];
     const productList = lookups.products || [];
-    setQuoteLines((Array.isArray(lines) ? lines : []).map((line: any) => ({
+    const mappedLines = (Array.isArray(lines) ? lines : []).map((line: any) => ({
       ...line,
       product_name: line.product_name || productList.find((product: any) => Number(product.id) === Number(line.product_id))?.name || `Producto #${line.product_id}`,
-    })));
+    }));
+    quoteLinesInitialSnapshot.current = JSON.stringify(mappedLines);
+    setQuoteLines(mappedLines);
+    setFormDirty(false);
   }
   async function openEntryDetail(row: any) {
     const response = await fetch(`/api/goods_receipts/detail/${row.id}`, { headers: actorHeaders });
@@ -2820,12 +3114,43 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     setEntryIncidentSaving(Number(incident.id));
     try {
       const now = new Date().toISOString();
-      const response = await fetch(`/api/goods_receipt_incidents/${incident.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...incident, status, resolution: status === "Resuelta" ? "Incidencia revisada y cerrada" : incident.resolution || "", resolved_by: status === "Resuelta" ? (user?.username || "Usuario local") : null, resolved_at: status === "Resuelta" ? now : null }) });
+      const response = await fetch(`/api/goods_receipt_incidents/${incident.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ status, resolution: status === "Resuelta" ? "Incidencia revisada y cerrada" : incident.resolution || "", resolved_by: status === "Resuelta" ? (user?.username || "Usuario local") : null, resolved_at: status === "Resuelta" ? now : null }) });
       const updated = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(updated.error || "No se pudo actualizar la incidencia.");
       setEntryDetail((current: any) => current ? { ...current, incidents: (current.incidents || []).map((item: any) => item.id === incident.id ? { ...item, ...updated } : item) } : current);
     } catch (caught: any) {
       alert(caught?.message || "No se pudo actualizar la incidencia.");
+    } finally {
+      setEntryIncidentSaving(null);
+    }
+  }
+  async function validateEntry(status: string) {
+    if (!entryDetail?.id || entryValidationSaving) return;
+    setEntryValidationSaving(true);
+    try {
+      const now = new Date().toISOString();
+      const response = await fetch(`/api/goods_receipts/${entryDetail.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ validation_status: status, validated_by: status === "Validada" ? (user?.username || "Usuario local") : null, validated_at: status === "Validada" ? now : null }) });
+      const updated = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(updated.error || "No se pudo actualizar la validación.");
+      setEntryDetail((current: any) => current ? { ...current, ...updated } : current);
+      setRows((current) => current.map((row) => Number(row.id) === Number(entryDetail.id) ? { ...row, ...updated } : row));
+    } catch (caught: any) {
+      alert(caught?.message || "No se pudo actualizar la validación.");
+    } finally {
+      setEntryValidationSaving(false);
+    }
+  }
+  async function claimEntryIncident(incident: any) {
+    if (!incident?.id || incident.claim_status === "Preparada") return;
+    if (!window.confirm("¿Crear una reclamación interna para este proveedor? Se añadirá una nota de alta prioridad vinculada a la entrada.")) return;
+    setEntryIncidentSaving(Number(incident.id));
+    try {
+      const response = await fetch(`/api/goods_receipt_incidents/${incident.id}/claim`, { method: "POST", headers: actorHeaders, body: JSON.stringify({}) });
+      const updated = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(updated.error || "No se pudo crear la reclamación.");
+      setEntryDetail((current: any) => current ? { ...current, incidents: (current.incidents || []).map((item: any) => item.id === incident.id ? { ...item, ...updated } : item) } : current);
+    } catch (caught: any) {
+      alert(caught?.message || "No se pudo crear la reclamación.");
     } finally {
       setEntryIncidentSaving(null);
     }
@@ -2908,6 +3233,18 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     }
     window.addEventListener("crm:previsualizar-preparacion", preparationPreviewRequested);
     return () => window.removeEventListener("crm:previsualizar-preparacion", preparationPreviewRequested);
+  }, [active, rows]);
+  useEffect(() => {
+    if (active !== "Notas") return;
+    function noteEditRequested(event: Event) {
+      const id = Number((event as CustomEvent<number>).detail);
+      const open = (item: any) => { if (!item) return; setForm({ ...item }); setEditing(item); setFormOpen(true); };
+      const row = rows.find((item) => Number(item.id) === id);
+      if (row) open(row);
+      else if (id) fetch(`/api/notes/${id}`).then((response) => response.ok ? response.json() : null).then((body) => open(Array.isArray(body) ? body.find((item: any) => Number(item.id) === id) : body?.data || body)).catch(() => undefined);
+    }
+    window.addEventListener("crm:editar-nota", noteEditRequested);
+    return () => window.removeEventListener("crm:editar-nota", noteEditRequested);
   }, [active, rows]);
   useEffect(() => {
     function notePreviewRequested(event: Event) {
@@ -3012,8 +3349,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   useEffect(() => {
     if (active !== "Clientes") return;
     function newClientRequested() {
-      setEditing(null);
-      setForm({});
+      beginForm({});
       setFormOpen(true);
     }
     window.addEventListener("crm:nuevo-cliente", newClientRequested);
@@ -3022,10 +3358,9 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   useEffect(() => {
     if (active !== "Pedidos") return;
     function newOrderRequested() {
-      setEditing(null);
       setQuoteLines([]);
       setQuoteProductSearch("");
-      setForm({ code: nextOrderCode(), status: "Nuevo", quantity: 1 });
+      beginForm({ code: nextOrderCode(), status: "Nuevo", quantity: 1 });
       setFormOpen(true);
     }
     window.addEventListener("crm:nuevo-pedido", newOrderRequested);
@@ -3038,9 +3373,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       const target = event.target as Element | null;
       if (target?.closest('[aria-label="Confirmar producto"]')) return;
       if (modal && !modal.contains(event.target as Node)) {
-        setEditing(null);
-        setForm({});
-        setFormOpen(false);
+        closeForm();
       }
     };
     document.addEventListener("mousedown", closeOnOutsideClick);
@@ -3247,6 +3580,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     setPreviewInvoice(null);
     setPreviewSupplier(null);
     setPreviewLines([]);
+    if (active === "Pedidos") setPreviewInvoice(getOrderInvoice(row));
     if (active === "Cobros") {
       const [invoices, clients] = await Promise.all([
         fetch("/api/invoices").then((r) => r.json()),
@@ -3271,6 +3605,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
           ? "delivery_note_lines"
           : active === "Compras"
             ? "purchase_order_lines"
+            : active === "Presupuestos"
+              ? "quote_lines"
           : "order_lines";
     const lineOwnerId = active === "Preparación de pedidos" ? row.order_id : row.id;
     const [clients, lines, products, sourceOrderLines] = await Promise.all([
@@ -3294,7 +3630,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     }
     const ownLines = (Array.isArray(lines) ? lines : []).filter(
         (x: any) =>
-          Number(x.invoice_id || x.delivery_note_id || x.order_id || x.purchase_order_id) ===
+          Number(x.invoice_id || x.delivery_note_id || x.order_id || x.purchase_order_id || x.quote_id) ===
           Number(lineOwnerId),
       );
     const fallbackOrderLines = active === "Albaranes" && ownLines.length < 2
@@ -3715,6 +4051,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             : field === "collection_point_id" ? lookups.collection_points
                  : field === "order_id" ? lookups.orders
                    : field === "purchase_order_id" ? lookups.purchase_orders
+                : field === "purchase_invoice_id" ? lookups.invoices
                 : field === "invoice_id" ? lookups.invoices
                 : field === "shipment_id" ? lookups.shipments
                   : [];
@@ -3736,12 +4073,13 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         collection_point_id: "Ubicación no disponible",
         order_id: "Pedido no disponible",
         purchase_order_id: "Compra no disponible",
+        purchase_invoice_id: "Factura de compra no disponible",
         invoice_id: "Factura no disponible",
         shipment_id: "Hoja de carga no disponible",
       };
       return missingRelationLabels[field] || "Relación no disponible";
     }
-    if (["amount", "unit_price", "cost_price"].includes(field)) {
+    if (["amount", "unit_price", "cost_price", "economic_difference"].includes(field)) {
       return Number(value).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
     }
     const isDateOnly = field.endsWith("_date") || ["date", "issue_date", "order_date"].includes(field);
@@ -3809,6 +4147,17 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     : rows;
   const productCategories = isProducts ? Array.from(new Set(rows.map((row) => String(row.category || "").trim()).filter(Boolean))).sort() : [];
   const productBrands = isProducts ? Array.from(new Set(rows.map((row) => String(row.brand || "").trim()).filter(Boolean))).sort() : [];
+  const listFilterActive = ["Pedidos", "Facturas", "Cobros", "Devoluciones", "Presupuestos", "Albaranes", "Compras", "Entradas", "Salidas", "Gastos y tickets"].includes(active);
+  const listStatusOptions = Array.from(new Set(rows.map((row: any) => String(row.status || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es"));
+  const quickViewOptions = active === "Pedidos"
+    ? [{ value: "all", label: "Todos los pedidos" }, { value: "today", label: "Pedidos de hoy" }, { value: "unbilled", label: "Sin facturar" }, { value: "not-shipped", label: "Pendientes de enviar" }, { value: "review", label: "Pendientes de revisar" }]
+    : active === "Stock" || active === "Productos"
+      ? [{ value: "all", label: "Todo el stock" }, { value: "critical", label: "Stock crítico" }]
+      : isLoadPreparation
+        ? [{ value: "all", label: "Todas las preparaciones" }, { value: "today", label: "Pedidos de hoy" }, { value: "review", label: "Pendientes de revisar" }]
+        : listFilterActive
+          ? [{ value: "all", label: "Todos" }, { value: "review", label: "Pendientes de revisar" }]
+          : [{ value: "all", label: "Todos" }];
   const filteredRows = preparationRows.filter((row) => {
     const normalizeSearch = (value: any) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     const query = normalizeSearch(search).trim();
@@ -3820,28 +4169,38 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     const primaryValues = c.fields.slice(0, 4).map((field: string) => row[field]);
     const searchableText = normalizeSearch([...primaryValues, ...relatedValues, JSON.stringify(row)].join(" "));
     const matchesText = !query || query.split(/\s+/).every((token) => searchableText.includes(token));
-    const currentBillingStatus = String(row.billing_status || (row.status === "Facturado" ? "Facturado" : "Sin facturar"));
+    const currentBillingStatus = getOrderBillingStatus(row);
     const matchesBilling = active !== "Pedidos" || billingFilter === "todos"
       || (billingFilter === "pendientes" ? currentBillingStatus !== "Facturado" : currentBillingStatus === "Facturado");
     const currentShippingStatus = active === "Pedidos" ? getOrderShippingStatus(row) : "";
     const matchesShipping = active !== "Pedidos" || shippingFilter === "todos"
-      || (shippingFilter === "pendientes" ? ["Pendiente de enviar", "Preparado"].includes(currentShippingStatus) : ["Enviado", "En reparto", "Entregado"].includes(currentShippingStatus));
+      || (shippingFilter === "pendientes" ? ["Sin nota de carga", "Pendiente de enviar", "Preparado"].includes(currentShippingStatus) : ["Enviado", "En reparto", "Entregado"].includes(currentShippingStatus));
     const linkedInvoice = active === "Cobros" ? (lookups.invoices || []).find((item: any) => Number(item.id) === Number(row.invoice_id)) : null;
     const rowClientId = row.client_id || linkedInvoice?.client_id || "";
-    const rowDate = String(active === "Facturas" ? (row.issue_date || row.created_at) : active === "Cobros" ? (row.payment_date || row.created_at) : active === "Devoluciones" ? (row.return_date || row.created_at) : active === "Pedidos" ? (row.delivery_date || row.created_at) : (row.created_at || "")).slice(0, 10);
+    const rowDate = String(active === "Facturas" ? (row.issue_date || row.created_at) : active === "Cobros" ? (row.payment_date || row.created_at) : active === "Devoluciones" ? (row.return_date || row.created_at) : active === "Pedidos" ? (row.delivery_date || row.created_at) : active === "Preparación de pedidos" ? (row.preparation_date || row.expected_delivery_at || row.created_at) : active === "Entradas" ? (row.receipt_date || row.created_at) : active === "Compras" ? (row.order_date || row.created_at) : (row.created_at || row.movement_date || "")).slice(0, 10);
     const matchesListClient = !listClient || String(rowClientId) === String(listClient);
+    const rowSupplierId = row.supplier_id || row.primary_supplier_id || "";
+    const matchesListSupplier = !listSupplier || String(rowSupplierId) === String(listSupplier);
     const matchesListFrom = !listDateFrom || (rowDate && rowDate >= listDateFrom);
     const matchesListTo = !listDateTo || (rowDate && rowDate <= listDateTo);
     const matchesListStatus = listStatus === "Todos" || String(row.status || "") === listStatus;
-    const listFilterActive = ["Pedidos", "Facturas", "Cobros", "Devoluciones"].includes(active);
-    if (!isProducts && !isLoadPreparation) return matchesText && matchesBilling && matchesShipping && (!listFilterActive || (matchesListClient && matchesListFrom && matchesListTo && (active === "Cobros" || matchesListStatus)));
-    if (isLoadPreparation) return matchesText && (!preparationDateFilter || String(row.preparation_date || "").slice(0, 10) === preparationDateFilter);
-    const available = Number(row.stock || 0) - Number(row.stock_reserved || 0);
+    const available = Number(row.available_stock ?? Number(row.stock || 0) - Number(row.stock_reserved || 0));
+    const criticalStock = available <= Number(row.min_stock || 0);
+    const today = tabletTodayInput();
+    const reviewStatus = ["Pendiente", "Nuevo", "Preparando", "Preparado con incidencia", "En revisión", "Borrador"].includes(String(row.status || ""));
+    const matchesQuickView = quickView === "all"
+      || (quickView === "today" && rowDate === today)
+      || (quickView === "unbilled" && currentBillingStatus !== "Facturado")
+      || (quickView === "not-shipped" && ["Pendiente de enviar", "Preparado"].includes(currentShippingStatus))
+      || (quickView === "critical" && criticalStock)
+      || (quickView === "review" && (reviewStatus || currentBillingStatus !== "Facturado" && active === "Pedidos"));
+    if (!isProducts && !isLoadPreparation) return matchesText && matchesBilling && matchesShipping && matchesQuickView && (!listFilterActive || (matchesListClient && matchesListSupplier && matchesListFrom && matchesListTo && matchesListStatus));
+    if (isLoadPreparation) return matchesText && matchesQuickView && (!preparationDateFilter || String(row.preparation_date || "").slice(0, 10) === preparationDateFilter);
     const matchesCategory = !productFilters.category || row.category === productFilters.category;
     const matchesBrand = !productFilters.brand || row.brand === productFilters.brand;
     const matchesStock = productFilters.stock === "todos" || (productFilters.stock === "critico" ? available <= Number(row.min_stock || 0) : available > Number(row.min_stock || 0));
     const matchesCodes = productFilters.codes === "todos" || (productFilters.codes === "sin-codigo" ? !row.barcode : Boolean(row.barcode));
-    return matchesText && matchesCategory && matchesBrand && matchesStock && matchesCodes;
+    return matchesText && matchesQuickView && matchesCategory && matchesBrand && matchesStock && matchesCodes;
   });
   const sortedRows = isLoadPreparation
     ? [...filteredRows].sort((a, b) => Number(b.urgent || 0) - Number(a.urgent || 0) || String(a.preparation_date || "9999").localeCompare(String(b.preparation_date || "9999")) || String(a.address || "").localeCompare(String(b.address || ""), "es", { numeric: true }))
@@ -3886,6 +4245,15 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         return (Number(a[field] || 0) - Number(b[field] || 0)) * direction;
       })
     : filteredRows;
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedRows = sortedRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  useEffect(() => {
+    setPage(1);
+  }, [search, quickView, listDateFrom, listDateTo, listClient, listStatus, listSupplier, billingFilter, shippingFilter, preparationDateFilter, productFilters]);
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
   const preparationUrgentCount = isLoadPreparation ? filteredRows.filter((row) => Number(row.urgent) === 1).length : 0;
   const preparationIncidentCount = isLoadPreparation ? filteredRows.filter((row) => row.status === "Preparado con incidencia").length : 0;
   const stockCellClass = (row: any, field: string) => {
@@ -4048,7 +4416,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     <div className={`manager${isLoadPreparation ? " load-preparation-manager" : ""}`}>
       {!isLoadPreparation && <div className="manager-head">
         <div>
-          <p className="eyebrow">GESTIÓN · SQLITE LOCAL</p>
+          <p className="eyebrow">GESTIÓN · {APP_ENVIRONMENT === "Producción" ? "DATOS OPERATIVOS" : "ENTORNO LOCAL"}</p>
           <h2>{c.title}</h2>
         </div>
         <div>
@@ -4056,10 +4424,9 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             type="button"
             className="button primary"
             onClick={() => {
-              setEditing(null);
               setQuoteLines([]);
               if (active === "Pedidos") setClientSearch("");
-              setForm(
+              const nextForm = (
                   (c.movementFilter && active !== "Entradas")
                   ? { movement_type: c.movementFilter || "Entrada", movement_date: tabletTodayInput(), created_by: user?.username || "Usuario local" }
                   : active === "Devoluciones"
@@ -4072,8 +4439,9 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                     ? { expense_date: tabletTodayInput(), category: "Otros", vat: "21", payment_method: "Tarjeta" }
                   : isOrderForm || active === "Pedidos"
                     ? { code: nextOrderCode(), status: "Nuevo", created_by: user?.username || "Usuario local" }
-                    : {},
+                    : {}
               );
+              beginForm(nextForm);
               setFormOpen(true);
             }}
           >
@@ -4084,9 +4452,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               type="button"
               className="button secondary"
               onClick={() => {
-                setEditing(null);
                 setQuoteLines([]);
-                setForm({ code: `PRO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`, issue_date: tabletTodayInput(), status: "Proforma", vat: 21 });
+                beginForm({ code: `PRO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`, issue_date: tabletTodayInput(), status: "Proforma", vat: 21 });
                 setFormOpen(true);
               }}
             >
@@ -4140,20 +4507,24 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         ref={formAccordionRef}
         className={`form-accordion${active === "Productos" ? " product-form-accordion" : ""}${usesRecordModal && editing ? " record-edit-modal" : ""}`}
         open={formOpen || !!editing}
-        onToggle={(e: any) => setFormOpen(e.currentTarget.open)}
+        onToggle={(e: any) => { if (e.currentTarget.open) setFormOpen(true); else closeForm(); }}
       >
         <summary>
-          {formTitle}{" "}
+          {formTitle}{formDirty && <em className="unsaved-indicator"> · Cambios sin guardar</em>}{" "}
           <span>{formOpen || editing ? "−" : "+"}</span>
         </summary>
         <form className={`record-form${active === "Productos" ? " product-master-form" : ""}`} onSubmit={save}>
+          {active === "Presupuestos" && editing && <div className="quote-record-toolbar" role="toolbar" aria-label="Acciones del presupuesto">
+            <div><b>Presupuesto comercial</b><small>Previsualiza, envía al cliente o conviértelo en pedido conservando este documento.</small></div>
+            <div><button type="button" className="button secondary" onClick={() => void openPreview(editing)}>Vista previa / PDF</button><button type="button" className="button secondary" onClick={() => void sendQuoteToClient(editing)}>Enviar al cliente</button><button type="button" className="button primary" disabled={editing.status === "Convertido"} onClick={() => void convertQuoteToOrder(editing)}>{editing.status === "Convertido" ? "Convertido a pedido" : "Convertir a pedido"}</button></div>
+          </div>}
           {active === "Entradas" ? (
             <GoodsReceiptForm
               lookups={lookups}
               actor={user?.username || "Usuario local"}
               onCreated={(created) => {
                 setRows((current) => [created, ...current]);
-                setFormOpen(false);
+                closeForm(true);
               }}
             />
           ) : active === "Productos" ? (
@@ -4162,7 +4533,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                 <span>Ficha de producto</span>
                 <small>Completa los datos por bloques y conserva el control de costes, stock y reposición.</small>
                 <div>
-                  <button type="button" className="button secondary" onClick={() => setForm({})}>Limpiar ficha</button>
+                  <button type="button" className="button secondary" onClick={() => { if (window.confirm("¿Limpiar todos los campos de esta ficha? Se perderán los cambios actuales.")) beginForm({}); }}>Limpiar ficha</button>
                   <button type="button" className="button secondary" onClick={() => setForm((current: any) => ({ ...current, product_status: "Activo" }))}>Marcar activo</button>
                 </div>
               </div>
@@ -4201,12 +4572,12 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             <>
             {editing && <div className="order-record-toolbar" role="toolbar" aria-label="Acciones del pedido">
               <div><b>{isOrderSent(editing) ? "Pedido cerrado" : "Pedido editable"}</b><small>{isOrderSent(editing) ? "El pedido ya ha salido del almacén; consulta su documento desde aquí." : "Puedes modificar los datos y las líneas antes de enviarlo."}</small></div>
-              <div>{!isOrderSent(editing) && <>{editing.status === "Bloqueado" || editing.status === "Pospuesto" ? <button type="button" className="button primary" onClick={() => void manageOrder(editing, "Pendiente")}>Reactivar pedido</button> : <><button type="button" className="button secondary" onClick={() => void manageOrder(editing, "Bloqueado")}>Bloquear pedido</button><button type="button" className="button secondary" onClick={() => void manageOrder(editing, "Pospuesto")}>Posponer pedido</button></>}<button type="button" className="button danger" onClick={() => void manageOrder(editing, "Cancelado")}>Anular pedido</button></>}{<button type="button" className="button secondary" onClick={() => void openPreview(editing)}>Ver detalle</button>}{getOrderShipment(editing) && <button type="button" className="button workflow" onClick={() => void openOrderLoadNote(editing)}>Abrir nota de carga</button>}</div>
+              <div>{!isOrderSent(editing) && <>{editing.status === "Bloqueado" || editing.status === "Pospuesto" ? <button type="button" className="button primary" onClick={() => void manageOrder(editing, "Pendiente")}>Reactivar pedido</button> : <><button type="button" className="button secondary" onClick={() => void manageOrder(editing, "Bloqueado")}>Bloquear pedido</button><button type="button" className="button secondary" onClick={() => void manageOrder(editing, "Pospuesto")}>Posponer pedido</button></>}<button type="button" className="button danger" onClick={() => void manageOrder(editing, "Cancelado")}>Anular pedido</button></>}{<button type="button" className="button secondary" onClick={() => void openPreview(editing)}>Ver detalle</button>}{getOrderShipment(editing) ? <button type="button" className="button workflow" onClick={() => void openOrderLoadNote(editing)}>Abrir nota de carga</button> : <button type="button" className="button workflow" onClick={() => void createOrderLoadNote(editing)}>Crear nota de carga</button>}</div>
             </div>}
             <details className="order-general-accordion" open>
               <summary><b>Datos generales del pedido</b><span><em className="order-created-date">Fecha del pedido: {formatSpanishDateValue(String(form.created_at || tabletTodayInput()).slice(0, 10), false)}</em> · {orderGeneralComplete ? <em className="accordion-complete" title="Campos obligatorios completos">✓ Completo</em> : <em className="accordion-pending">Pendiente de completar</em>} · Mostrar más/menos</span></summary>
               <div className="order-general-fields">
-                {c.fields.filter((f: string) => !["product_id", "quantity", "unit_price", "discount", "amount", "billing_status", "shipping_status", "prepared_by", "shipped_by", "delivered_by"].includes(f)).map((f: string) => renderFormField(f, c.fields.indexOf(f)))}
+                {c.fields.filter((f: string) => !["product_id", "quantity", "unit_price", "discount", "amount", "billing_status", "payment_status", "shipping_status", "prepared_by", "shipped_by", "delivered_by"].includes(f)).map((f: string) => renderFormField(f, c.fields.indexOf(f)))}
               </div>
             </details>
             </>
@@ -4263,10 +4634,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               type="button"
               className="button secondary"
               onClick={() => {
-                setEditing(null);
-                setForm({});
-                setQuoteLines([]);
-                setFormOpen(false);
+                closeForm();
               }}
             >
               Cancelar
@@ -4318,16 +4686,21 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             onChange={(e) => setSearch(e.target.value)}
           />
           <span className="list-count" role="status">
-            {loading ? "Cargando registros…" : `${filteredRows.length} registros`}
+            {loading ? "Cargando registros…" : `${filteredRows.length} registros${totalPages > 1 ? ` · página ${currentPage}/${totalPages}` : ""}`}
           </span>
+          {quickViewOptions.length > 1 && <div className="saved-views" aria-label="Vistas rápidas">
+            <span className="saved-views-label">Vistas</span>
+            {quickViewOptions.map((option) => <button key={option.value} type="button" className={`saved-view-button${quickView === option.value ? " is-active" : ""}`} aria-pressed={quickView === option.value} onClick={() => { setQuickView(option.value); try { localStorage.setItem(`excluvas.quick-view.${c.api}`, option.value); } catch {} }}>{option.label}</button>)}
+          </div>}
           {active === "Pedidos" && <select className="billing-filter-select" value={billingFilter} onChange={(event) => setBillingFilter(event.target.value)} aria-label="Filtrar pedidos por facturación"><option value="todos">Facturación: todos</option><option value="pendientes">Sin facturar</option><option value="facturados">Facturados</option></select>}
           {active === "Pedidos" && <select className="billing-filter-select" value={shippingFilter} onChange={(event) => setShippingFilter(event.target.value)} aria-label="Filtrar pedidos por envío"><option value="todos">Envío: todos</option><option value="pendientes">Pendientes de enviar</option><option value="enviados">Enviados o entregados</option></select>}
-          {["Pedidos", "Facturas", "Cobros", "Devoluciones"].includes(active) && <>
+          {listFilterActive && <>
             <label className="list-filter-field">Cliente<select value={listClient} onChange={(event) => setListClient(event.target.value)} aria-label={`Filtrar ${active.toLowerCase()} por cliente`}><option value="">Todos los clientes</option>{(lookups.clients || []).map((client: any) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
+            {active === "Compras" && <label className="list-filter-field">Proveedor<select value={listSupplier} onChange={(event) => setListSupplier(event.target.value)} aria-label="Filtrar compras por proveedor"><option value="">Todos los proveedores</option>{(lookups.suppliers || []).map((supplier: any) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>}
             <label className="list-filter-field">Desde<input type="date" value={listDateFrom} onChange={(event) => setListDateFrom(event.target.value)} aria-label={`Fecha inicial de ${active.toLowerCase()}`} /></label>
             <label className="list-filter-field">Hasta<input type="date" value={listDateTo} onChange={(event) => setListDateTo(event.target.value)} aria-label={`Fecha final de ${active.toLowerCase()}`} /></label>
-            {active !== "Cobros" && <label className="list-filter-field">Estado<select value={listStatus} onChange={(event) => setListStatus(event.target.value)} aria-label={`Filtrar ${active.toLowerCase()} por estado`}><option>Todos</option>{(active === "Facturas" ? ["Proforma", "Pendiente", "Parcial", "Cobrada", "Vencida", "Anulada"] : active === "Devoluciones" ? ["Pendiente", "Aprobada", "Recibida", "Rechazada", "Anulada"] : ["Nuevo", "Pendiente", "Confirmado", "Preparando", "Preparado", "Enviado", "En reparto", "Entregado", "Facturado", "Cancelado"]).map((status) => <option key={status}>{status}</option>)}</select></label>}
-            {(listClient || listDateFrom || listDateTo || listStatus !== "Todos") && <button type="button" className="deleted-toggle" onClick={() => { setListClient(""); setListDateFrom(""); setListDateTo(""); setListStatus("Todos"); }}>Limpiar filtros</button>}
+            <label className="list-filter-field">Estado<select value={listStatus} onChange={(event) => setListStatus(event.target.value)} aria-label={`Filtrar ${active.toLowerCase()} por estado`}><option>Todos</option>{listStatusOptions.map((status) => <option key={status}>{status}</option>)}</select></label>
+            {(listClient || listSupplier || listDateFrom || listDateTo || listStatus !== "Todos") && <button type="button" className="deleted-toggle" onClick={() => { setListClient(""); setListSupplier(""); setListDateFrom(""); setListDateTo(""); setListStatus("Todos"); }}>Limpiar filtros</button>}
           </>}
           {isLoadPreparation && <div className="prep-date-filter" aria-label="Filtrar preparación por fecha"><label>Preparar el día <input type="date" value={preparationDateFilter} onChange={(event) => setPreparationDateFilter(event.target.value)} /></label><button type="button" className={`button ${preparationDateFilter === tabletTodayInput() ? "primary" : "secondary"}`} aria-pressed={preparationDateFilter === tabletTodayInput()} onClick={() => setPreparationDateFilter(tabletTodayInput())}>Hoy</button><button type="button" className={`button ${preparationDateFilter === tabletDateOffset(1) ? "primary" : "secondary"}`} aria-pressed={preparationDateFilter === tabletDateOffset(1)} onClick={() => setPreparationDateFilter(tabletDateOffset(1))}>Mañana</button><button type="button" className={`button ${preparationDateFilter === "" ? "primary" : "secondary"}`} aria-pressed={preparationDateFilter === ""} onClick={() => setPreparationDateFilter("")}>Todos</button></div>}
           {isLoadPreparation && <div className="prep-summary"><b>{filteredRows.length} pedidos a preparar</b><span>{preparationUrgentCount} urgentes</span><span>{preparationIncidentCount} con incidencia</span></div>}
@@ -4435,17 +4808,19 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((r) => (
+              {pagedRows.map((r) => (
                   <tr key={r.id ?? r.product_id} data-inline-row={r.id ?? r.product_id} data-row-modal={active === "Presupuestos" || active === "Pedidos" || usesRecordModal || active === "Entradas" ? "true" : undefined} className={`${isProducts && Number(r.stock || 0) - Number(r.stock_reserved || 0) <= Number(r.min_stock || 0) ? "product-row-critical" : ""}${isLoadPreparation && Number(r.urgent) === 1 ? " prep-row-urgent" : ""}${isLoadPreparation && r.status === "Preparado con incidencia" ? " prep-row-incident" : ""}${Number(r.deleted) === 1 ? " deleted-row" : ""}${active === "Pedidos" ? " order-list-row" : ""}`} onClick={(event) => { if (inlineEditing === (r.id ?? r.product_id) || (event.target as HTMLElement).closest("button, input, select, textarea, a")) return; if (active === "Entradas") { void openEntryDetail(r); return; } if (active === "Presupuestos" || active === "Pedidos") { if (active === "Pedidos" && isOrderSent(r)) void openPreview(r); else void openRecordModal(r); return; } if (isLoadPreparation) { void openPreparationRow(r); return; } if (usesRecordModal) { void openRecordModal(r); return; } beginInline(r); }}>
-                    {isProducts && <td className="product-check-column"><input type="checkbox" checked={selectedProductIds.includes(Number(r.id))} onChange={() => toggleProductSelection(Number(r.id))} aria-label={`Seleccionar ${r.name}`} /></td>}
-                    {isProducts && <td className="product-image-column"><button type="button" className={`product-thumbnail-button${productImageSource(r) ? "" : " product-reference-thumbnail"}`} onClick={() => setProductDetail(r)} aria-label={`Abrir imagen de ${r.name}`}>{<img src={productDisplayImageSource(r)} alt={productImageSource(r) ? "" : `Imagen de referencia para ${r.name}`} loading="lazy" />}</button></td>}
+                    {isProducts && <td className="product-check-column" data-label="Seleccionar"><input type="checkbox" checked={selectedProductIds.includes(Number(r.id))} onChange={() => toggleProductSelection(Number(r.id))} aria-label={`Seleccionar ${r.name}`} /></td>}
+                    {isProducts && <td className="product-image-column" data-label="Imagen"><button type="button" className={`product-thumbnail-button${productImageSource(r) ? "" : " product-reference-thumbnail"}`} onClick={() => setProductDetail(r)} aria-label={`Abrir imagen de ${r.name}`}>{<img src={productDisplayImageSource(r)} alt={productImageSource(r) ? "" : `Imagen de referencia para ${r.name}`} loading="lazy" />}</button></td>}
                     {visibleFields.map((f: string) => (
-                      <td key={f} className={`${stockCellClass(r, f)}${active === "Stock" && ["stock", "stock_reserved", "available_stock", "min_stock"].includes(f) && Number(r[f]) < 0 ? " stock-negative" : ""}`}>
+                      <td key={f} data-label={c.labels[c.fields.indexOf(f)] || f} className={`${stockCellClass(r, f)}${active === "Stock" && ["stock", "stock_reserved", "available_stock", "min_stock"].includes(f) && Number(r[f]) < 0 ? " stock-negative" : ""}`}>
                         {inlineEditing === (r.id ?? r.product_id) ? (
                           renderInlineEditor(f, r)
                         ) : (
                             f === "billing_status"
                             ? <span className={`billing-status billing-status-${String(r.billing_status || "Sin facturar").toLowerCase().replaceAll(" ", "-")}`}>{r.billing_status || "Sin facturar"}</span>
+                            : f === "payment_status"
+                            ? <span className={`payment-status payment-status-${getOrderPaymentStatus(r).toLowerCase().replaceAll(" ", "-")}`}>{getOrderPaymentStatus(r)}</span>
                             : f === "shipping_status"
                             ? <span className={`shipping-status shipping-status-${getOrderShippingStatus(r).toLowerCase().replaceAll(" ", "-")}`}>{getOrderShippingStatus(r)}</span>
                             : f === "client_id" && r.client_name
@@ -4460,7 +4835,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                         )}
                       </td>
                     ))}
-                    <td>
+                    <td data-label="Acciones">
                       <div className="row-actions">
                         {isLoadPreparation && (
                           <b className="prep-status-badge">{r.status || "Preparando"}</b>
@@ -4520,9 +4895,18 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                             <button type="button" className="row-action primary" onClick={() => { if (isOrderSent(r)) void openPreview(r); else void openRecordModal(r); }}>
                               Ver detalle
                             </button>
-                            {getOrderShipment(r) && <button type="button" className="row-action workflow" onClick={() => void openOrderLoadNote(r)}>
-                              Nota de carga
+                            {getOrderShipment(r) ? <button type="button" className="row-action workflow" onClick={() => void openOrderLoadNote(r)}>
+                              Abrir nota de carga
+                            </button> : <button type="button" className="row-action workflow" onClick={() => void createOrderLoadNote(r)} disabled={String(r.status || "") === "Cancelado"}>
+                              Crear nota de carga
                             </button>}
+                          </>
+                        )}
+                        {active === "Presupuestos" && (
+                          <>
+                            <button type="button" className="row-action primary" onClick={() => void openPreview(r)}>Vista previa / PDF</button>
+                            <button type="button" className="row-action workflow" onClick={() => void sendQuoteToClient(r)}>Enviar al cliente</button>
+                            <button type="button" className="row-action workflow" disabled={r.status === "Convertido"} onClick={() => void convertQuoteToOrder(r)}>{r.status === "Convertido" ? "Convertido" : "Convertir a pedido"}</button>
                           </>
                         )}
                         {active === "Entradas" && <button className="row-action primary" onClick={() => void openEntryDetail(r)}>Ver detalle</button>}
@@ -4564,6 +4948,13 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             </tbody>
           </table>
         </TopHorizontalScroll>
+      {!loading && sortedRows.length > 0 && <div className="table-pagination" aria-label="Paginación del listado">
+        <span>Mostrando {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, sortedRows.length)} de {sortedRows.length}</span>
+        <label>Filas<select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} aria-label="Filas por página"><option value="15">15</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
+        <button type="button" className="button secondary" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Anterior</button>
+        <b>Página {currentPage} de {totalPages}</b>
+        <button type="button" className="button secondary" disabled={currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Siguiente</button>
+      </div>}
       {loading && (
         <div className="data-loading" role="status" aria-live="polite">
           <span className="loading-spinner" aria-hidden="true" />
@@ -4573,6 +4964,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       {!loading && !filteredRows.length && (
         <p className="muted empty-row">{rows.length ? "No hay productos que coincidan con los filtros." : "No hay registros todavía."}</p>
       )}
+      {deletedUndo && deletedUndo.api === c.api && <div className="undo-toast" role="status"><span>Se ha enviado a la papelera: <b>{deletedUndo.label}</b></span><button type="button" className="button secondary" onClick={() => void undoDelete()}>Deshacer</button></div>}
       </div>
       {active === "Productos" && newSupplierOpen && <div className="preview-overlay" onMouseDown={(event) => event.target === event.currentTarget && !newSupplierSaving && setNewSupplierOpen(false)}><form className="supplier-create-modal" onSubmit={saveNewSupplier}><header className="preview-header"><div><b>Crear proveedor</b><small>Completa los datos del proveedor y quedará seleccionado en el producto.</small></div><button type="button" className="preview-close" aria-label="Cerrar" onClick={() => !newSupplierSaving && setNewSupplierOpen(false)}>×</button></header><div className="supplier-create-grid"><label>Nombre *<input required autoFocus value={newSupplier.name} onChange={(event) => setNewSupplier({ ...newSupplier, name: event.target.value })} /></label><label>NIF/CIF<input value={newSupplier.tax_id} onChange={(event) => setNewSupplier({ ...newSupplier, tax_id: event.target.value })} /></label><label>Persona de contacto<input value={newSupplier.contact} onChange={(event) => setNewSupplier({ ...newSupplier, contact: event.target.value })} /></label><label>Teléfono<input value={newSupplier.phone} onChange={(event) => setNewSupplier({ ...newSupplier, phone: event.target.value })} /></label><label>Email<input type="email" value={newSupplier.email} onChange={(event) => setNewSupplier({ ...newSupplier, email: event.target.value })} /></label><label>Condiciones de pago<input value={newSupplier.payment_terms} onChange={(event) => setNewSupplier({ ...newSupplier, payment_terms: event.target.value })} /></label><label className="supplier-create-wide">Dirección<textarea value={newSupplier.address} onChange={(event) => setNewSupplier({ ...newSupplier, address: event.target.value })} /></label></div><footer className="preview-actions"><button type="button" className="button secondary" onClick={() => setNewSupplierOpen(false)}>Cancelar</button><button className="button primary" disabled={newSupplierSaving}>{newSupplierSaving ? "Guardando…" : "Guardar proveedor"}</button></footer></form></div>}
       {active === "Productos" && labelProduct && (
@@ -4590,7 +4982,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         <ProductDetailDrawer
           product={productDetail}
           onClose={() => setProductDetail(null)}
-          onEdit={() => { setForm({ ...productDetail }); setEditing(productDetail); setFormOpen(true); setProductDetail(null); }}
+          onEdit={() => { beginForm({ ...productDetail }, productDetail); setFormOpen(true); setProductDetail(null); }}
           onLabel={() => { setLabelProduct(productDetail); setProductDetail(null); }}
           onDuplicate={() => { void duplicateProduct(productDetail); setProductDetail(null); }}
         />
@@ -4599,16 +4991,18 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         <ProductBatchLabelModal products={batchLabelProducts} onClose={() => setBatchLabelProducts([])} />
       )}
       {active === "Entradas" && entryDetail && (
-        <div className="preview-overlay" role="dialog" aria-modal="true" aria-label="Detalle de entrada" onMouseDown={(event) => event.target === event.currentTarget && setEntryDetail(null)}>
+        <div className="preview-overlay goods-receipt-detail-overlay" role="dialog" aria-modal="true" aria-label="Detalle de entrada" onMouseDown={(event) => event.target === event.currentTarget && setEntryDetail(null)}>
           <section className="preview-card goods-receipt-detail">
             <header className="preview-header"><div><b>Entrada · {entryDetail.code}</b><small>{entryDetail.supplier_name || "Proveedor sin nombre"} · {formatTableValue("receipt_date", entryDetail.receipt_date)} · {entryDetail.warehouse_name || "Almacén"}</small></div><button type="button" className="preview-close" aria-label="Cerrar" onClick={() => setEntryDetail(null)}>×</button></header>
-            <div className="goods-receipt-detail-meta"><span><b>Estado</b>{entryDetail.status}</span><span><b>Pedido de compra</b>{entryDetail.purchase_order_code || "Sin vincular"}</span><span><b>Recepcionado por</b>{entryDetail.received_by || "—"}</span></div>
-            <div className="goods-receipt-detail-lines">{(entryDetail.lines || []).map((line: any) => <article key={line.id}><div><b>{line.product_name || line.product_name_snapshot}</b><small>{line.sku || "Sin referencia"}</small></div><span>Esperadas <b>{line.expected_quantity}</b></span><span>Recibidas <b>{line.received_quantity}</b></span><strong className={line.status !== "Correcta" ? "goods-receipt-incident-text" : ""}>{line.status}</strong></article>)}</div>
-            {(entryDetail.incidents || []).length > 0 && <section className="goods-receipt-detail-incidents"><b>Incidencias de la entrada</b>{entryDetail.incidents.map((incident: any) => <article key={incident.id}><div><strong>{incident.type}</strong><span>{incident.description}</span><small>Estado: {incident.status || "Pendiente"}{incident.resolved_by ? ` · ${incident.resolved_by}` : ""}</small>{incident.resolution && <small>{incident.resolution}</small>}</div>{incident.attachment_data && <img src={incident.attachment_data} alt={incident.attachment_name || "Foto de incidencia"} />}<div className="goods-receipt-incident-actions"><select aria-label={`Estado de incidencia ${incident.type}`} value={incident.status || "Pendiente"} disabled={entryIncidentSaving === Number(incident.id)} onChange={(event) => void resolveEntryIncident(incident, event.target.value)}><option>Pendiente</option><option>En revisión</option><option>Resuelta</option><option>Rechazada</option></select></div></article>)}</section>}
-            <footer className="preview-actions"><button type="button" className="button secondary" onClick={() => setEntryDetail(null)}>Cerrar</button></footer>
+            <div className="goods-receipt-detail-meta"><span><b>Estado</b>{entryDetail.status}</span><span><b>Pedido de compra</b>{entryDetail.purchase_order_code || "Sin vincular"}</span><span><b>Factura de compra</b>{entryDetail.purchase_invoice_code || "Sin vincular"}</span><span><b>Recepcionado por</b>{entryDetail.received_by || "—"}</span><span><b>Validación responsable</b><select aria-label="Validación de la entrada" value={entryDetail.validation_status || "Pendiente"} disabled={entryValidationSaving} onChange={(event) => void validateEntry(event.target.value)}><option>Pendiente</option><option>Validada</option><option>Rechazada</option></select>{entryDetail.validated_by && <small>{entryDetail.validated_by}{entryDetail.validated_at ? ` · ${formatTableValue("created_at", entryDetail.validated_at)}` : ""}</small>}</span><span><b>Diferencia económica</b>{(entryDetail.lines || []).reduce((sum: number, line: any) => sum + Number(line.economic_difference || 0), 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</span></div>
+            {entryDetail.notes && <div className="goods-receipt-detail-notes"><b>Notas de la entrada</b><p>{entryDetail.notes}</p></div>}
+            <div className="goods-receipt-detail-lines">{(entryDetail.lines || []).map((line: any) => <article key={line.id}><div><b>{line.product_name || line.product_name_snapshot}</b><small>{line.sku || "Sin referencia"}{line.substitute_product_name ? ` · Sustituye a: ${line.substitute_product_name}` : ""}</small></div><span>Esperadas <b>{line.expected_quantity}</b></span><span>Recibidas <b>{line.received_quantity}</b></span><span>Daño <b>{line.damaged_quantity || 0}</b> · Sustituidas <b>{line.substituted_quantity || 0}</b></span><strong className={line.status !== "Correcta" ? "goods-receipt-incident-text" : ""}>{line.status}<small>{Number(line.economic_difference || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</small></strong></article>)}</div>
+            {(entryDetail.incidents || []).length > 0 && <section className="goods-receipt-detail-incidents"><b>Incidencias de la entrada</b>{entryDetail.incidents.map((incident: any) => <article key={incident.id}><div><strong>{incident.type}</strong><span>{incident.product_name ? `${incident.product_name} · ` : ""}{incident.description}</span><small>Estado: {incident.status || "Abierta"}{incident.resolved_by ? ` · ${incident.resolved_by}` : ""} · Reclamación: {incident.claim_status || "No reclamada"}</small>{incident.resolution && <small>{incident.resolution}</small>}{Number(incident.economic_difference || 0) !== 0 && <small>Diferencia económica: {Number(incident.economic_difference).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</small>}</div>{(incident.attachments?.length ? incident.attachments : incident.attachment_data ? [{ name: incident.attachment_name, data: incident.attachment_data }] : []).map((attachment: any, attachmentIndex: number) => <a className="goods-receipt-attachment-link" key={`${attachment.name || "adjunto"}-${attachmentIndex}`} href={attachment.url || attachment.data} target="_blank" rel="noreferrer"><img src={attachment.thumbnail_url || attachment.url || attachment.data} alt={attachment.name || "Fotografía de incidencia"} /><small>Ver adjunto</small></a>)}<div className="goods-receipt-incident-actions"><select aria-label={`Estado de incidencia ${incident.type}`} value={["Pendiente", "Abierta"].includes(incident.status || "") ? "Abierta" : incident.status} disabled={entryIncidentSaving === Number(incident.id)} onChange={(event) => void resolveEntryIncident(incident, event.target.value)}><option>Abierta</option><option>En revisión</option><option>Resuelta</option><option>Rechazada</option></select><button type="button" className="button secondary" disabled={entryIncidentSaving === Number(incident.id) || incident.claim_status === "Preparada"} onClick={() => void claimEntryIncident(incident)}>{incident.claim_status === "Preparada" ? "Reclamación creada" : "Crear reclamación"}</button></div></article>)}</section>}
+            <footer className="preview-actions"><button type="button" className="button secondary" onClick={() => setEntryEdit(entryDetail)}>Editar datos</button><button type="button" className="button secondary" onClick={() => window.print()}>Imprimir / guardar PDF</button><button type="button" className="button primary" onClick={() => setEntryDetail(null)}>Cerrar</button></footer>
           </section>
         </div>
       )}
+      {active === "Entradas" && entryEdit && <GoodsReceiptEditModal receipt={entryEdit} lookups={lookups} actor={user?.username || "Usuario local"} onClose={() => setEntryEdit(null)} onSaved={(updated) => { setEntryDetail(updated); setRows((current) => current.map((row) => Number(row.id) === Number(updated.id) ? { ...row, ...updated } : row)); }} />}
       {active === "Documentos" && documentPreview && (
         <DocumentTemplatePreview
           template={documentPreview}
@@ -4633,15 +5027,17 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               EXCLUSIVAS INTELIGENTES · DISTRIBUIDORA DE BEBIDAS
             </p>
             <h2>
-              {active === "Facturas"
+            {active === "Facturas"
                 ? "FACTURA"
                 : active === "Albaranes"
                   ? "ALBARÁN"
                   : active === "Preparación de pedidos"
                     ? "NOTA DE CARGA"
+                  : active === "Presupuestos"
+                    ? "PRESUPUESTO"
                   : active === "Compras"
                     ? "ORDEN DE COMPRA"
-                    : "PEDIDO"}{" "}
+                  : "PEDIDO"}{" "}
               · {preview.code}
             </h2>
             <div className="document-meta">
@@ -4668,6 +5064,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                 {isLoadPreparation && <><br /><b>Preparado por:</b> {preview.prepared_by || "Pendiente de asignar"}</>}
               </p>
             </div>
+            {active === "Pedidos" && <OrderWorkflowPanel order={preview} shipment={getOrderShipment(preview)} billingStatus={getOrderBillingStatus(preview)} paymentStatus={getOrderPaymentStatus(preview)} invoice={previewInvoice || getOrderInvoice(preview)} onOpenPayment={() => openPaymentFromOrder(preview)} onNavigate={onNavigate} />}
             {(previewLocation || previewAddress || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewAddress || "Dirección no indicada"}</span>{(previewLocation?.geocoding_status === "Geolocalizada" || previewClient?.geocoding_status === "Geolocalizada") ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}</div>{previewLat && previewLon ? <><a className="button secondary" href={`https://www.google.com/maps/search/?api=1&query=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Abrir en Google Maps</a><a className="button secondary" href={`https://www.google.com/maps/dir/?api=1&destination=${previewLat}%2C${previewLon}`} target="_blank" rel="noreferrer">Navegar con Google Maps</a><IntegratedMap locations={[{ latitude: previewLat, longitude: previewLon, name: previewLocation?.name || previewClient?.name }]} /></> : <a className="button secondary icon-action map-action" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(previewMapQuery)}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en Google Maps" title="Buscar dirección en Google Maps"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</section>}
             {isLoadPreparation && <section className="preparation-delivery-panel" aria-label="Editar dirección de entrega">
               <div className="preparation-delivery-head"><div><b>Dirección de entrega</b><small>Se guarda en este pedido y en su nota de carga.</small></div></div>
@@ -4787,7 +5184,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                 {bulkIncidentOpen && <div className="prep-bulk-incident-form"><textarea aria-label="Observaciones de la incidencia" value={bulkIncidentText} onChange={(event) => setBulkIncidentText(event.target.value)} placeholder="Añade una observación común para la incidencia (opcional)." rows={3} />{bulkIncidentError && <p className="prep-bulk-incident-error" role="alert">{bulkIncidentError}</p>}<div className="prep-bulk-incident-actions"><button type="button" className="row-action danger" disabled={bulkIncidentSaving} onClick={() => void createBulkPreparationIncident(incompletePreparationLines)}>{bulkIncidentSaving ? <><span className="button-spinner" aria-hidden="true" /> Registrando…</> : "Confirmar incidencia"}</button><button type="button" className="row-action" disabled={bulkIncidentSaving} onClick={() => { setBulkIncidentOpen(false); setBulkIncidentText(""); setBulkIncidentError(""); }}>Cancelar</button></div></div>}
               </section>
             )}
-            {active !== "Cobros" && active !== "Compras" && <div className="add-line">
+            {active !== "Cobros" && active !== "Compras" && !(active === "Pedidos" && isOrderSent(preview)) && <div className="add-line">
               <select
                 value={newLine.product_id}
                 onChange={(e) => {
@@ -4846,6 +5243,15 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                   return n + amount;
                 }, 0);
                 const lineVat = lineBase * (Number(preview.vat || 21) / 100);
+                const quoteAmount = Number(preview.amount || 0);
+                if (active === "Presupuestos") {
+                  return (
+                    <>
+                      <span>Importe del presupuesto: {quoteAmount.toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</span>
+                      <strong>Total: {quoteAmount.toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong>
+                    </>
+                  );
+                }
                 return (
                   <>
                     <span>Base imponible: {lineBase.toFixed(2)} €</span>
@@ -4866,6 +5272,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             <button className="button secondary" disabled={previewLoading} onClick={() => window.print()}>
               Imprimir / guardar PDF
             </button>
+            {active === "Pedidos" && <div className="order-preview-actions"><button type="button" className="button workflow" onClick={() => void (getOrderShipment(preview) ? openOrderLoadNote(preview) : createOrderLoadNote(preview))}>{getOrderShipment(preview) ? "Abrir nota de carga" : "Crear nota de carga"}</button>{!isOrderSent(preview) && <button type="button" className="button secondary" onClick={() => { setPreview(null); beginInline(preview); }}>Editar pedido</button>}<button type="button" className="button secondary" onClick={() => void convertOrder(preview, "delivery")}>Crear albarán</button><button type="button" className="button primary" onClick={() => void convertOrder(preview, "invoice")}>Crear factura</button></div>}
+            {active === "Presupuestos" && <div className="quote-preview-actions"><button type="button" className="button secondary" onClick={() => void sendQuoteToClient(preview)}>Enviar al cliente</button><button type="button" className="button primary" disabled={preview.status === "Convertido"} onClick={() => void convertQuoteToOrder(preview)}>{preview.status === "Convertido" ? "Convertido a pedido" : "Convertir a pedido"}</button></div>}
           </div>
         </div>
       )}
@@ -4915,7 +5323,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         <button className="preview-close" onClick={() => !billingSaving && setBillingOpen(false)}>×</button>
         <p className="eyebrow">FACTURACIÓN · EXCLUSIVAS INTELIGENTES</p><h2>Facturar pedidos</h2>
         <p className="muted">Selecciona pedidos del mismo cliente para crear una única factura. Los ya facturados quedan bloqueados.</p>
-        <div className="billing-toolbar"><label>Entrega desde<input type="date" value={billingFrom} onChange={(e) => setBillingFrom(e.target.value)} /></label><label>Entrega hasta<input type="date" value={billingTo} onChange={(e) => setBillingTo(e.target.value)} /></label><label>Cliente<select value={billingClient} onChange={(e) => setBillingClient(e.target.value)}><option value="">Todos los clientes</option>{(lookups.clients || []).map((client: any) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label><button className="button secondary" onClick={() => void loadBillingOrders()}>Buscar</button></div>
+        <div className="billing-toolbar"><label>Entrega desde<input type="date" value={billingFrom} onChange={(e) => setBillingFrom(e.target.value)} /></label><label>Entrega hasta<input type="date" value={billingTo} onChange={(e) => setBillingTo(e.target.value)} /></label><label>Cliente<select value={billingClient} onChange={(e) => setBillingClient(e.target.value)}><option value="">Todos los clientes</option>{(lookups.clients || []).map((client: any) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label><button className="button secondary" onClick={() => void loadBillingOrders()}>Buscar</button><button type="button" className="button secondary" onClick={() => setBillingSelected(billingRows.filter((row: any) => !row.billed).map((row: any) => Number(row.id)))} disabled={!billingRows.some((row: any) => !row.billed)}>Seleccionar pendientes</button><button type="button" className="button secondary" onClick={() => setBillingSelected([])} disabled={!billingSelected.length}>Limpiar selección</button></div>
         {billingError && <div className="error-message" role="alert">{billingError}</div>}
         {billingLoading ? <div className="data-loading"><span className="loading-spinner" />Cargando pedidos…</div> : <div className="billing-list">{billingRows.length ? billingRows.map((row: any) => <label className={`billing-row${row.billed ? " billed" : ""}`} key={row.id}><input type="checkbox" disabled={Boolean(row.billed)} checked={billingSelected.includes(Number(row.id))} onChange={() => setBillingSelected((current) => current.includes(Number(row.id)) ? current.filter((id) => id !== Number(row.id)) : [...current, Number(row.id)])} /><span><b>{row.code}</b><small>{row.client_name || "Cliente no indicado"} · Entrega {row.delivery_date || (row.created_at ? formatSpanishDateValue(row.created_at, false) : "Fecha no indicada")}</small></span><strong>{Number(row.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</strong><em>{row.billed ? "Ya facturado" : row.status || "Pendiente"}</em><button type="button" className="button link-button" onClick={() => { setBillingOpen(false); void openPreview(row); }}>Ver pedido</button></label>) : <p className="empty-state">No hay pedidos para los filtros seleccionados.</p>}</div>}
         <div className="billing-footer"><span>{billingSelected.length} seleccionados · {billingRows.filter((row) => billingSelected.includes(Number(row.id))).reduce((sum, row) => sum + Number(row.amount || 0), 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</span><button className="button primary" disabled={!billingSelected.length || billingSaving} onClick={() => void createGroupedInvoice()}>{billingSaving ? "Creando…" : "Crear factura agrupada"}</button></div>
@@ -8377,7 +8785,7 @@ function QuickExpenseModal({
   );
 }
 
-function HomeNotePreviewModal({ note, user, onClose, onOpenPreparation }: { note: any; user: any; onClose: () => void; onOpenPreparation: () => void }) {
+function HomeNotePreviewModal({ note, user, onClose, onOpenPreparation, onEdit }: { note: any; user: any; onClose: () => void; onOpenPreparation: () => void; onEdit: () => void }) {
   const [action, setAction] = useState("review");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -8412,7 +8820,7 @@ function HomeNotePreviewModal({ note, user, onClose, onOpenPreparation }: { note
       {isIncident && <div className="note-preview-incident-context"><div><b>Pedido relacionado</b><span>{note.title?.split("·").slice(1).join("·").trim() || (note.record_id ? `Pedido #${note.record_id}` : "Sin pedido relacionado")}</span></div><div><b>Registrada por</b><span>{note.created_by || "Usuario local"}</span></div><div><b>Fecha de registro</b><span>{note.created_at ? formatSpanishDateValue(note.created_at, true) : "—"}</span></div></div>}
       <div className="note-preview-content">{note.content || "Sin contenido adicional."}</div>
       {isIncident && <div className="note-preview-resolution"><div className="note-preview-resolution-head"><b>Resolver incidencia</b><small>Guarda la decisión y deja trazabilidad de quién la autoriza.</small></div><div className="note-preview-resolution-controls"><select aria-label="Acción de resolución" value={action} onChange={(event) => setAction(event.target.value)} disabled={saving}><option value="partial">Autorizar envío parcial</option><option value="backorder">Solicitar reposición</option><option value="cancel">Cancelar unidades faltantes</option><option value="review">Dejar en revisión</option></select><button className="button primary" disabled={saving} onClick={() => void applyAction()}>{saving ? "Guardando…" : "Aplicar resolución"}</button></div>{error && <p className="note-preview-error" role="alert">{error}</p>}</div>}
-      <div className="note-preview-actions">{isIncident && <button className="button secondary" onClick={onOpenPreparation}>Abrir preparación</button>}<button className="button secondary" onClick={onClose}>Editar nota</button><button className="button primary" onClick={onClose}>Cerrar</button></div>
+      <div className="note-preview-actions">{isIncident && <button className="button secondary" onClick={onOpenPreparation}>Abrir preparación</button>}<button className="button secondary" onClick={onEdit}>Editar nota</button><button className="button primary" onClick={onClose}>Cerrar</button></div>
     </article>
   </div>;
 }
@@ -8434,18 +8842,20 @@ function WebRegistrationsManager({ user }: { user: any }) {
   }
   useEffect(() => { void load(); }, []);
   async function review(row: any, status: string) {
+    const rejectionReason = status === "Rechazada" ? window.prompt("Motivo del rechazo (opcional):", row.rejection_reason || "") : "";
+    if (status === "Rechazada" && rejectionReason === null) return;
     setSavingId(Number(row.id)); setMessage("");
     try {
-      const response = await fetch(`/api/web_registrations/${row.id}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-Actor": user?.username || "Usuario local" }, body: JSON.stringify({ status }) });
+      const response = await fetch(`/api/web_registrations/${row.id}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-Actor": user?.username || "Usuario local" }, body: JSON.stringify({ status, rejection_reason: rejectionReason || undefined }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se ha podido actualizar la solicitud.");
-      setRows((current) => current.map((item) => item.id === row.id ? { ...item, status } : item));
-      setMessage(`Solicitud de ${row.company_name} marcada como ${status.toLowerCase()}.`);
+      setRows((current) => current.map((item) => item.id === row.id ? { ...item, ...data, status, rejection_reason: rejectionReason || null } : item));
+      setMessage(status === "Validada" ? `Solicitud de ${row.company_name} validada y vinculada al CRM en ${data.crm_record_type === "proveedor" ? "Proveedores" : "Clientes"}.` : `Solicitud de ${row.company_name} marcada como ${status.toLowerCase()}.`);
     } catch (error) { setMessage(error instanceof Error ? error.message : "No se ha podido actualizar la solicitud."); }
     finally { setSavingId(null); }
   }
   const visibleRows = rows.filter((row) => filter === "Todas" || row.status === filter);
-  return <section className="web-registrations-manager"><div className="manager-head"><div><p className="eyebrow">PORTAL WEB · VALIDACIÓN</p><h2>Altas web</h2><p className="muted">Revisa y valida las solicitudes recibidas desde la web pública.</p></div><div><button className="button secondary" onClick={() => void load()}>Actualizar</button></div></div><div className="web-registration-toolbar"><label>Estado<select value={filter} onChange={(event) => setFilter(event.target.value)}><option>Pendiente de validar</option><option>Validada</option><option>Rechazada</option><option>Todas</option></select></label><span>{visibleRows.length} solicitudes</span></div>{message && <p className="success-message" role="status">{message}</p>}{loading ? <div className="data-loading" role="status"><span className="loading-spinner" />Cargando solicitudes…</div> : <div className="web-registration-list">{visibleRows.length ? visibleRows.map((row) => <article className="web-registration-card" key={row.id}><header><div><span className="web-registration-kind">{row.kind === "proveedor" ? "PROVEEDOR" : "CLIENTE"}</span><h3>{row.company_name}</h3></div><b className={`web-registration-status status-${String(row.status).toLowerCase().replaceAll(" ", "-")}`}>{row.status}</b></header><div className="web-registration-data"><span><b>Contacto</b>{row.contact_name}</span><span><b>Email</b>{row.email}</span><span><b>Teléfono</b>{row.phone || "No indicado"}</span><span><b>Ubicación</b>{[row.address, row.city].filter(Boolean).join(" · ") || "No indicada"}</span></div>{row.message && <p>{row.message}</p>}<footer><small>{row.created_at ? formatSpanishDateValue(row.created_at, true) : "Fecha no indicada"} · Portal web</small>{row.status === "Pendiente de validar" && <div><button className="button secondary" disabled={savingId === row.id} onClick={() => void review(row, "Rechazada")}>Rechazar</button><button className="button primary" disabled={savingId === row.id} onClick={() => void review(row, "Validada")}>{savingId === row.id ? "Guardando…" : "Validar solicitud"}</button></div>}</footer></article>) : <p className="empty-state">No hay solicitudes con este estado.</p>}</div>}</section>;
+  return <section className="web-registrations-manager"><div className="manager-head"><div><p className="eyebrow">PORTAL WEB · VALIDACIÓN</p><h2>Altas web</h2><p className="muted">Revisa y valida las solicitudes recibidas desde la web pública.</p></div><div><button className="button secondary" onClick={() => void load()}>Actualizar</button></div></div><div className="web-registration-toolbar"><label>Estado<select value={filter} onChange={(event) => setFilter(event.target.value)}><option>Pendiente de validar</option><option>Validada</option><option>Rechazada</option><option>Todas</option></select></label><span>{visibleRows.length} solicitudes</span></div>{message && <p className="success-message" role="status">{message}</p>}{loading ? <div className="data-loading" role="status"><span className="loading-spinner" />Cargando solicitudes…</div> : <div className="web-registration-list">{visibleRows.length ? visibleRows.map((row) => <article className="web-registration-card" key={row.id}><header><div><span className="web-registration-kind">{row.kind === "proveedor" ? "PROVEEDOR" : "CLIENTE"}</span><h3>{row.company_name}</h3></div><b className={`web-registration-status status-${String(row.status).toLowerCase().replaceAll(" ", "-")}`}>{row.status}</b></header><div className="web-registration-data"><span><b>Contacto</b>{row.contact_name}</span><span><b>Email</b>{row.email}</span><span><b>Teléfono</b>{row.phone || "No indicado"}</span><span><b>Ubicación</b>{[row.address, row.city].filter(Boolean).join(" · ") || "No indicada"}</span></div>{row.message && <p>{row.message}</p>}{row.crm_record_id && <div className="web-registration-linked"><b>Vinculada al CRM</b><span>{row.crm_record_type === "proveedor" ? "Proveedor" : "Cliente"} #{row.crm_record_id} · {row.reviewed_by || "Usuario local"}</span></div>}{row.rejection_reason && <div className="web-registration-rejection"><b>Motivo del rechazo</b><span>{row.rejection_reason}</span></div>}<footer><small>{row.created_at ? formatSpanishDateValue(row.created_at, true) : "Fecha no indicada"} · Portal web</small>{row.status === "Pendiente de validar" && <div><button className="button secondary" disabled={savingId === row.id} onClick={() => void review(row, "Rechazada")}>Rechazar</button><button className="button primary" disabled={savingId === row.id} onClick={() => void review(row, "Validada")}>{savingId === row.id ? "Guardando…" : "Validar y crear ficha"}</button></div>}</footer></article>) : <p className="empty-state">No hay solicitudes con este estado.</p>}</div>}</section>;
 }
 
 export function OcrIntelligent({ user = { username: "Usuario local" } }: { user?: any }) {
@@ -9611,7 +10021,7 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
         />
       )}
       {homeNotePreviewLoading && <div className="preview-loading-overlay" role="status">Cargando detalle de la nota…</div>}
-      {homeNotePreview && <HomeNotePreviewModal note={homeNotePreview} user={currentUser} onClose={() => setHomeNotePreview(null)} onOpenPreparation={() => { setHomeNotePreview(null); setActive("Preparación de pedidos"); }} />}
+      {homeNotePreview && <HomeNotePreviewModal note={homeNotePreview} user={currentUser} onClose={() => setHomeNotePreview(null)} onOpenPreparation={() => { setHomeNotePreview(null); setActive("Preparación de pedidos"); }} onEdit={() => { const id = Number(homeNotePreview.id); setHomeNotePreview(null); setActive("Notas"); window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:editar-nota", { detail: id })), 160); }} />}
     </main>
   );
 }
