@@ -94,27 +94,32 @@ try {
     const match = String(row.warehouse_location || "").trim().toUpperCase().match(validLocation);
     if (match) used.add((match[1].charCodeAt(0) - 65) * 200 + Number(match[2]));
   }
-  const updatePicking = db.prepare("UPDATE products SET warehouse_location=?, picking_order=? WHERE id=?");
-  const normalizePicking = db.transaction(() => {
-    let next = 1;
-    for (const row of pickingRows) {
-      const current = String(row.warehouse_location || "").trim().toUpperCase().match(validLocation);
-      if (current) {
-        const order = (current[1].charCodeAt(0) - 65) * 200 + Number(current[2]);
-        const normalized = current[1] + "-" + String(Number(current[2])).padStart(3, "0");
-        if (Number(row.picking_order || 0) !== order || String(row.warehouse_location || "") !== normalized) updatePicking.run(normalized, order, row.id);
-        continue;
-      }
-      while (used.has(next)) next += 1;
-      if (next > 26 * 200) break;
-      const zone = String.fromCharCode(65 + Math.floor((next - 1) / 200));
-      const position = ((next - 1) % 200) + 1;
-      updatePicking.run(zone + "-" + String(position).padStart(3, "0"), next, row.id);
-      used.add(next);
-      next += 1;
+  const updates = [];
+  let next = 1;
+  for (const row of pickingRows) {
+    const current = String(row.warehouse_location || "").trim().toUpperCase().match(validLocation);
+    if (current) {
+      const order = (current[1].charCodeAt(0) - 65) * 200 + Number(current[2]);
+      const normalized = current[1] + "-" + String(Number(current[2])).padStart(3, "0");
+      if (Number(row.picking_order || 0) !== order || String(row.warehouse_location || "") !== normalized) updates.push({ sql: "UPDATE products SET warehouse_location=?, picking_order=? WHERE id=?", args: [normalized, order, row.id] });
+      continue;
     }
-  });
-  normalizePicking();
+    while (used.has(next)) next += 1;
+    if (next > 26 * 200) break;
+    const zone = String.fromCharCode(65 + Math.floor((next - 1) / 200));
+    const position = ((next - 1) % 200) + 1;
+    updates.push({ sql: "UPDATE products SET warehouse_location=?, picking_order=? WHERE id=?", args: [zone + "-" + String(position).padStart(3, "0"), next, row.id] });
+    used.add(next);
+    next += 1;
+  }
+  if (updates.length) {
+    if (typeof db.batch === "function") db.batch(updates);
+    else {
+      const updatePicking = db.prepare("UPDATE products SET warehouse_location=?, picking_order=? WHERE id=?");
+      const normalizePicking = db.transaction(() => { for (const update of updates) updatePicking.run(...update.args); });
+      normalizePicking();
+    }
+  }
 } catch {}
 for (const column of ["order_id", "shipment_id", "client_id", "created_by"]) {
   try { db.exec(`ALTER TABLE inventory_movements ADD COLUMN ${column} TEXT`); } catch {}
