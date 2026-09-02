@@ -4136,6 +4136,41 @@ select.form-control option:hover {
   .public-web-catalog-banner span { font-size: 9px; }
 }
 
+/* Las promociones son filtros visibles, no texto decorativo. */
+.public-web-promo-ticker button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 13px 15px;
+  border: 0;
+  border-right: 1px solid #3b332e;
+  background: transparent;
+  color: #aaa59c;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  transition: background .18s ease, color .18s ease;
+}
+.public-web-promo-ticker button:last-child { border-right: 0; }
+.public-web-promo-ticker button:hover,
+.public-web-promo-ticker button:focus-visible { background: #2a1e1a; color: #fff; outline: 0; }
+.public-web-promo-ticker button.active { background: #bd2027; color: #fff; }
+.public-web-promo-ticker button b { margin: 0; color: #f5f1e8; }
+.public-web-promo-ticker button.active b { color: #fff; }
+.public-web-promo-ticker button span { padding: 0; color: inherit; font-size: inherit; }
+.public-web-promo-ticker button i { margin-left: auto; color: #bd2027; font-size: 15px; font-style: normal; }
+.public-web-promo-ticker button.active i { color: #ffd6d8; }
+@media (max-width: 560px) {
+  .public-web-promo-ticker button { border-right: 0; border-top: 1px solid #3b332e; }
+  .public-web-promo-ticker button:first-child { border-top: 0; }
+}
+
 /* Category cards: make the catalogue entry point visual and product-led. */
 .public-web-category-grid {
   gap: 1px;
