@@ -8,6 +8,29 @@
   margin: 8px 0;
 }
 
+/* Public web: app launch teaser */
+.public-web-app-highlights { display: grid; grid-template-columns: minmax(240px, .7fr) 1.3fr; align-items: center; gap: 8%; width: min(1280px, calc(100% - 36px)); margin: 0 auto; padding: 82px 8%; background: #11110f; color: #f5f1e8; }
+.public-web-app-highlights-copy { max-width: 330px; }.public-web-app-highlights-copy .public-web-kicker { color: #bd2027; }.public-web-app-highlights-copy h2 { margin: 0; color: #f5f1e8; font-size: clamp(42px, 5vw, 64px); letter-spacing: -.075em; line-height: .9; }.public-web-app-highlights-copy h2 em { color: #bd2027; font-style: normal; }.public-web-app-highlights-copy > p:not(.public-web-kicker) { margin: 22px 0 0; color: #aaa59c; font-size: 13px; line-height: 1.5; }
+.public-web-app-highlight-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
+.public-web-app-highlight-list article { display: grid; align-content: start; gap: 13px; min-height: 148px; padding: 8px 22px; border-left: 1px solid #37332f; }
+.public-web-app-highlight-list article:first-child { border-left: 0; }
+.public-web-app-highlight-list article > span { color: #bd2027; font-size: 10px; font-weight: 800; letter-spacing: .1em; }
+.public-web-app-highlight-list article > div { display: grid; align-content: start; gap: 10px; }.public-web-app-highlight-list article > div > b { display: grid; place-items: center; width: 30px; height: 30px; background: #bd2027; color: #fff; font-size: 18px; font-weight: 400; }
+.public-web-app-highlight-list h3 { margin: 0; color: #f5f1e8; font-size: 19px; letter-spacing: -.04em; line-height: 1; }
+.public-web-app-highlight-list p { margin: 0; color: #aaa59c; font-size: 11px; line-height: 1.45; }
+.public-web-app { display: grid; grid-template-columns: minmax(260px, .9fr) minmax(0, 1.1fr); align-items: center; gap: 9%; width: min(1280px, calc(100% - 36px)); margin: 0 auto; padding: 105px 8%; background: #eeece4; color: #11110f; }
+.public-web-app-device { position: relative; width: min(100%, 300px); min-height: 405px; margin: 0 auto; padding: 14px; border: 7px solid #11110f; border-radius: 28px; background: #bd2027; box-shadow: 18px 18px 0 #d6d3c9; transform: rotate(-3deg); }
+.public-web-app-device::before { content: ""; position: absolute; top: 5px; left: 50%; width: 70px; height: 5px; border-radius: 0 0 7px 7px; background: #11110f; transform: translateX(-50%); }
+.public-web-app-device-top { display: grid; gap: 2px; padding: 25px 12px 14px; color: #fff; border-bottom: 1px solid rgba(255,255,255,.32); }
+.public-web-app-device-top span { font-size: 18px; font-weight: 800; letter-spacing: -.06em; }.public-web-app-device-top b { color: #ffd6d8; font-size: 7px; letter-spacing: .22em; }
+.public-web-app-device-top i { position: absolute; top: 28px; right: 17px; width: 26px; height: 26px; border: 1px solid rgba(255,255,255,.55); border-radius: 50%; }.public-web-app-device-top i::after { content: ""; position: absolute; inset: 7px; border: 2px solid #fff; border-radius: 50%; }
+.public-web-app-device-body { display: grid; align-content: center; min-height: 320px; padding: 25px 12px; background: linear-gradient(145deg, #bd2027, #611519); color: #fff; }.public-web-app-device-body small { color: #ffd6d8; font-size: 8px; font-weight: 800; letter-spacing: .15em; }.public-web-app-device-body strong { margin-top: 22px; font-size: 36px; letter-spacing: -.07em; line-height: .92; }.public-web-app-device-body strong em { color: #ffd6d8; font-style: normal; }.public-web-app-device-body > span { margin-top: 20px; color: #ffd6d8; font-size: 10px; }.public-web-app-device-body > div { display: flex; gap: 8px; margin-top: 38px; }.public-web-app-device-body > div b { display: grid; place-items: center; width: 34px; height: 34px; background: #eeece4; color: #bd2027; font-size: 20px; }
+.public-web-app-copy { max-width: 540px; }.public-web-app-copy h2 { margin: 0; font-size: clamp(42px, 5vw, 70px); letter-spacing: -.075em; line-height: .92; }.public-web-app-copy h2 em { color: #bd2027; font-style: normal; }.public-web-app-copy > p:not(.public-web-kicker) { max-width: 440px; margin: 24px 0 0; color: #77736c; font-size: 14px; line-height: 1.55; }.public-web-app-stores { display: flex; gap: 10px; margin-top: 28px; }.public-web-app-stores span { display: grid; gap: 4px; min-width: 138px; padding: 11px 13px; border: 1px solid #c7c3b7; background: #f8f7f1; }.public-web-app-stores b { font-size: 12px; }.public-web-app-stores small { color: #77736c; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }.public-web-app-copy .public-web-text-link { display: inline-flex; margin-top: 27px; color: #bd2027; }
+@media (max-width: 900px) { .public-web-app { grid-template-columns: 1fr; gap: 55px; }.public-web-app-device { order: 2; }.public-web-app-copy { max-width: none; } }
+@media (max-width: 1100px) { .public-web-app-highlights { grid-template-columns: 1fr; gap: 34px; }.public-web-app-highlights-copy { max-width: none; }.public-web-app-highlight-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }.public-web-app-highlight-list article { border-top: 1px solid #37332f; border-left: 0; }.public-web-app-highlight-list article:first-child { border-top: 1px solid #37332f; }.public-web-app-highlight-list article { min-height: 0; padding: 18px 16px 8px 0; } }
+@media (max-width: 700px) { .public-web-app-highlight-list { grid-template-columns: 1fr; }.public-web-app-highlight-list article, .public-web-app-highlight-list article:first-child { padding: 18px 0; } }
+@media (max-width: 560px) { .public-web-app { padding: 72px 24px; }.public-web-app-device { width: min(100%, 260px); min-height: 355px; }.public-web-app-device-body { min-height: 276px; }.public-web-app-device-body strong { font-size: 31px; }.public-web-app-stores { flex-direction: column; }.public-web-app-stores span { width: 100%; } }
+
 /* Vista comercial específica para tablet. Mantiene la ruta ligera y separada
    del CRM completo, con objetivos táctiles amplios y sin scroll horizontal. */
 .commercial-tablet-shell { min-height: 100vh; background: #eef2f4; color: #24343c; }
@@ -3809,9 +3832,10 @@ select.form-control option:hover {
 .public-web-header nav a:hover, .public-web-footer a:hover { color: #bd2027; }
 .public-web-menu-toggle { display: none; }
 .public-web-menu-order-link { display: none; }
-.public-web-order-link { display: flex; align-items: center; gap: 12px; padding: 10px 13px; background: #f4f3ed; color: #11110f !important; font-size: 11px; font-weight: 700; }
-.public-web-order-link:hover { background: #bd2027; color: #fff !important; }
-.public-web-order-link span, .public-web-text-link span { color: #bd2027; font-size: 16px; }
+.public-web-order-link { display: flex; align-items: center; gap: 12px; padding: 10px 13px; background: #bd2027; color: #fff !important; font-size: 11px; font-weight: 700; }
+.public-web-order-link:hover, .public-web-order-link:focus-visible { background: #991b1b; color: #fff !important; }
+.public-web-order-link span, .public-web-text-link span { color: #fff; font-size: 16px; }
+.public-web-header nav .public-web-menu-order-link { background: #bd2027; color: #fff !important; }.public-web-header nav .public-web-menu-order-link span { color: #fff; }
 .public-web-hero { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(390px, .8fr); align-items: center; min-height: 670px; width: min(1280px, calc(100% - 36px)); margin: 0 auto; padding: 80px 8%; background: radial-gradient(circle at 76% 37%, #44230f 0, #16100d 17%, transparent 36%), linear-gradient(120deg, #0a0a09 0%, #11110f 60%, #180f0b 100%); }
 .public-web-hero-copy { position: relative; z-index: 2; max-width: 650px; }
 .public-web-kicker { margin: 0 0 18px; color: #bd2027; font-size: 10px; font-weight: 800; letter-spacing: .2em; }
