@@ -4039,3 +4039,51 @@ select.form-control option:hover {
   .table-tools-filters .prep-date-filter { width: 100%; margin-left: 0; }
   .table-tools-filters .prep-summary { align-items: flex-start; flex-wrap: wrap; }
 }
+
+.public-web-registration-choice,
+.public-web-login-modal { position: relative; width: min(620px, 100%); max-height: calc(100vh - 36px); overflow-y: auto; padding: 42px; background: #f4f3ed; color: #11110f; }
+.public-web-registration-choice h2,
+.public-web-login-modal h2 { margin: 0; font-size: clamp(34px, 5vw, 52px); letter-spacing: -.07em; line-height: .92; }
+.public-web-registration-choice > p:not(.public-web-kicker),
+.public-web-login-modal > form > p:not(.public-web-kicker) { max-width: 470px; margin: 16px 0 0; color: #77736c; font-size: 13px; line-height: 1.5; }
+.public-web-registration-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 30px; }
+.public-web-registration-choice-grid button { position: relative; display: grid; align-content: start; gap: 12px; min-height: 190px; padding: 20px; border: 1px solid #c7c3b7; background: #fff; color: #11110f; cursor: pointer; text-align: left; transition: border-color .18s ease, background .18s ease, color .18s ease; }
+.public-web-registration-choice-grid button:hover,
+.public-web-registration-choice-grid button:focus-visible { border-color: #bd2027; background: #bd2027; color: #fff; outline: 0; }
+.public-web-registration-choice-grid button > span { color: #bd2027; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.public-web-registration-choice-grid button:hover > span,
+.public-web-registration-choice-grid button:focus-visible > span { color: #ffd6d8; }
+.public-web-registration-choice-grid button > b { max-width: 170px; font-size: 22px; letter-spacing: -.05em; line-height: 1; }
+.public-web-registration-choice-grid button > small { max-width: 190px; color: #77736c; font-size: 11px; line-height: 1.45; }
+.public-web-registration-choice-grid button:hover > small,
+.public-web-registration-choice-grid button:focus-visible > small { color: #ffe4e4; }
+.public-web-registration-choice-grid button > i { position: absolute; right: 18px; bottom: 17px; color: #bd2027; font-size: 24px; font-style: normal; }
+.public-web-registration-choice-grid button:hover > i,
+.public-web-registration-choice-grid button:focus-visible > i { color: #fff; }
+.public-web-registration-kind { display: flex; align-items: center; gap: 10px; margin-top: 22px; padding: 10px 12px; border-left: 3px solid #bd2027; background: #ebe9e1; font-size: 11px; }
+.public-web-registration-kind span { color: #77736c; }
+.public-web-registration-kind b { color: #11110f; }
+.public-web-registration-kind button,
+.public-web-modal-switch button { padding: 0; border: 0; background: transparent; color: #bd2027; cursor: pointer; font-size: inherit; font-weight: 800; }
+.public-web-registration-kind button { margin-left: auto; }
+.public-web-form-error { margin: 16px 0 0; padding: 10px 12px; border-left: 3px solid #bd2027; background: #fff0f1; color: #991b1b !important; font-size: 12px !important; line-height: 1.4 !important; }
+.public-web-modal-switch { margin: 22px 0 0; color: #77736c; font-size: 11px; }
+.public-web-login-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: 28px; border-bottom: 1px solid #c7c3b7; }
+.public-web-login-switch button { padding: 12px 14px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: #77736c; cursor: pointer; font-size: 12px; font-weight: 800; text-align: left; }
+.public-web-login-switch button.active { border-bottom-color: #bd2027; color: #bd2027; }
+.public-web-login-fields { display: grid; gap: 14px; margin-top: 22px; }
+.public-web-login-fields label { display: grid; gap: 6px; color: #514d46; font-size: 10px; font-weight: 700; }
+.public-web-login-fields input { width: 100%; padding: 12px; border: 1px solid #c7c3b7; background: #fff; color: #11110f; outline: 0; }
+.public-web-login-fields input:focus { border-color: #bd2027; }
+.public-web-login-modal .public-web-form-success a { display: inline-flex; align-items: center; gap: 10px; margin-top: 12px; text-decoration: none; }
+.web-order-access-required { display: grid; justify-items: start; max-width: 560px; margin: 0 auto; padding: 95px 30px 120px; }
+.web-order-access-required h2 { max-width: 480px; margin: 0; color: #11110f; font-size: clamp(32px, 5vw, 52px); letter-spacing: -.07em; line-height: .95; }
+.web-order-access-required > p:not(.eyebrow) { max-width: 470px; margin: 18px 0 25px; color: #77736c; line-height: 1.5; }
+.web-order-access-icon { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 22px; background: #bd2027; color: #fff; font-size: 24px; font-weight: 800; }
+@media (max-width: 560px) {
+  .public-web-registration-choice,
+  .public-web-login-modal { padding: 30px 20px; }
+  .public-web-registration-choice-grid { grid-template-columns: 1fr; }
+  .public-web-registration-choice-grid button { min-height: 145px; }
+  .web-order-access-required { padding: 70px 22px 100px; }
+}

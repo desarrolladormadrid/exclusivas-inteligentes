@@ -7538,7 +7538,23 @@ export function ClientOrderPortal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState<any>(null);
+  const [portalSession, setPortalSession] = useState<any>(standalone ? undefined : null);
 
+  useEffect(() => {
+    if (!standalone) return;
+    try {
+      const raw = localStorage.getItem("excluvas.portal.session");
+      setPortalSession(raw ? JSON.parse(raw) : null);
+    } catch {
+      setPortalSession(null);
+    }
+  }, [standalone]);
+  useEffect(() => {
+    if (standalone && portalSession?.kind === "cliente" && portalSession.id) {
+      setClientId(String(portalSession.id));
+      setClientSearch(String(portalSession.name || ""));
+    }
+  }, [standalone, portalSession]);
   useEffect(() => {
     Promise.all(["clients", "products"].map((resource) =>
       fetch(`/api/${resource}`).then((response) => response.json()),
@@ -7548,8 +7564,9 @@ export function ClientOrderPortal({
     }).catch(() => setError("No se han podido cargar los datos del catálogo."));
   }, []);
 
-  const selectedClient = clients.find((client) => String(client.id) === String(clientId));
-  const clientMatches = clients.filter((client) => matchesSearch(
+  const portalClients = standalone && portalSession?.kind === "cliente" ? clients.filter((client) => String(client.id) === String(portalSession.id)) : clients;
+  const selectedClient = portalClients.find((client) => String(client.id) === String(clientId));
+  const clientMatches = portalClients.filter((client) => matchesSearch(
     `${client.name || ""} ${client.city || ""} ${client.phone || ""} ${client.email || ""}`,
     clientSearch,
   )).slice(0, 7);
@@ -7654,7 +7671,7 @@ export function ClientOrderPortal({
           <div className="web-order-nav-status"><i /> Conectado al CRM</div>
           <button type="button" className="web-order-close" onClick={onClose} aria-label="Cerrar portal">×</button>
         </header>
-        {!saved ? (
+        {standalone && portalSession === undefined ? <div className="web-order-access-required"><div className="web-order-access-icon">E</div><p className="eyebrow">ACCESO PROFESIONAL</p><h2>Comprueba tu cuenta para continuar.</h2><p>Inicia sesión desde la web para consultar tus pedidos y preparar uno nuevo.</p><a className="button primary" href="/web#login">Iniciar sesión</a></div> : standalone && portalSession?.kind !== "cliente" ? <div className="web-order-access-required"><div className="web-order-access-icon">E</div><p className="eyebrow">PORTAL DE CLIENTES</p><h2>Este portal es para hacer pedidos.</h2><p>La cuenta de proveedor está activa, pero su área profesional todavía está en preparación.</p><a className="button secondary" href="/web">Volver a la web</a></div> : !saved ? (
           <form onSubmit={submitOrder}>
             <section className="web-order-hero">
               <div><p className="eyebrow">PEDIDOS ONLINE</p><h2>Haz tu pedido de bebidas</h2><p>Selecciona los productos, indica cuándo los necesitas y nosotros nos encargamos del resto.</p></div>

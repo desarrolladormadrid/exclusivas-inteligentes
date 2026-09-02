@@ -30,6 +30,10 @@ const migrationsByTable = {
   ],
   web_registrations: [
     ["table", "CREATE TABLE IF NOT EXISTS web_registrations(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL DEFAULT 'cliente',company_name TEXT NOT NULL,tax_id TEXT,contact_name TEXT NOT NULL,email TEXT NOT NULL,phone TEXT,address TEXT,city TEXT,message TEXT,status TEXT NOT NULL DEFAULT 'Pendiente de validar',created_at TEXT,updated_at TEXT,reviewed_by TEXT,reviewed_at TEXT)"],
+    ["portal_password_hash", "ALTER TABLE web_registrations ADD COLUMN portal_password_hash TEXT"],
+    ["crm_record_id", "ALTER TABLE web_registrations ADD COLUMN crm_record_id INTEGER"],
+    ["crm_record_type", "ALTER TABLE web_registrations ADD COLUMN crm_record_type TEXT"],
+    ["rejection_reason", "ALTER TABLE web_registrations ADD COLUMN rejection_reason TEXT"],
   ],
   purchase_requests: [
     ["table", "CREATE TABLE IF NOT EXISTS purchase_requests(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,request_type TEXT DEFAULT 'Solicitud de oferta',status TEXT DEFAULT 'Borrador',product_ids TEXT,supplier_ids TEXT,notes TEXT,created_by TEXT,validated_by TEXT,created_at TEXT,updated_at TEXT,public_token TEXT,channels TEXT,sent_at TEXT)"],
@@ -81,6 +85,8 @@ const migrationsByTable = {
     ["latitude", "ALTER TABLE suppliers ADD COLUMN latitude REAL"],
     ["longitude", "ALTER TABLE suppliers ADD COLUMN longitude REAL"],
     ["geocoding_status", "ALTER TABLE suppliers ADD COLUMN geocoding_status TEXT DEFAULT 'Pendiente'"],
+    ["portal_password_hash", "ALTER TABLE suppliers ADD COLUMN portal_password_hash TEXT"],
+    ["portal_access_enabled", "ALTER TABLE suppliers ADD COLUMN portal_access_enabled INTEGER DEFAULT 0"],
   ],
   clients: [
     ["external_code", "ALTER TABLE clients ADD COLUMN external_code TEXT"],
@@ -101,6 +107,8 @@ const migrationsByTable = {
     ["longitude", "ALTER TABLE clients ADD COLUMN longitude REAL"],
     ["geocoded_at", "ALTER TABLE clients ADD COLUMN geocoded_at TEXT"],
     ["geocoding_status", "ALTER TABLE clients ADD COLUMN geocoding_status TEXT DEFAULT 'Pendiente'"],
+    ["portal_password_hash", "ALTER TABLE clients ADD COLUMN portal_password_hash TEXT"],
+    ["portal_access_enabled", "ALTER TABLE clients ADD COLUMN portal_access_enabled INTEGER DEFAULT 0"],
   ],
   products: [
     ["external_code", "ALTER TABLE products ADD COLUMN external_code TEXT"],

@@ -417,6 +417,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS web_registrations(id INTEGER PRIMARY KEY AUT
 for (const column of ["crm_record_id INTEGER", "crm_record_type TEXT", "rejection_reason TEXT"]) {
   try { db.exec(`ALTER TABLE web_registrations ADD COLUMN ${column}`); } catch {}
 }
+for (const [table, columns] of [["web_registrations", ["portal_password_hash TEXT"]], ["clients", ["portal_password_hash TEXT", "portal_access_enabled INTEGER DEFAULT 0"]], ["suppliers", ["portal_password_hash TEXT", "portal_access_enabled INTEGER DEFAULT 0"]]]) {
+  for (const column of columns) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`); } catch {} }
+}
 db.exec(`CREATE TABLE IF NOT EXISTS whatsapp_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,wa_id TEXT,client_id INTEGER,direction TEXT DEFAULT 'Entrante',message_type TEXT DEFAULT 'Texto',content TEXT,media_name TEXT,media_mime TEXT,media_data TEXT,status TEXT DEFAULT 'Pendiente',transcription TEXT,human_review INTEGER DEFAULT 0,suggested_action TEXT,created_at TEXT,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS product_price_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,supplier_id INTEGER,price_type TEXT DEFAULT 'Coste',amount REAL DEFAULT 0,currency TEXT DEFAULT 'EUR',valid_from TEXT,valid_to TEXT,source TEXT,notes TEXT,created_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS product_suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,supplier_id INTEGER NOT NULL,supplier_ref TEXT,unit_cost REAL DEFAULT 0,minimum_order REAL DEFAULT 0,order_unit TEXT DEFAULT 'caja',transport_cost REAL DEFAULT 0,lead_time_days INTEGER DEFAULT 0,promotion TEXT,rappel_percent REAL DEFAULT 0,reliability_percent REAL DEFAULT 0,is_primary INTEGER DEFAULT 0,is_fixed INTEGER DEFAULT 0,active INTEGER DEFAULT 1,created_at TEXT,updated_at TEXT);`);
@@ -1254,6 +1257,20 @@ export async function crmApiHandler(req, res) {
           ? send(res, 200, { ok: true, user: u })
           : send(res, 401, { error: "Usuario o contraseña incorrectos" });
       }
+      if (p[1] === "public_login" && req.method === "POST") {
+        const d = await read(req);
+        const kind = ["cliente", "proveedor"].includes(String(d.kind)) ? String(d.kind) : "cliente";
+        const email = String(d.email || "").trim().toLowerCase();
+        const password = String(d.password || "");
+        if (!email || !password) return send(res, 400, { error: "El email y la contraseña son obligatorios" });
+        const table = kind === "proveedor" ? "suppliers" : "clients";
+        const account = db.prepare(`SELECT id,name,email,portal_password_hash,portal_access_enabled,active FROM ${table} WHERE LOWER(TRIM(COALESCE(email,'')))=? AND CAST(COALESCE(active,1) AS INTEGER)=1 AND CAST(COALESCE(deleted,0) AS INTEGER)=0 LIMIT 1`).get(email);
+        const passwordHash = createHash("sha256").update(password).digest("hex");
+        if (!account?.id || !account.portal_password_hash || account.portal_password_hash !== passwordHash || Number(account.portal_access_enabled || 0) !== 1) {
+          return send(res, 401, { error: "No encontramos una cuenta activa con esos datos. Si acabas de registrarte, espera a que validemos tu solicitud." });
+        }
+        return send(res, 200, { ok: true, portal: { kind, id: Number(account.id), name: account.name, email: account.email } });
+      }
       const t = p[1];
       if (p[0] !== "api")
         return send(res, 404, { error: "Recurso no encontrado" });
@@ -1428,7 +1445,7 @@ export async function crmApiHandler(req, res) {
       if (t === "web_registrations") {
         if (req.method === "GET") {
           const includeClosed = new URL(req.url, "http://local").searchParams.get("include_closed") === "1";
-          return send(res, 200, db.prepare(`SELECT * FROM web_registrations ${includeClosed ? "" : "WHERE status NOT IN ('Validada','Rechazada')"} ORDER BY id DESC LIMIT 500`).all());
+          return send(res, 200, db.prepare(`SELECT id,kind,company_name,tax_id,contact_name,email,phone,address,city,message,status,created_at,updated_at,reviewed_by,reviewed_at,crm_record_id,crm_record_type,rejection_reason FROM web_registrations ${includeClosed ? "" : "WHERE status NOT IN ('Validada','Rechazada')"} ORDER BY id DESC LIMIT 500`).all());
         }
         const d = await read(req);
         if (req.method === "POST") {
@@ -1437,8 +1454,11 @@ export async function crmApiHandler(req, res) {
           const contactName = String(d.contact_name || "").trim();
           const email = String(d.email || "").trim();
           if (!companyName || !contactName || !email) return send(res, 400, { error: "Empresa, contacto y email son obligatorios" });
+          const password = String(d.password || "");
+          if (password.length < 8) return send(res, 400, { error: "La contraseña debe tener al menos 8 caracteres" });
+          const portalPasswordHash = createHash("sha256").update(password).digest("hex");
           const now = new Date().toISOString();
-          const created = db.prepare("INSERT INTO web_registrations(kind,company_name,tax_id,contact_name,email,phone,address,city,message,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").run(kind, companyName, String(d.tax_id || "").trim(), contactName, email, String(d.phone || "").trim(), String(d.address || "").trim(), String(d.city || "").trim(), String(d.message || "").trim(), "Pendiente de validar", now, now);
+          const created = db.prepare("INSERT INTO web_registrations(kind,company_name,tax_id,contact_name,email,phone,address,city,message,status,created_at,updated_at,portal_password_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)").run(kind, companyName, String(d.tax_id || "").trim(), contactName, email, String(d.phone || "").trim(), String(d.address || "").trim(), String(d.city || "").trim(), String(d.message || "").trim(), "Pendiente de validar", now, now, portalPasswordHash);
           const id = Number(created.lastInsertRowid);
           const label = kind === "proveedor" ? "proveedor" : "cliente";
           db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)").run(`Validar alta web · ${companyName}`, `Solicitud de alta de ${label} recibida desde la web. Contacto: ${contactName}. Email: ${email}. Teléfono: ${String(d.phone || "").trim() || "No indicado"}. NIF/CIF: ${String(d.tax_id || "").trim() || "No indicado"}. Dirección: ${String(d.address || "").trim() || "No indicada"}. ${String(d.message || "").trim()}`, "Alta", "Web", id, 1, now, now);
@@ -1469,8 +1489,11 @@ export async function crmApiHandler(req, res) {
                 || db.prepare("SELECT id FROM clients WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND CAST(COALESCE(deleted,0) AS INTEGER)=0 LIMIT 1").get(companyName);
             if (existing?.id) {
               crmRecordId = Number(existing.id);
+              if (registration.portal_password_hash && hasColumn(table, "portal_password_hash")) {
+                db.prepare(`UPDATE ${table} SET portal_password_hash=?,portal_access_enabled=1 WHERE id=?`).run(registration.portal_password_hash, crmRecordId);
+              }
             } else {
-              const values = { name: companyName, tax_id: taxId, contact: String(registration.contact_name || "").trim(), phone: String(registration.phone || "").trim(), email: String(registration.email || "").trim(), address: String(registration.address || "").trim(), city: String(registration.city || "").trim(), active: 1, created_at: now, updated_at: now, source_system: "Portal web" };
+              const values = { name: companyName, tax_id: taxId, contact: String(registration.contact_name || "").trim(), phone: String(registration.phone || "").trim(), email: String(registration.email || "").trim(), address: String(registration.address || "").trim(), city: String(registration.city || "").trim(), active: 1, portal_password_hash: registration.portal_password_hash || null, portal_access_enabled: registration.portal_password_hash ? 1 : 0, created_at: now, updated_at: now, source_system: "Portal web" };
               const keys = Object.keys(values).filter((key) => hasColumn(table, key));
               const inserted = db.prepare(`INSERT INTO ${table} (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`).run(...keys.map((key) => values[key]));
               crmRecordId = Number(inserted.lastInsertRowid);
