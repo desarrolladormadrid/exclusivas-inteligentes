@@ -4286,7 +4286,7 @@ select.form-control option:hover {
 .hero-product-2 { top: 112px; right: 2%; transform: rotate(11deg); }
 .public-web-hero-product:hover,
 .public-web-hero-product:focus-visible { transform: translateY(-8px) rotate(0deg); }
-.public-web-hero-art > strong { z-index: 5; }
+.public-web-hero-art > strong { z-index: 5; right: -4px; bottom: 12px; padding: 10px 13px 9px; border-left: 3px solid #bd2027; background: linear-gradient(90deg, rgba(10,10,9,.18), rgba(10,10,9,.9) 22%); text-shadow: 0 2px 0 #0a0a09, 2px 0 0 #0a0a09, -2px 0 0 #0a0a09; }
 .public-web-proof-band {
   display: grid;
   grid-template-columns: .58fr 1fr;
