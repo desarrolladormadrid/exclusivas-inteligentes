@@ -1110,6 +1110,10 @@ function ensureShipmentTrackingToken(id) {
   invalidateReadCache("shipments");
   return token;
 }
+function attachShipmentTrackingToken(row) {
+  const existing = String(row?.public_tracking_token || "").trim();
+  return existing ? { ...row, public_tracking_token: existing } : { ...row, public_tracking_token: ensureShipmentTrackingToken(row?.id) };
+}
 const read = (req) =>
   new Promise((ok) => {
     let s = "";
@@ -2080,13 +2084,12 @@ export async function crmApiHandler(req, res) {
           const deletedClause = includeDeleted || !hasColumn(tableReference, "deleted") ? "" : ` AND CAST(COALESCE(${tableReference}.deleted,0) AS INTEGER)=0`;
           const row = db.prepare(`SELECT ${selection} FROM ${source} WHERE ${tableReference}.id=?${deletedClause}`).get(Number(p[2]));
           if (!row) return send(res, 404, { error: "Registro no encontrado" });
-          if (t === "shipments") row.public_tracking_token = ensureShipmentTrackingToken(row.id);
-          return send(res, 200, row);
+          return send(res, 200, t === "shipments" ? attachShipmentTrackingToken(row) : row);
         }
         const cached = !isLookup && limitValue === null && offsetValue === 0
           ? cachedRows(t, includeDeleted, includeInactive)
           : null;
-        if (cached) return send(res, 200, t === "shipments" ? cached.map((row) => ({ ...row, public_tracking_token: ensureShipmentTrackingToken(row.id) })) : cached);
+        if (cached) return send(res, 200, t === "shipments" ? cached.map(attachShipmentTrackingToken) : cached);
         const source = t === "orders"
           ? `orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id`
           : t;
@@ -2113,7 +2116,7 @@ export async function crmApiHandler(req, res) {
           : `${t === "orders" ? "orders.id" : "id"} DESC`;
         const rows = db.prepare(`SELECT ${selection} FROM ${source} ${where} ORDER BY ${orderBy}${pagination}`).all();
         const responseRows = t === "shipments"
-          ? rows.map((row) => ({ ...row, public_tracking_token: ensureShipmentTrackingToken(row.id) }))
+          ? rows.map(attachShipmentTrackingToken)
           : rows;
         return send(
           res,
