@@ -1,6 +1,6 @@
 import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -1178,6 +1178,25 @@ function attachShipmentTrackingToken(row) {
   const existing = String(row?.public_tracking_token || "").trim();
   return existing ? { ...row, public_tracking_token: existing } : { ...row, public_tracking_token: ensureShipmentTrackingToken(row?.id) };
 }
+function portalSessionSecret() {
+  return String(process.env.PORTAL_SESSION_SECRET || process.env.TURSO_AUTH_TOKEN || "exclusivas-inteligentes-portal-session");
+}
+function createPortalSessionToken(kind, id) {
+  const payload = Buffer.from(JSON.stringify({ kind, id: Number(id), exp: Date.now() + 30 * 86400000 })).toString("base64url");
+  const signature = createHmac("sha256", portalSessionSecret()).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+function verifyPortalSessionToken(token) {
+  const [payload, signature] = String(token || "").split(".");
+  if (!payload || !signature) return null;
+  try {
+    const expected = createHmac("sha256", portalSessionSecret()).update(payload).digest("base64url");
+    if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!parsed?.id || !["cliente", "proveedor"].includes(String(parsed.kind)) || Number(parsed.exp) < Date.now()) return null;
+    return { kind: String(parsed.kind), id: Number(parsed.id) };
+  } catch { return null; }
+}
 const read = (req) =>
   new Promise((ok) => {
     let s = "";
@@ -1336,6 +1355,13 @@ export async function crmApiHandler(req, res) {
         runScheduledTasks();
         return send(res, 200, { ok: true, executed: due.length, executed_at: now });
       }
+      if (p[1] === "scheduled_tasks" && p[2] && p[3] === "run" && req.method === "POST") {
+        const task = db.prepare("SELECT * FROM scheduled_tasks WHERE id=?").get(Number(p[2]));
+        if (!task) return send(res, 404, { error: "Tarea no encontrada" });
+        if (task.status !== "Activa") return send(res, 409, { error: "Activa primero la tarea para ejecutarla" });
+        try { executeScheduledTask(task); } catch (error) { return send(res, 500, { error: error?.message || "No se pudo ejecutar la tarea" }); }
+        return send(res, 200, db.prepare("SELECT * FROM scheduled_tasks WHERE id=?").get(Number(p[2])));
+      }
       if (p[1] === "routes" && req.method === "GET") {
         if (p[2]) return send(res, 200, getRouteWithStops(p[2]) || { error: "Ruta no encontrada" });
         const routeDate = new URL(req.url, "http://local").searchParams.get("date");
@@ -1396,7 +1422,32 @@ export async function crmApiHandler(req, res) {
         if (!account?.id || !account.portal_password_hash || account.portal_password_hash !== passwordHash || Number(account.portal_access_enabled || 0) !== 1) {
           return send(res, 401, { error: "No encontramos una cuenta activa con esos datos. Si acabas de registrarte, espera a que validemos tu solicitud." });
         }
-        return send(res, 200, { ok: true, portal: { kind, id: Number(account.id), name: account.name, email: account.email } });
+        return send(res, 200, { ok: true, portal: { kind, id: Number(account.id), name: account.name, email: account.email, token: createPortalSessionToken(kind, account.id) } });
+      }
+      if (p[1] === "public_portal" && req.method === "GET") {
+        const authorization = String(req.headers.authorization || "");
+        const session = verifyPortalSessionToken(authorization.replace(/^Bearer\s+/i, ""));
+        if (!session || session.kind !== "cliente") return send(res, 401, { error: "La sesión del portal ha caducado. Inicia sesión de nuevo." });
+        const client = db.prepare("SELECT id,name,email,phone,address,city,opening_time,closing_time FROM clients WHERE id=? AND CAST(COALESCE(active,1) AS INTEGER)=1 AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(session.id);
+        if (!client) return send(res, 404, { error: "Cliente no encontrado o desactivado" });
+        const orders = db.prepare("SELECT id,code,status,amount,created_at,updated_at,delivery_date,preparation_date,shipping_date,address,urgent FROM orders WHERE client_id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0 ORDER BY id DESC LIMIT 50").all(session.id);
+        const shipments = db.prepare("SELECT id,code,order_id,status,expected_delivery_at,address,packages,delivered_at,delivery_signature_status,delivery_recipient_name,delivery_signature_at,public_tracking_token FROM shipments WHERE client_id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0 ORDER BY id DESC LIMIT 50").all(session.id).map(attachShipmentTrackingToken);
+        const invoices = db.prepare("SELECT i.id,i.code,i.order_id,i.amount,i.status,i.issue_date,i.due_date,i.pdf_url,i.pdf_status,i.pdf_generated_at,i.share_token FROM invoices i WHERE i.client_id=? AND CAST(COALESCE(i.deleted,0) AS INTEGER)=0 ORDER BY i.id DESC LIMIT 50").all(session.id).map((row) => ({ ...row, share_url: row.share_token ? invoiceShareUrl(req, row.share_token) : null }));
+        const deliveryNotes = db.prepare("SELECT id,code,order_id,status,created_at,updated_at FROM delivery_notes WHERE client_id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0 ORDER BY id DESC LIMIT 50").all(session.id);
+        for (const order of orders) order.lines = db.prepare("SELECT ol.product_id,ol.quantity,ol.quantity_requested,ol.quantity_unit,ol.units_factor,ol.unit_price,ol.amount,p.name product_name,p.sku FROM order_lines ol LEFT JOIN products p ON p.id=ol.product_id WHERE ol.order_id=? ORDER BY ol.id").all(Number(order.id));
+        return send(res, 200, {
+          profile: client,
+          orders,
+          shipments,
+          invoices,
+          delivery_notes: deliveryNotes,
+          summary: {
+            orders: orders.length,
+            in_progress: orders.filter((row) => !["Entregado", "Cancelado", "Facturado"].includes(String(row.status || ""))).length,
+            shipments: shipments.filter((row) => !["Entregado", "Cancelado"].includes(String(row.status || ""))).length,
+            pending_invoices: invoices.filter((row) => !["Cobrada", "Pagada", "Anulada"].includes(String(row.status || ""))).length,
+          },
+        });
       }
       const t = p[1];
       if (p[0] !== "api")

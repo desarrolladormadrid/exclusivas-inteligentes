@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.56";
+const APP_VERSION = "2.0.57";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -7434,6 +7434,12 @@ function ScheduledTasks() {
     });
     load();
   }
+  async function runNow(row: any) {
+    if (row.status !== "Activa") return;
+    const response = await fetch(`/api/scheduled_tasks/${row.id}/run`, { method: "POST", headers: { "X-Actor": "Luis" } });
+    if (!response.ok) setLoadError((await response.json().catch(() => ({}))).error || "No se ha podido ejecutar la tarea.");
+    await load();
+  }
   async function remove(id: number) {
     await fetch(`/api/scheduled_tasks/${id}`, {
       method: "DELETE",
@@ -7556,6 +7562,9 @@ function ScheduledTasks() {
                     </td>
                     <td>{row.last_result || "Pendiente"}</td>
                     <td>
+                      <button className="row-action" onClick={() => void runNow(row)} disabled={row.status !== "Activa"}>
+                        Ejecutar ahora
+                      </button>{" "}
                       <button
                         className="row-action"
                         onClick={() => toggle(row)}
@@ -7777,6 +7786,26 @@ function tabletDateOffset(days: number) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function ClientPortalDashboard({ data, onNewOrder, onRepeat }: { data: any; onNewOrder: () => void; onRepeat: (order: any) => void }) {
+  const orders = Array.isArray(data?.orders) ? data.orders : [];
+  const shipments = Array.isArray(data?.shipments) ? data.shipments : [];
+  const invoices = Array.isArray(data?.invoices) ? data.invoices : [];
+  const deliveries = Array.isArray(data?.delivery_notes) ? data.delivery_notes : [];
+  const money = (value: number) => Number(value || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
+  const date = (value: any) => value ? new Date(value).toLocaleDateString("es-ES") : "—";
+  const orderShipment = (orderId: number) => shipments.find((shipment) => Number(shipment.order_id) === Number(orderId));
+  const statusClass = (value: any) => String(value || "pendiente").toLowerCase().replace(/\s+/g, "-");
+  return <section className="client-portal-dashboard">
+    <div className="client-portal-dashboard-head"><div><p className="eyebrow">ÁREA DE CLIENTE</p><h2>Hola, {data?.profile?.name || "cliente"}.</h2><p>Consulta tus pedidos, documentos y entregas desde un mismo sitio.</p></div><button type="button" className="button primary" onClick={onNewOrder}>＋ Nuevo pedido</button></div>
+    <div className="client-portal-stat-grid"><article><strong>{data?.summary?.orders || 0}</strong><span>Pedidos realizados</span></article><article><strong>{data?.summary?.in_progress || 0}</strong><span>Pedidos en curso</span></article><article><strong>{data?.summary?.shipments || 0}</strong><span>Entregas activas</span></article><article><strong>{data?.summary?.pending_invoices || 0}</strong><span>Facturas pendientes</span></article></div>
+    <div className="client-portal-columns">
+      <article className="client-portal-panel"><div className="client-portal-panel-head"><div><b>Mis pedidos</b><small>Últimos pedidos y estado de entrega</small></div><button type="button" onClick={onNewOrder}>Repetir o crear</button></div>{orders.length ? <div className="client-portal-order-list">{orders.slice(0, 8).map((order: any) => { const shipment = orderShipment(order.id); return <div className="client-portal-order-row" key={order.id}><div><b>{order.code}</b><small>{date(order.created_at)} · {order.lines?.length || 0} referencias · {money(order.amount)}</small></div><span className={`client-portal-status status-${statusClass(shipment?.status || order.status)}`}>{shipment?.status || order.status || "Pendiente"}</span><div className="client-portal-order-links">{shipment?.public_tracking_token && <a href={`/seguimiento/${shipment.public_tracking_token}`}>Seguimiento</a>}<button type="button" onClick={() => onRepeat(order)}>Repetir</button></div></div>; })}</div> : <p className="client-portal-empty">Todavía no tienes pedidos. Crea el primero desde aquí.</p>}</article>
+      <article className="client-portal-panel"><div className="client-portal-panel-head"><div><b>Mis documentos</b><small>Facturas y albaranes disponibles</small></div></div><div className="client-portal-document-list">{[...invoices.map((item: any) => ({ ...item, kind: "Factura" })), ...deliveries.map((item: any) => ({ ...item, kind: "Albarán" }))].slice(0, 10).map((item: any) => <div className="client-portal-document-row" key={`${item.kind}-${item.id}`}><div><b>{item.code}</b><small>{item.kind} · {date(item.issue_date || item.created_at)}{item.amount !== undefined ? ` · ${money(item.amount)}` : ""}</small></div>{item.share_url || item.pdf_url ? <a href={item.share_url || item.pdf_url} target="_blank" rel="noreferrer">Ver PDF</a> : <span className="client-portal-document-pending">Pendiente</span>}</div>)}{!invoices.length && !deliveries.length && <p className="client-portal-empty">Aún no hay documentos asociados.</p>}</div></article>
+    </div>
+    <div className="client-portal-profile"><span><b>Dirección habitual</b>{data?.profile?.address || "No indicada"}{data?.profile?.city ? ` · ${data.profile.city}` : ""}</span><span><b>Horario de recepción</b>{data?.profile?.opening_time || data?.profile?.closing_time ? `${data.profile.opening_time || "—"} – ${data.profile.closing_time || "—"}` : "Pendiente de confirmar"}</span><span><b>Contacto</b>{data?.profile?.email || data?.profile?.phone || "No indicado"}</span></div>
+  </section>;
+}
+
 export function ClientOrderPortal({
   onClose,
   onCreated,
@@ -7802,6 +7831,10 @@ export function ClientOrderPortal({
   const [error, setError] = useState("");
   const [saved, setSaved] = useState<any>(null);
   const [portalSession, setPortalSession] = useState<any>(standalone ? undefined : null);
+  const [portalData, setPortalData] = useState<any>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [portalError, setPortalError] = useState("");
+  const [portalTab, setPortalTab] = useState<"actividad" | "pedir">("actividad");
 
   useEffect(() => {
     if (!standalone) return;
@@ -7819,6 +7852,21 @@ export function ClientOrderPortal({
     }
   }, [standalone, portalSession]);
   useEffect(() => {
+    if (!standalone || portalSession?.kind !== "cliente" || !portalSession.token) return;
+    let mounted = true;
+    setPortalLoading(true);
+    setPortalError("");
+    fetch("/api/public_portal", { headers: { Authorization: `Bearer ${portalSession.token}` }, cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || "No se ha podido cargar tu área de cliente.");
+        if (mounted) setPortalData(body);
+      })
+      .catch((caught) => { if (mounted) setPortalError(caught instanceof Error ? caught.message : "No se ha podido cargar tu área de cliente."); })
+      .finally(() => { if (mounted) setPortalLoading(false); });
+    return () => { mounted = false; };
+  }, [standalone, portalSession]);
+  useEffect(() => {
     Promise.all(["clients", "products"].map((resource) =>
       fetch(`/api/${resource}`).then((response) => response.json()),
     )).then(([clientRows, productRows]) => {
@@ -7828,7 +7876,7 @@ export function ClientOrderPortal({
   }, []);
 
   const portalClients = standalone && portalSession?.kind === "cliente" ? clients.filter((client) => String(client.id) === String(portalSession.id)) : clients;
-  const selectedClient = portalClients.find((client) => String(client.id) === String(clientId));
+  const selectedClient = portalClients.find((client) => String(client.id) === String(clientId)) || (standalone && portalData?.profile ? portalData.profile : null);
   const clientMatches = portalClients.filter((client) => matchesSearch(
     `${client.name || ""} ${client.city || ""} ${client.phone || ""} ${client.email || ""}`,
     clientSearch,
@@ -7926,6 +7974,25 @@ export function ClientOrderPortal({
     const message = `Hola, soy ${selectedClient?.name || "cliente"}. Quiero realizar un pedido${cart.length ? ` de ${cart.length} productos` : ""}.`;
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
   }
+  function repeatOrder(order: any) {
+    const lines = Array.isArray(order?.lines) ? order.lines : [];
+    setCart(lines.map((line: any) => ({
+      product_id: Number(line.product_id),
+      name: line.product_name || `Producto #${line.product_id}`,
+      quantity: Number(line.quantity || 1),
+      quantity_requested: Number(line.quantity_requested || line.quantity || 1),
+      quantity_unit: line.quantity_unit || "unidad",
+      units_factor: Number(line.units_factor || 1),
+      unit_price: Number(line.unit_price || 0),
+    })));
+    setDeliveryDate(order.delivery_date || tabletTodayInput());
+    setAddress(order.address || portalData?.profile?.address || "");
+    setNotes("Pedido repetido desde el área de cliente.");
+    setSaved(null);
+    setPortalTab("pedir");
+    setError("");
+    window.setTimeout(() => document.querySelector(".web-order-catalog")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
   return (
     <div className={standalone ? "web-order-page" : "web-order-overlay"}>
       <div className={standalone ? "web-order-window web-order-page-window" : "web-order-window"} role={standalone ? undefined : "dialog"} aria-modal={standalone ? undefined : true} aria-label="Portal web de pedidos">
@@ -7935,7 +8002,12 @@ export function ClientOrderPortal({
           <button type="button" className="web-order-close" onClick={onClose} aria-label="Cerrar portal">×</button>
         </header>
         {standalone && portalSession === undefined ? <div className="web-order-access-required"><div className="web-order-access-icon">E</div><p className="eyebrow">ACCESO PROFESIONAL</p><h2>Comprueba tu cuenta para continuar.</h2><p>Inicia sesión desde la web para consultar tus pedidos y preparar uno nuevo.</p><a className="button primary" href="/web#login">Iniciar sesión</a></div> : standalone && portalSession?.kind !== "cliente" ? <div className="web-order-access-required"><div className="web-order-access-icon">E</div><p className="eyebrow">PORTAL DE CLIENTES</p><h2>Este portal es para hacer pedidos.</h2><p>La cuenta de proveedor está activa, pero su área profesional todavía está en preparación.</p><a className="button secondary" href="/web">Volver a la web</a></div> : !saved ? (
-          <form onSubmit={submitOrder}>
+          <>
+            {standalone && portalData && <ClientPortalDashboard data={portalData} onNewOrder={() => setPortalTab("pedir")} onRepeat={repeatOrder} />}
+            {standalone && portalLoading && <div className="client-portal-loading" role="status"><span className="loading-spinner" />Cargando tu área de cliente…</div>}
+            {standalone && portalError && <div className="client-portal-error" role="alert">{portalError} <a href="/web#login">Volver a iniciar sesión</a></div>}
+            {standalone && portalData && <div className="client-portal-tabs" role="tablist" aria-label="Área de cliente"><button type="button" className={portalTab === "actividad" ? "active" : ""} onClick={() => setPortalTab("actividad")}>Mi actividad</button><button type="button" className={portalTab === "pedir" ? "active" : ""} onClick={() => setPortalTab("pedir")}>Nuevo pedido</button></div>}
+            {(!standalone || portalTab === "pedir") && <form onSubmit={submitOrder}>
             <section className="web-order-hero">
               <div><p className="eyebrow">PEDIDOS ONLINE</p><h2>Haz tu pedido de bebidas</h2><p>Selecciona los productos, indica cuándo los necesitas y nosotros nos encargamos del resto.</p></div>
               <div className="web-order-hero-note"><b>Entrega coordinada</b><span>Recibirás confirmación de tu pedido</span></div>
@@ -7974,7 +8046,8 @@ export function ClientOrderPortal({
                 <small className="web-order-privacy">Este portal envía el pedido al CRM para su revisión comercial.</small>
               </aside>
             </div>
-          </form>
+          </form>}
+          </>
         ) : <div className="web-order-success"><div className="success-icon">✓</div><p className="eyebrow">PEDIDO RECIBIDO</p><h2>Gracias, tu pedido está en marcha</h2><p>El pedido <b>{saved.code || "web"}</b> se ha guardado en el CRM y queda pendiente de preparación.</p><button type="button" className="button primary" onClick={onClose}>Cerrar portal</button></div>}
         {standalone && <footer className="web-order-footer"><span>Exclusivas · Distribución profesional de bebidas</span><span>Pedidos seguros · Atención comercial</span></footer>}
       </div>
