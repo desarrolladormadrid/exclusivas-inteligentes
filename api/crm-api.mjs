@@ -2124,6 +2124,10 @@ export async function crmApiHandler(req, res) {
           { sql: "SELECT COUNT(*) total FROM delivery_notes WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0" },
           { sql: "SELECT COUNT(*) total FROM payments WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0" },
           { sql: "SELECT COUNT(*) total FROM suppliers WHERE CAST(COALESCE(deleted,0) AS INTEGER)=0 AND CAST(COALESCE(active,1) AS INTEGER)=1" },
+          { sql: `SELECT o.id order_id,o.code order_code,o.client_id,c.name client_name,o.delivery_date,o.status,o.urgent FROM orders o LEFT JOIN clients c ON c.id=o.client_id LEFT JOIN shipments s ON s.order_id=o.id AND CAST(COALESCE(s.deleted,0) AS INTEGER)=0 WHERE CAST(COALESCE(o.deleted,0) AS INTEGER)=0 AND LOWER(COALESCE(o.code,'')) NOT GLOB '__test*' AND o.status NOT IN ('Entregado','Cancelado') AND (s.id IS NULL OR s.status IN ('Preparando','Preparado con incidencia')) ORDER BY CASE WHEN o.urgent=1 THEN 0 ELSE 1 END,o.delivery_date,o.id LIMIT 8` },
+          { sql: `SELECT grl.id line_id,gr.code receipt_code,gr.supplier_id,s.name supplier_name,gr.receipt_date,grl.product_name_snapshot FROM goods_receipt_lines grl JOIN goods_receipts gr ON gr.id=grl.receipt_id LEFT JOIN suppliers s ON s.id=gr.supplier_id WHERE CAST(COALESCE(gr.deleted,0) AS INTEGER)=0 AND CAST(COALESCE(grl.deleted,0) AS INTEGER)=0 AND COALESCE(grl.location_verified_status,'Pendiente')='Pendiente' AND COALESCE(gr.status,'') NOT IN ('Cancelada','Anulada') ORDER BY gr.receipt_date DESC,grl.id DESC LIMIT 8` },
+          { sql: `SELECT i.id invoice_id,i.code invoice_code,i.client_id,c.name client_name,i.amount,i.due_date,i.status FROM invoices i LEFT JOIN clients c ON c.id=i.client_id WHERE CAST(COALESCE(i.deleted,0) AS INTEGER)=0 AND COALESCE(i.status,'Pendiente') NOT IN ('Cobrada','Pagada','Anulada') AND date(COALESCE(i.due_date,i.issue_date,i.created_at)) < date(?) ORDER BY date(COALESCE(i.due_date,i.issue_date,i.created_at)) ASC,i.id ASC LIMIT 8`, args: [today] },
+          { sql: `SELECT id,company_name,contact_name,email,created_at,status FROM web_registrations WHERE COALESCE(status,'Pendiente de validar')='Pendiente de validar' ORDER BY id DESC LIMIT 8` },
         ];
         const results = queryBatch(statements);
         const rowsAt = (index) => results[index] || [];
@@ -2132,6 +2136,12 @@ export async function crmApiHandler(req, res) {
         const shipments = rowsAt(1);
         const clients = rowsAt(2);
         const importantNotes = rowsAt(3);
+        const alerts = [
+          ...rowsAt(14).map((row) => ({ type: "preparation", severity: Number(row.urgent || 0) === 1 ? "critical" : "warning", title: Number(row.urgent || 0) === 1 ? "Pedido urgente sin cerrar" : "Preparación pendiente", detail: `${row.order_code || "Pedido"} · ${row.client_name || "Cliente sin asignar"}${row.delivery_date ? ` · entrega ${row.delivery_date}` : ""}`, module: "Pedidos", record_id: row.order_id, order_id: row.order_id, order_code: row.order_code })),
+          ...rowsAt(15).map((row) => ({ type: "location", severity: "warning", title: "Entrada sin ubicación verificada", detail: `${row.receipt_code || "Entrada"} · ${row.product_name_snapshot || "Producto pendiente"}${row.supplier_name ? ` · ${row.supplier_name}` : ""}`, module: "Entradas", record_id: row.line_id })),
+          ...rowsAt(16).map((row) => ({ type: "invoice", severity: "critical", title: "Factura vencida", detail: `${row.invoice_code || "Factura"} · ${row.client_name || "Cliente sin asignar"} · ${Number(row.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}`, module: "Facturas", record_id: row.invoice_id })),
+          ...rowsAt(17).map((row) => ({ type: "web-client", severity: "info", title: "Nuevo cliente web por revisar", detail: `${row.company_name} · ${row.contact_name || row.email}`, module: "Clientes", record_id: row.id })),
+        ];
         return send(res, 200, {
           summary: {
             sales: totalAt(4),
@@ -2151,6 +2161,7 @@ export async function crmApiHandler(req, res) {
           shipments,
           clients,
           importantNotes,
+          alerts,
         });
       }
       if (!tables.has(t))

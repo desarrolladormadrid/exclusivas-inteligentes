@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.53";
+const APP_VERSION = "2.0.54";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -9585,6 +9585,7 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
     reports: 0,
   });
   const [importantNotes, setImportantNotes] = useState<any[]>([]);
+  const [homeAlerts, setHomeAlerts] = useState<any[]>([]);
   const [homeActivityTab, setHomeActivityTab] = useState("Pedidos");
   const [homeOrders, setHomeOrders] = useState<any[]>([]);
   const [homeShipments, setHomeShipments] = useState<any[]>([]);
@@ -9719,6 +9720,12 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
     setActive("Pedidos");
     window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:editar-pedido", { detail: order.id })), 0);
   }
+  function openHomeAlert(alert: any) {
+    setActive(alert.module || "Inicio");
+    if (alert.module === "Pedidos" && alert.record_id) {
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-pedido", { detail: alert.record_id })), 80);
+    }
+  }
   function previewHomeOrder(order: any) {
     setActive("Pedidos");
     window.setTimeout(() => window.dispatchEvent(new CustomEvent("crm:previsualizar-pedido", { detail: order.id })), 50);
@@ -9817,6 +9824,7 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
         setHomeShipments(Array.isArray(payload.shipments) ? payload.shipments : []);
         setHomeClients(Array.isArray(payload.clients) ? payload.clients : []);
         setImportantNotes(Array.isArray(payload.importantNotes) ? payload.importantNotes : []);
+        setHomeAlerts(Array.isArray(payload.alerts) ? payload.alerts : []);
         setSummary((current) => ({ ...current, ...(payload.summary || {}) }));
         setHomeLoading(false);
       } catch {
@@ -10197,6 +10205,13 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
                   <small>revisar reposición</small>
                 </article>
               </div>
+              <section className="panel home-alert-center" aria-label="Centro de alertas">
+                <div className="home-alert-head">
+                  <div><p className="eyebrow">PARA ACTUAR HOY</p><h2>Centro de alertas</h2><p className="muted">Las tareas que necesitan atención antes de seguir avanzando.</p></div>
+                  <strong className={homeAlerts.length ? "has-alerts" : "all-clear"}>{homeAlerts.length ? `${homeAlerts.length} pendientes` : "Todo al día"}</strong>
+                </div>
+                {homeAlerts.length ? <div className="home-alert-grid">{homeAlerts.slice(0, 8).map((alert, index) => <button type="button" key={`${alert.type}-${alert.record_id}-${index}`} className={`home-alert-card ${alert.severity || "info"}`} onClick={() => openHomeAlert(alert)}><span className="home-alert-dot" aria-hidden="true">{alert.severity === "critical" ? "!" : alert.severity === "warning" ? "·" : "＋"}</span><span><b>{alert.title}</b><small>{alert.detail}</small></span><em>Revisar →</em></button>)}</div> : <div className="home-alert-empty"><span>✓</span><p><b>No hay alertas operativas pendientes</b><small>Cuando aparezca una preparación, una factura vencida o una entrada por verificar, la verás aquí.</small></p></div>}
+              </section>
               <section className={`panel pending-orders-panel${pendingOrdersOpen ? " open" : " collapsed"}`}>
                 <button
                   type="button"
