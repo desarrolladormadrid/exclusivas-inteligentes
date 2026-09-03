@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.45";
+const APP_VERSION = "2.0.46";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -1778,6 +1778,50 @@ function ProductBatchLabelModal({ products, onClose }: { products: any[]; onClos
   );
 }
 
+function ShipmentLabelModal({ shipment, client, lines, products, address, city, onClose }: { shipment: any; client: any; lines: any[]; products: any[]; address: string; city: string; onClose: () => void }) {
+  const code = String(shipment?.code || `ENV-${shipment?.id || "SIN-CODIGO"}`);
+  const packages = Math.max(1, Number(shipment?.packages || 1));
+  const barcodeRef = useRef<SVGSVGElement>(null);
+  const [qrImage, setQrImage] = useState("");
+  const lineRows = lines.map((line: any) => {
+    const product = products.find((item: any) => Number(item.id) === Number(line.product_id));
+    const requested = Number(line.quantity_requested || line.quantity || 0);
+    const prepared = Number(line.prepared_quantity);
+    const quantity = Number.isFinite(prepared) && prepared > 0 && prepared < requested ? `${prepared}/${requested}` : String(requested);
+    return { name: product?.name || `Producto #${line.product_id}`, quantity, unit: quantityUnitLabel(line.quantity_unit) };
+  });
+  const qrPayload = [
+    "EXCLUSIVAS INTELIGENTES",
+    `ENVÍO: ${code}`,
+    `PEDIDO: ${shipment?.order_code || shipment?.order_id || "—"}`,
+    `CLIENTE: ${client?.name || shipment?.client_name || "—"}`,
+    `BULTOS: ${packages}`,
+    "CONTENIDO:",
+    ...lineRows.map((line) => `- ${line.quantity} ${line.unit}: ${line.name}`),
+  ].join("\n");
+  useEffect(() => {
+    if (barcodeRef.current) {
+      try { JsBarcode(barcodeRef.current, code, { format: "CODE128", displayValue: true, fontSize: 13, height: 58, margin: 3, textMargin: 4 }); } catch { /* El QR y la referencia siguen disponibles. */ }
+    }
+    QRCode.toDataURL(qrPayload, { width: 190, margin: 1, errorCorrectionLevel: "M" }).then((value: string) => setQrImage(value)).catch(() => setQrImage(""));
+  }, [code, qrPayload]);
+  return (
+    <div className="preview-overlay shipment-label-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="shipment-label-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="product-label-head shipment-label-toolbar"><div><p className="eyebrow">ETIQUETA DE ENVÍO</p><h2>{code}</h2><small>Identifica el pedido, los bultos y su contenido en el almacén y durante el reparto.</small></div><button type="button" onClick={onClose} aria-label="Cerrar">×</button></div>
+        <article className="shipment-label-sheet" aria-label={`Etiqueta de envío ${code}`}>
+          <header className="shipment-label-brand"><div><b>EXCLUSIVAS</b><strong>INTELIGENTES</strong></div><div className="shipment-label-code-meta"><span>NOTA DE CARGA</span><b>{code}</b></div></header>
+          <div className="shipment-label-rule" />
+          <section className="shipment-label-recipient"><div><span>ENTREGA A</span><strong>{client?.name || shipment?.client_name || "Cliente sin asignar"}</strong><p>{address || "Dirección no indicada"}{city ? ` · ${city}` : ""}</p>{shipment?.delivery_window_start && shipment?.delivery_window_end && <small>Horario: {String(shipment.delivery_window_start).slice(0, 5)}–{String(shipment.delivery_window_end).slice(0, 5)}</small>}</div><div className="shipment-label-packages"><span>BULTOS</span><strong>{packages}</strong></div></section>
+          <section className="shipment-label-content"><div className="shipment-label-section-title"><span>CONTENIDO DEL ENVÍO</span><small>{lineRows.length} referencias</small></div>{lineRows.length ? <ul>{lineRows.map((line, index) => <li key={`${line.name}-${index}`}><b>{line.quantity} {line.unit}</b><span>{line.name}</span></li>)}</ul> : <p>Contenido pendiente de cargar.</p>}</section>
+          <section className="shipment-label-codes"><div className="shipment-label-barcode"><svg ref={barcodeRef} aria-label={`Código de barras ${code}`} /><small>{code}</small></div><div className="shipment-label-qr">{qrImage ? <img src={qrImage} alt={`Código QR del envío ${code}`} /> : <span>Generando QR…</span>}<small>Escanea para consultar el contenido</small></div></section>
+        </article>
+        <div className="product-label-actions shipment-label-actions"><button className="button secondary" type="button" onClick={onClose}>Cerrar</button><button className="button primary" type="button" onClick={() => window.print()}>Imprimir / guardar PDF</button></div>
+      </div>
+    </div>
+  );
+}
+
 function DocumentTemplatePreview({ template, onClose, onSaved, actor }: { template: any; onClose: () => void; onSaved: (template: any) => void; actor: string }) {
   const sampleValues: Record<string, string> = { codigo: template.code || "DOC-2026-001", cliente: "Mercado San Isidro", contacto: "Beatriz Romero", pedido: "PED-2026-0054", fecha: "21/08/2026", fecha_entrega: "25/08/2026", direccion: "Calle San Isidro 5, Madrid", base: "1.250,00 €", iva: "262,50 €", total: "1.512,50 €", nif: "B12345678", lineas: "Agua Tónica Mediterránea · 24 cajas\nCerveza Artesana Lager · 12 cajas", forma_pago: "Transferencia", validez: "30 días", salida: "25/08/2026 · 07:30", preparador: "José Martín", transportista: "Repartos Exclusivas", franja: "09:00–11:00", notas: "Entregar en la entrada principal.", condiciones: "Precios y entregas según acuerdo comercial vigente.", telefono: "914 012 665", email: "compras@mercadosanisidro.es", responsable: "Luis" };
   const [editMode, setEditMode] = useState(false);
@@ -2216,6 +2260,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [previewClient, setPreviewClient] = useState<any>(null);
   const [previewInvoice, setPreviewInvoice] = useState<any>(null);
   const [previewSupplier, setPreviewSupplier] = useState<any>(null);
+  const [shipmentLabelOpen, setShipmentLabelOpen] = useState(false);
   const [previewWarehouseCoordinates, setPreviewWarehouseCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
   const [previewWarehouseDistanceKm, setPreviewWarehouseDistanceKm] = useState<number | null>(null);
   const [notePreview, setNotePreview] = useState<any>(null);
@@ -3648,6 +3693,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     alert(`${imported} registros importados correctamente`);
   }
   async function openPreview(row: any) {
+    setShipmentLabelOpen(false);
     setPreview(row);
     if (active === "Preparación de pedidos") {
       setPreparationAnnotation("");
@@ -5178,12 +5224,12 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         />
       )}
       {preview && (
-        <div className="preview-overlay document-preview-overlay" onClick={() => setPreview(null)}>
+        <div className="preview-overlay document-preview-overlay" onClick={() => { setPreview(null); setShipmentLabelOpen(false); }}>
           <div
             className="document-preview"
             onClick={(e) => e.stopPropagation()}
           >
-            <button className="preview-close" onClick={() => setPreview(null)}>
+            <button className="preview-close" onClick={() => { setPreview(null); setShipmentLabelOpen(false); }}>
               ×
             </button>
             <p className="eyebrow">
@@ -5434,15 +5480,21 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                 );
               })()}
             </div>}
-            <button className="button secondary" disabled={previewLoading} onClick={() => window.print()}>
-              Imprimir / guardar PDF
-            </button>
+            <div className="preview-document-actions">
+              <button className="button secondary" disabled={previewLoading} onClick={() => window.print()}>
+                Imprimir / guardar PDF
+              </button>
+              {isLoadPreparation && <button className="button workflow" type="button" onClick={() => setShipmentLabelOpen(true)}>
+                Etiqueta de envío · QR y barras
+              </button>}
+            </div>
             {active === "Facturas" && <div className="invoice-document-actions"><button type="button" className="button workflow" onClick={() => void openInvoicePdf(preview)}>Ver PDF generado</button><button type="button" className="button secondary" onClick={() => void copyInvoiceLink(preview)}>Copiar enlace seguro</button><button type="button" className="button workflow" onClick={() => void sendInvoiceEmail(preview)}>Enviar por email</button><button type="button" className="button secondary" onClick={() => void prepareInvoicePdf(preview, true)}>Regenerar PDF</button></div>}
             {active === "Pedidos" && <><div className="document-pdf-actions"><button type="button" className="button workflow" onClick={() => void openCommercialDocumentPdf(preview, "order")}>Ver PDF generado</button><button type="button" className="button secondary" onClick={() => void copyCommercialDocumentLink(preview, "order")}>Copiar enlace seguro</button><button type="button" className="button secondary" onClick={() => void prepareCommercialDocumentPdf(preview, "order", true)}>Regenerar PDF</button></div><div className="order-preview-actions"><button type="button" className="button workflow" onClick={() => void (getOrderShipment(preview) ? openOrderLoadNote(preview) : createOrderLoadNote(preview))}>{getOrderShipment(preview) ? "Abrir nota de carga" : "Crear nota de carga"}</button>{!isOrderSent(preview) && <button type="button" className="button secondary" onClick={() => { setPreview(null); beginInline(preview); }}>Editar pedido</button>}<button type="button" className="button secondary" onClick={() => void convertOrder(preview, "delivery")}>Crear albarán</button><button type="button" className="button primary" onClick={() => void convertOrder(preview, "invoice")}>Crear factura</button></div></>}
             {active === "Presupuestos" && <><div className="document-pdf-actions"><button type="button" className="button workflow" onClick={() => void openCommercialDocumentPdf(preview, "quote")}>Ver PDF generado</button><button type="button" className="button secondary" onClick={() => void copyCommercialDocumentLink(preview, "quote")}>Copiar enlace seguro</button><button type="button" className="button secondary" onClick={() => void prepareCommercialDocumentPdf(preview, "quote", true)}>Regenerar PDF</button></div><div className="quote-preview-actions"><button type="button" className="button secondary" onClick={() => void sendQuoteToClient(preview)}>Enviar al cliente</button><button type="button" className="button primary" disabled={preview.status === "Convertido"} onClick={() => void convertQuoteToOrder(preview)}>{preview.status === "Convertido" ? "Convertido a pedido" : "Convertir a pedido"}</button></div></>}
           </div>
         </div>
       )}
+      {shipmentLabelOpen && preview && isLoadPreparation && <ShipmentLabelModal shipment={preview} client={previewClient} lines={previewLines} products={productOptions} address={previewAddress} city={previewCity} onClose={() => setShipmentLabelOpen(false)} />}
       {notePreview && (
         <div className="preview-overlay" onClick={() => setNotePreview(null)}>
           <article className="note-preview-card" onClick={(event) => event.stopPropagation()}>

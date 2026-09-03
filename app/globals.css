@@ -8,6 +8,61 @@
   margin: 8px 0;
 }
 
+/* Etiqueta de expedición para identificar cada nota de carga con una
+   referencia escaneable y un resumen legible del contenido. */
+.shipment-label-overlay { z-index: 180; }
+.shipment-label-modal { box-sizing: border-box; width: min(760px, calc(100vw - 28px)); max-height: calc(100vh - 28px); overflow-y: auto; padding: 18px; border: 1px solid #d5dfe3; background: #f4f7f8; box-shadow: 0 18px 45px rgba(38,52,61,.25); }
+.shipment-label-toolbar { margin-bottom: 14px; }
+.shipment-label-sheet { box-sizing: border-box; width: 100%; padding: 22px; border: 1px solid #cbd7dc; background: #fff; color: #17252c; }
+.shipment-label-brand, .shipment-label-recipient, .shipment-label-section-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.shipment-label-brand { align-items: center; }
+.shipment-label-brand > div:first-child { display: grid; gap: 2px; }
+.shipment-label-brand b { color: #b91c1c; font-size: 15px; letter-spacing: .12em; }
+.shipment-label-brand strong { color: #657780; font-size: 9px; letter-spacing: .2em; }
+.shipment-label-code-meta { display: grid; gap: 3px; justify-items: end; text-align: right; }
+.shipment-label-code-meta span, .shipment-label-recipient span, .shipment-label-section-title span { color: #b91c1c; font-size: 9px; font-weight: 800; letter-spacing: .12em; }
+.shipment-label-code-meta b { font-size: 18px; letter-spacing: .04em; }
+.shipment-label-rule { height: 3px; margin: 14px 0 18px; background: #b91c1c; }
+.shipment-label-recipient { padding-bottom: 17px; border-bottom: 1px solid #dce4e7; }
+.shipment-label-recipient > div:first-child { display: grid; gap: 5px; }
+.shipment-label-recipient strong { font-size: 19px; }
+.shipment-label-recipient p, .shipment-label-recipient small { margin: 0; color: #526670; font-size: 12px; }
+.shipment-label-packages { display: grid; justify-items: end; gap: 2px; min-width: 86px; padding: 8px 12px; border: 1px solid #b91c1c; background: #fff5f5; text-align: right; }
+.shipment-label-packages strong { color: #b91c1c; font-size: 30px; line-height: 1; }
+.shipment-label-content { padding: 16px 0; }
+.shipment-label-section-title { align-items: center; padding-bottom: 8px; border-bottom: 1px solid #dce4e7; }
+.shipment-label-section-title small { color: #657780; font-size: 10px; }
+.shipment-label-content ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.shipment-label-content li { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 10px; padding: 8px 0; border-bottom: 1px solid #edf1f2; font-size: 12px; }
+.shipment-label-content li b { color: #b91c1c; }
+.shipment-label-content li span { overflow-wrap: anywhere; }
+.shipment-label-content > p { margin: 12px 0 0; color: #657780; font-size: 12px; }
+.shipment-label-codes { display: grid; grid-template-columns: minmax(0, 1fr) 160px; align-items: center; gap: 22px; padding-top: 16px; border-top: 2px solid #17252c; }
+.shipment-label-barcode { display: grid; justify-items: center; gap: 5px; min-width: 0; }
+.shipment-label-barcode svg { width: 100%; max-width: 390px; height: auto; }
+.shipment-label-barcode small, .shipment-label-qr small { color: #526670; font-size: 9px; text-align: center; }
+.shipment-label-qr { display: grid; justify-items: center; gap: 6px; }
+.shipment-label-qr img { width: 132px; height: 132px; image-rendering: pixelated; }
+.shipment-label-qr span { display: grid; place-items: center; width: 132px; height: 132px; color: #657780; font-size: 10px; }
+.shipment-label-actions { background: #f4f7f8; }
+@media (max-width: 620px) {
+  .shipment-label-sheet { padding: 15px; }
+  .shipment-label-brand, .shipment-label-recipient { gap: 10px; }
+  .shipment-label-recipient strong { font-size: 16px; }
+  .shipment-label-codes { grid-template-columns: 1fr; gap: 14px; }
+  .shipment-label-qr { order: -1; }
+  .shipment-label-content li { grid-template-columns: 86px minmax(0, 1fr); }
+}
+@media print {
+  body:has(.shipment-label-overlay) * { visibility: hidden !important; }
+  body:has(.shipment-label-overlay) .shipment-label-overlay,
+  body:has(.shipment-label-overlay) .shipment-label-overlay * { visibility: visible !important; }
+  .shipment-label-overlay { position: absolute; inset: 0; display: block; padding: 0; background: #fff; }
+  .shipment-label-modal { width: 100%; max-height: none; overflow: visible; padding: 0; border: 0; background: #fff; box-shadow: none; }
+  .shipment-label-toolbar, .shipment-label-actions { display: none !important; }
+  .shipment-label-sheet { width: 100%; min-height: 140mm; padding: 12mm; border: 0; }
+}
+
 /* Public web: app launch teaser */
 .public-web-app-highlights { display: grid; grid-template-columns: minmax(240px, .7fr) 1.3fr; align-items: center; gap: 8%; width: min(1280px, calc(100% - 36px)); margin: 0 auto; padding: 82px 8%; background: #11110f; color: #f5f1e8; }
 .public-web-app-highlights-copy { max-width: 330px; }.public-web-app-highlights-copy .public-web-kicker { color: #bd2027; }.public-web-app-highlights-copy h2 { margin: 0; color: #f5f1e8; font-size: clamp(42px, 5vw, 64px); letter-spacing: -.075em; line-height: .9; }.public-web-app-highlights-copy h2 em { color: #bd2027; font-style: normal; }.public-web-app-highlights-copy > p:not(.public-web-kicker) { margin: 22px 0 0; color: #aaa59c; font-size: 13px; line-height: 1.5; }
