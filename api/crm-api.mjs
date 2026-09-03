@@ -538,7 +538,7 @@ for (const statement of [
 db.exec(
   `CREATE TABLE IF NOT EXISTS shipments(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,order_id INTEGER,delivery_note_id INTEGER,client_id INTEGER,carrier TEXT,status TEXT DEFAULT 'Preparando',prepared_at TEXT,shipped_at TEXT,expected_delivery_at TEXT,delivered_at TEXT,address TEXT,tracking TEXT,packages INTEGER DEFAULT 1,incidents TEXT);`,
 );
-for (const column of ["origin_address", "departure_at", "delivery_window_start", "delivery_window_end", "notes", "preparation_started_at", "preparation_started_by", "stock_released_at", "stock_released_by"]) {
+for (const column of ["origin_address", "departure_at", "delivery_window_start", "delivery_window_end", "notes", "preparation_started_at", "preparation_started_by", "stock_released_at", "stock_released_by", "delivery_signature_data", "delivery_recipient_name", "delivery_signature_status", "delivery_signature_at", "delivery_signature_by", "delivery_signature_note"]) {
   try { db.exec(`ALTER TABLE shipments ADD COLUMN ${column} TEXT`); } catch {}
 }
 try { db.exec("ALTER TABLE shipments ADD COLUMN urgent INTEGER DEFAULT 0"); } catch {}
@@ -947,7 +947,7 @@ const lookupFields = {
   collection_points: ["id", "code", "name", "client_id", "address", "city", "contact", "phone", "email", "opening_hours", "opening_time", "closing_time", "geocoding_status", "latitude", "longitude"],
   products: ["id", "name", "sku", "unit", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "vat", "stock", "stock_reserved", "min_stock", "stock_min", "category", "brand", "format", "active", "product_status", "warehouse_id", "supplier_id", "primary_supplier_id", "warehouse_location", "cost_price", "photo_url", "photo_thumbnail_url", "photo_web_url"],
   orders: ["id", "code", "client_id", "status", "amount", "created_at", "updated_at", "delivery_date", "preparation_date", "shipping_date", "address", "delivery_city", "collection_point_id", "urgent", "stock_alert"],
-  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "delivery_city", "delivery_window_start", "delivery_window_end", "carrier", "packages", "incidents", "notes", "public_tracking_token"],
+  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "delivery_city", "delivery_window_start", "delivery_window_end", "carrier", "packages", "incidents", "notes", "prepared_at", "prepared_by", "shipped_at", "shipped_by", "departure_at", "delivered_at", "delivered_by", "delivery_signature_status", "delivery_recipient_name", "delivery_signature_at", "delivery_signature_by", "delivery_signature_note", "public_tracking_token"],
   invoices: ["id", "code", "order_id", "client_id", "amount", "status", "created_at", "issue_date", "due_date"],
   purchase_orders: ["id", "code", "supplier_id", "status", "order_date", "expected_date", "amount", "validation_status"],
   goods_receipts: ["id", "code", "supplier_id", "purchase_order_id", "purchase_invoice_id", "warehouse_id", "receipt_date", "status", "validation_status", "validated_by", "validated_at", "line_count", "incident_count", "received_by", "notes"],
@@ -1603,6 +1603,42 @@ export async function crmApiHandler(req, res) {
         db.prepare("UPDATE orders SET amount=?,updated_at=? WHERE id=?").run(Number(total || 0), new Date().toISOString(), Number(order.id));
         recordAudit(actor, "POST", `assistant/adjust-order-line/${line.id}`, "Ajuste de línea", JSON.stringify({ ...preview, confirmed: true }));
         return send(res, 200, { ok: true, preview: { ...preview, final_quantity: next, order_amount: Number(total || 0) } });
+      }
+      if (t === "shipments" && req.method === "POST" && p[2] && p[3] === "delivery-confirmation") {
+        const shipmentId = Number(p[2]);
+        const body = await read(req);
+        const shipment = db.prepare("SELECT * FROM shipments WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(shipmentId);
+        if (!shipment) return send(res, 404, { error: "Envío no encontrado" });
+        const signatureStatus = String(body.signature_status || "").trim();
+        const allowedStatuses = ["Firmado", "Sin firma", "Rechazó firmar"];
+        if (!allowedStatuses.includes(signatureStatus)) return send(res, 400, { error: "Indica si la entrega queda firmada, sin firma o con rechazo de firma" });
+        const signatureData = String(body.signature_data || "").trim();
+        const recipientName = String(body.recipient_name || "").trim();
+        const note = String(body.note || "").trim();
+        if (signatureStatus === "Firmado" && (!signatureData.startsWith("data:image/") || signatureData.length < 120)) return send(res, 400, { error: "Dibuja la firma antes de confirmar la entrega" });
+        if (signatureStatus === "Firmado" && !recipientName) return send(res, 400, { error: "Indica quién recibe la mercancía" });
+        if (signatureStatus !== "Firmado" && !note) return send(res, 400, { error: "Deja una observación explicando por qué no hay firma" });
+        if (signatureData.length > 2200000) return send(res, 400, { error: "La firma ocupa demasiado. Borra y vuelve a firmar con un trazo más sencillo" });
+        const now = new Date().toISOString();
+        const result = db.prepare(`UPDATE shipments SET status='Entregado',delivered_at=?,delivered_by=?,delivery_signature_data=?,delivery_recipient_name=?,delivery_signature_status=?,delivery_signature_at=?,delivery_signature_by=?,delivery_signature_note=?,updated_at=? WHERE id=?`).run(
+          now,
+          actor,
+          signatureStatus === "Firmado" ? signatureData : null,
+          recipientName || null,
+          signatureStatus,
+          signatureStatus === "Firmado" ? now : null,
+          signatureStatus === "Firmado" ? actor : null,
+          note || null,
+          now,
+          shipmentId,
+        );
+        if (!result.changes) return send(res, 404, { error: "No se pudo confirmar la entrega" });
+        if (shipment.order_id) db.prepare("UPDATE orders SET status='Entregado',updated_at=? WHERE id=?").run(now, Number(shipment.order_id));
+        recordAudit(actor, "POST", `shipments/${shipmentId}/delivery-confirmation`, "Confirmar entrega", JSON.stringify({ shipment_id: shipmentId, order_id: shipment.order_id || null, signature_status: signatureStatus, recipient_name: recipientName || null, note: note || null }));
+        invalidateRelatedReadCaches("shipments");
+        invalidateRelatedReadCaches("orders");
+        const updated = db.prepare("SELECT * FROM shipments WHERE id=?").get(shipmentId);
+        return send(res, 200, updated);
       }
       if (t === "goods_receipt_incidents" && req.method === "POST" && p[2] && p[3] === "claim") {
         const incidentId = Number(p[2]);

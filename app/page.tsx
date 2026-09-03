@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.50";
+const APP_VERSION = "2.0.51";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -376,6 +376,11 @@ const cfg: any = {
       "prepared_by",
       "shipped_by",
       "delivered_by",
+      "delivery_signature_status",
+      "delivery_recipient_name",
+      "delivery_signature_at",
+      "delivery_signature_by",
+      "delivery_signature_note",
     ],
     labels: [
       "Código",
@@ -400,6 +405,11 @@ const cfg: any = {
       "Preparado por",
       "Enviado por",
       "Entregado por",
+      "Estado de firma",
+      "Quién recibe",
+      "Fecha de firma",
+      "Firmado por",
+      "Observación de entrega",
     ],
   },
   Proveedores: {
@@ -2078,6 +2088,7 @@ function BusinessRelatedPanels({ active, rows, lookups, onNavigate }: { active: 
 
 function OrderWorkflowPanel({ order, shipment, billingStatus, paymentStatus, invoice, onOpenPayment, onNavigate }: { order: any; shipment: any; billingStatus: string; paymentStatus: string; invoice: any; onOpenPayment: () => void; onNavigate?: (module: string) => void }) {
   const shippingStatus = String(shipment?.status || order?.status || "Pendiente");
+  const deliverySignatureStatus = String(shipment?.delivery_signature_status || "Pendiente");
   const phase = shippingStatus === "Entregado" ? 5 : shippingStatus === "En reparto" ? 4 : shippingStatus === "Enviado" ? 3 : ["Preparado", "Preparado con incidencia"].includes(shippingStatus) ? 2 : ["Preparando", "Pendiente", "Nuevo"].includes(shippingStatus) ? 1 : 0;
   const steps = [
     { label: "Pedido", done: true, value: order?.created_at, person: order?.created_by },
@@ -2092,10 +2103,111 @@ function OrderWorkflowPanel({ order, shipment, billingStatus, paymentStatus, inv
   return <section className="order-workflow" aria-label="Seguimiento del pedido">
     <div className="order-workflow-head"><div><b>Seguimiento del pedido</b><small>Logística, facturación y cobro en bloques independientes.</small></div><span className={`order-workflow-state${shippingStatus === "Entregado" ? " complete" : ""}`}>{shippingStatus}</span></div>
     <div className="order-workflow-track">{steps.map((step, index) => <div className={`order-workflow-step${step.done ? " done" : ""}${index > 0 && steps[index - 1].done && !step.done ? " next" : ""}`} key={step.label}><span className="order-workflow-check" aria-hidden="true">{step.done ? "✓" : index + 1}</span><b>{step.label}</b><small>{step.done ? formatDate(step.value) : "Pendiente"}</small>{step.person && <em>{step.person}</em>}</div>)}</div>
+    {shippingStatus === "Entregado" && <div className={`delivery-proof-summary ${deliverySignatureStatus === "Firmado" ? "signed" : deliverySignatureStatus === "Rechazó firmar" ? "rejected" : "unsigned"}`}><b>Recepción: {deliverySignatureStatus === "Firmado" ? "Firmada" : deliverySignatureStatus === "Rechazó firmar" ? "Cliente rechazó firmar" : deliverySignatureStatus === "Sin firma" ? "Entregada sin firma" : "Pendiente de registrar"}</b>{shipment?.delivery_recipient_name && <span>Recibe: {shipment.delivery_recipient_name}</span>}{shipment?.delivery_signature_at && <span>{formatDate(shipment.delivery_signature_at)}</span>}{shipment?.delivery_signature_note && <span>{shipment.delivery_signature_note}</span>}</div>}
     <div className="order-accounting-track">
       <article className={`order-accounting-card${billingStatus === "Facturado" ? " done" : " pending"}`}><div><span className="order-accounting-icon">€</span><div><b>Facturación</b><strong>{billingStatus}</strong></div></div>{invoice ? <small>{invoice.code} · {Number(invoice.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</small> : <small>Sin factura vinculada</small>}{invoice && <button type="button" className="link-button" onClick={() => onNavigate?.("Facturas")}>Ir a facturas</button>}</article>
       <article className={`order-accounting-card${paymentStatus === "Cobrado" ? " done" : paymentStatus === "No facturado" ? " pending" : " attention"}`}><div><span className="order-accounting-icon">✓</span><div><b>Cobro</b><strong>{paymentStatus}</strong></div></div><small>{paymentStatus === "Cobrado" ? "No queda importe pendiente" : invoice ? "Revisa el importe pendiente y registra el cobro." : "Se habilitará cuando exista una factura."}</small>{paymentAction && <button type="button" className="button primary" onClick={paymentAction}>Registrar cobro</button>}</article>
     </div>
+  </section>;
+}
+
+function DeliverySignaturePanel({ shipment, actor, onSaved }: { shipment: any; actor: string; onSaved: (shipment: any) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+  const [hasInk, setHasInk] = useState(false);
+  const [recipientName, setRecipientName] = useState(String(shipment?.delivery_recipient_name || ""));
+  const [note, setNote] = useState(String(shipment?.delivery_signature_note || ""));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const signatureStatus = String(shipment?.delivery_signature_status || "Pendiente");
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      canvas.width = Math.max(320, Math.floor(rect.width * ratio));
+      canvas.height = Math.floor(190 * ratio);
+      const context = canvas.getContext("2d");
+      if (context) {
+        context.lineCap = "round";
+        context.lineJoin = "round";
+        context.lineWidth = 2.4 * ratio;
+        context.strokeStyle = "#17232b";
+      }
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, [shipment?.id]);
+
+  function point(event: any) {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    return { x: (event.clientX - rect.left) * (canvas.width / rect.width), y: (event.clientY - rect.top) * (canvas.height / rect.height) };
+  }
+  function startDrawing(event: any) {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    const position = point(event);
+    if (!canvas || !context || !position) return;
+    event.preventDefault();
+    drawingRef.current = true;
+    canvas.setPointerCapture?.(event.pointerId);
+    context.beginPath();
+    context.moveTo(position.x, position.y);
+    setHasInk(true);
+  }
+  function draw(event: any) {
+    if (!drawingRef.current) return;
+    const context = canvasRef.current?.getContext("2d");
+    const position = point(event);
+    if (!context || !position) return;
+    event.preventDefault();
+    context.lineTo(position.x, position.y);
+    context.stroke();
+  }
+  function stopDrawing() { drawingRef.current = false; }
+  function clearSignature() {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
+    setHasInk(false);
+    setMessage("");
+  }
+  async function confirmDelivery(nextStatus: "Firmado" | "Sin firma" | "Rechazó firmar") {
+    const cleanName = recipientName.trim();
+    const cleanNote = note.trim();
+    if (nextStatus === "Firmado" && !hasInk) return setMessage("Dibuja la firma de quien recibe la mercancía.");
+    if (nextStatus === "Firmado" && !cleanName) return setMessage("Indica el nombre de quien recibe la mercancía.");
+    if (nextStatus !== "Firmado" && !cleanNote) return setMessage("Deja una observación para justificar la entrega sin firma.");
+    setSaving(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/shipments/${shipment.id}/delivery-confirmation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Actor": actor },
+        body: JSON.stringify({ signature_status: nextStatus, signature_data: nextStatus === "Firmado" ? canvasRef.current?.toDataURL("image/png") : "", recipient_name: cleanName, note: cleanNote }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "No se pudo confirmar la entrega.");
+      onSaved(data);
+      setMessage(nextStatus === "Firmado" ? "Entrega confirmada con firma." : "Entrega confirmada y motivo guardado.");
+    } catch (error: any) {
+      setMessage(error?.message || "No se pudo confirmar la entrega.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return <section className="delivery-signature-panel" aria-label="Firma de recepción">
+    <div className="delivery-signature-head"><div><b>Firma de recepción</b><small>El cliente puede firmar en el móvil o tableta del conductor. La firma es recomendable, pero no obligatoria.</small></div><span className={`delivery-signature-badge ${signatureStatus === "Firmado" ? "signed" : signatureStatus === "Rechazó firmar" ? "rejected" : signatureStatus === "Sin firma" ? "unsigned" : "pending"}`}>{signatureStatus === "Pendiente" ? "Pendiente" : signatureStatus}</span></div>
+    {signatureStatus === "Firmado" && shipment?.delivery_signature_data && <div className="delivery-signature-existing"><img src={shipment.delivery_signature_data} alt="Firma de recepción guardada" /><div><b>Recepción firmada</b><small>{shipment.delivery_recipient_name || "Receptor no indicado"}{shipment.delivery_signature_at ? ` · ${String(shipment.delivery_signature_at).slice(0, 16).replace("T", " ")}` : ""}</small></div></div>}
+    <div className="delivery-signature-fields"><label>Nombre de quien recibe<input value={recipientName} onChange={(event) => setRecipientName(event.target.value)} placeholder="Nombre y apellidos" disabled={saving} /></label><label>Observaciones {signatureStatus !== "Firmado" && <em>(obligatorio si no firma)</em>}<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ej.: entrega recibida sin firma por indicación del cliente…" rows={2} disabled={saving} /></label></div>
+    <div className="delivery-signature-canvas-wrap"><div className="delivery-signature-canvas-head"><span>Firma aquí</span><button type="button" className="link-button" onClick={clearSignature} disabled={saving || !hasInk}>Borrar firma</button></div><canvas ref={canvasRef} className="delivery-signature-canvas" onPointerDown={startDrawing} onPointerMove={draw} onPointerUp={stopDrawing} onPointerCancel={stopDrawing} onPointerLeave={stopDrawing} aria-label="Área para firmar la recepción" /></div>
+    {message && <p className="delivery-signature-message" role="status">{message}</p>}
+    <div className="delivery-signature-actions"><button type="button" className="button primary" disabled={saving} onClick={() => void confirmDelivery("Firmado")}>{saving ? "Guardando…" : "Confirmar entrega firmada"}</button><button type="button" className="button secondary" disabled={saving} onClick={() => void confirmDelivery("Sin firma")}>Entregar sin firma</button><button type="button" className="button ghost" disabled={saving} onClick={() => void confirmDelivery("Rechazó firmar")}>Cliente rechaza firmar</button></div>
   </section>;
 }
 
@@ -3770,7 +3882,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             : active === "Presupuestos"
               ? "quote_lines"
           : "order_lines";
-    const lineOwnerId = active === "Preparación de pedidos" ? row.order_id : row.id;
+    const lineOwnerId = ["Preparación de pedidos", "Envíos"].includes(active) ? row.order_id : row.id;
     const [clients, lines, products, sourceOrderLines] = await Promise.all([
       fetch("/api/clients").then((r) => r.json()),
       fetch("/api/" + lineTable).then((r) => r.json()),
@@ -5270,6 +5382,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                   ? "ALBARÁN"
                   : active === "Preparación de pedidos"
                     ? "NOTA DE CARGA"
+                  : active === "Envíos"
+                    ? "ENVÍO"
                   : active === "Presupuestos"
                     ? "PRESUPUESTO"
                   : active === "Compras"
@@ -5302,6 +5416,15 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
               </p>
             </div>
             {active === "Pedidos" && <OrderWorkflowPanel order={preview} shipment={getOrderShipment(preview)} billingStatus={getOrderBillingStatus(preview)} paymentStatus={getOrderPaymentStatus(preview)} invoice={previewInvoice || getOrderInvoice(preview)} onOpenPayment={() => openPaymentFromOrder(preview)} onNavigate={onNavigate} />}
+            {(active === "Pedidos" || active === "Envíos") && (() => {
+              const deliveryShipment = active === "Envíos" ? preview : getOrderShipment(preview);
+              if (!deliveryShipment) return null;
+              return <DeliverySignaturePanel shipment={deliveryShipment} actor={user?.username || "Usuario local"} onSaved={(updated) => {
+                setLookups((current: any) => ({ ...current, shipments: (current.shipments || []).map((item: any) => Number(item.id) === Number(updated.id) ? { ...item, ...updated } : item) }));
+                setPreview((current: any) => current ? active === "Envíos" ? { ...current, ...updated } : { ...current, status: "Entregado", delivery_signature_status: updated.delivery_signature_status, delivery_recipient_name: updated.delivery_recipient_name, delivery_signature_at: updated.delivery_signature_at, delivery_signature_by: updated.delivery_signature_by, delivery_signature_note: updated.delivery_signature_note } : current);
+                setRows((current) => current.map((item) => active === "Envíos" && Number(item.id) === Number(updated.id) ? { ...item, ...updated } : active === "Pedidos" && Number(item.id) === Number(updated.order_id || deliveryShipment.order_id) ? { ...item, status: "Entregado" } : item));
+              }} />;
+            })()}
              {!(["Facturas", "Cobros"] as string[]).includes(active) && (previewLocation || previewAddress || previewClient?.address) && <section className="delivery-map-panel" aria-label="Ruta de entrega"><div className="delivery-map-info"><b>Ubicación de entrega</b><span>{previewLocation?.name || "Dirección del cliente"} · {previewAddress || "Dirección no indicada"}</span>{(previewLocation?.geocoding_status === "Geolocalizada" || previewClient?.geocoding_status === "Geolocalizada") ? <small>Ubicación geolocalizada</small> : <small>Pendiente de geolocalizar</small>}{previewLat && previewLon && <small className="delivery-distance">{previewWarehouseDistanceKm === null ? "Calculando distancia desde el almacén…" : previewWarehouseDistanceKm >= 0 ? `${previewWarehouseDistanceKm.toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km estimados desde ${previewWarehouse?.name || "el almacén"}` : "Distancia no disponible: completa las coordenadas del almacén."}</small>}</div><div className="delivery-map-visual">{previewLat && previewLon ? <><IntegratedMap locations={[{ latitude: previewLat, longitude: previewLon, name: previewLocation?.name || previewClient?.name }]} /><a className="button primary delivery-map-navigation" href={previewNavigationUrl} target="_blank" rel="noreferrer"><ToolbarIcon name="map" /> Navegar con Google Maps</a></> : <a className="button secondary icon-action map-action" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(previewMapQuery)}`} target="_blank" rel="noreferrer" aria-label="Buscar dirección en Google Maps" title="Buscar dirección en Google Maps"><ToolbarIcon name="map" /><span className="icon-action-label">Buscar en mapa</span></a>}</div></section>}
             {isLoadPreparation && <section className="preparation-delivery-panel" aria-label="Editar dirección de entrega">
               <div className="preparation-delivery-head"><div><b>Dirección de entrega</b><small>Se guarda en este pedido y en su nota de carga.</small></div></div>

@@ -171,6 +171,12 @@ const migrationsByTable = {
     ["shipped_by", "ALTER TABLE shipments ADD COLUMN shipped_by TEXT"],
     ["delivered_by", "ALTER TABLE shipments ADD COLUMN delivered_by TEXT"],
     ["delivery_city", "ALTER TABLE shipments ADD COLUMN delivery_city TEXT"],
+    ["delivery_signature_data", "ALTER TABLE shipments ADD COLUMN delivery_signature_data TEXT"],
+    ["delivery_recipient_name", "ALTER TABLE shipments ADD COLUMN delivery_recipient_name TEXT"],
+    ["delivery_signature_status", "ALTER TABLE shipments ADD COLUMN delivery_signature_status TEXT DEFAULT 'Pendiente'"],
+    ["delivery_signature_at", "ALTER TABLE shipments ADD COLUMN delivery_signature_at TEXT"],
+    ["delivery_signature_by", "ALTER TABLE shipments ADD COLUMN delivery_signature_by TEXT"],
+    ["delivery_signature_note", "ALTER TABLE shipments ADD COLUMN delivery_signature_note TEXT"],
     ["public_tracking_token", "ALTER TABLE shipments ADD COLUMN public_tracking_token TEXT"],
   ],
   import_batches: [
