@@ -18,7 +18,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [loginBusy, setLoginBusy] = useState(false);
   const [isPublicOrderPortal, setIsPublicOrderPortal] = useState(false);
   useEffect(() => {
-    setIsPublicOrderPortal(["/portal-pedidos", "/web"].includes(window.location.pathname.replace(/\/$/, "")));
+    const path = window.location.pathname.replace(/\/$/, "");
+    setIsPublicOrderPortal(["/portal-pedidos", "/web"].includes(path) || path.startsWith("/seguimiento/"));
     try {
       const saved =
         localStorage.getItem("excluvas.session") ||

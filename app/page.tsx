@@ -1780,6 +1780,10 @@ function ProductBatchLabelModal({ products, onClose }: { products: any[]; onClos
 
 function ShipmentLabelModal({ shipment, client, lines, products, address, city, onClose }: { shipment: any; client: any; lines: any[]; products: any[]; address: string; city: string; onClose: () => void }) {
   const code = String(shipment?.code || `ENV-${shipment?.id || "SIN-CODIGO"}`);
+  const trackingToken = String(shipment?.public_tracking_token || "").trim();
+  const trackingUrl = trackingToken && typeof window !== "undefined"
+    ? `${window.location.origin}/seguimiento/${encodeURIComponent(trackingToken)}`
+    : "";
   const packages = Math.max(1, Number(shipment?.packages || 1));
   const barcodeRef = useRef<SVGSVGElement>(null);
   const [qrImage, setQrImage] = useState("");
@@ -1790,7 +1794,7 @@ function ShipmentLabelModal({ shipment, client, lines, products, address, city, 
     const quantity = Number.isFinite(prepared) && prepared > 0 && prepared < requested ? `${prepared}/${requested}` : String(requested);
     return { name: product?.name || `Producto #${line.product_id}`, quantity, unit: quantityUnitLabel(line.quantity_unit) };
   });
-  const qrPayload = [
+  const qrPayload = trackingUrl || [
     "EXCLUSIVAS INTELIGENTES",
     `ENVÍO: ${code}`,
     `PEDIDO: ${shipment?.order_code || shipment?.order_id || "—"}`,
@@ -1810,11 +1814,11 @@ function ShipmentLabelModal({ shipment, client, lines, products, address, city, 
       <div className="shipment-label-modal" onClick={(event) => event.stopPropagation()}>
         <div className="product-label-head shipment-label-toolbar"><div><p className="eyebrow">ETIQUETA DE ENVÍO</p><h2>{code}</h2><small>Identifica el pedido, los bultos y su contenido en el almacén y durante el reparto.</small></div><button type="button" onClick={onClose} aria-label="Cerrar">×</button></div>
         <article className="shipment-label-sheet" aria-label={`Etiqueta de envío ${code}`}>
-          <header className="shipment-label-brand"><div><b>EXCLUSIVAS</b><strong>INTELIGENTES</strong></div><div className="shipment-label-code-meta"><span>NOTA DE CARGA</span><b>{code}</b></div></header>
+          <header className="shipment-label-brand"><div><b>EXCLUSIVAS</b><strong>INTELIGENTES</strong></div><div className="shipment-label-code-meta"><span>NOTA DE CARGA</span><b>{code}</b><small className="shipment-label-sticker-note">IDENTIFICACIÓN DE ENVÍO · CONSERVAR HASTA LA ENTREGA</small></div></header>
           <div className="shipment-label-rule" />
           <section className="shipment-label-recipient"><div><span>ENTREGA A</span><strong>{client?.name || shipment?.client_name || "Cliente sin asignar"}</strong><p>{address || "Dirección no indicada"}{city ? ` · ${city}` : ""}</p>{shipment?.delivery_window_start && shipment?.delivery_window_end && <small>Horario: {String(shipment.delivery_window_start).slice(0, 5)}–{String(shipment.delivery_window_end).slice(0, 5)}</small>}</div><div className="shipment-label-packages"><span>BULTOS</span><strong>{packages}</strong></div></section>
           <section className="shipment-label-content"><div className="shipment-label-section-title"><span>CONTENIDO DEL ENVÍO</span><small>{lineRows.length} referencias</small></div>{lineRows.length ? <ul>{lineRows.map((line, index) => <li key={`${line.name}-${index}`}><b>{line.quantity} {line.unit}</b><span>{line.name}</span></li>)}</ul> : <p>Contenido pendiente de cargar.</p>}</section>
-          <section className="shipment-label-codes"><div className="shipment-label-barcode"><svg ref={barcodeRef} aria-label={`Código de barras ${code}`} /><small>{code}</small></div><div className="shipment-label-qr">{qrImage ? <img src={qrImage} alt={`Código QR del envío ${code}`} /> : <span>Generando QR…</span>}<small>Escanea para consultar el contenido</small></div></section>
+          <section className="shipment-label-codes"><div className="shipment-label-barcode"><svg ref={barcodeRef} aria-label={`Código de barras ${code}`} /><small>{code}</small></div><div className="shipment-label-qr">{qrImage ? <img src={qrImage} alt={`Código QR del envío ${code}`} /> : <span>Generando QR…</span>}<small>{trackingUrl ? "Escanea para abrir el seguimiento" : "Escanea para consultar el contenido"}</small>{trackingUrl && <a href={trackingUrl} target="_blank" rel="noreferrer">Abrir seguimiento</a>}</div></section>
         </article>
         <div className="product-label-actions shipment-label-actions"><button className="button secondary" type="button" onClick={onClose}>Cerrar</button><button className="button primary" type="button" onClick={() => window.print()}>Imprimir / guardar PDF</button></div>
       </div>

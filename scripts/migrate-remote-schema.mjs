@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { randomBytes } from "node:crypto";
 import { createClient } from "@libsql/client";
 
 const env = {};
@@ -165,6 +166,7 @@ const migrationsByTable = {
     ["shipped_by", "ALTER TABLE shipments ADD COLUMN shipped_by TEXT"],
     ["delivered_by", "ALTER TABLE shipments ADD COLUMN delivered_by TEXT"],
     ["delivery_city", "ALTER TABLE shipments ADD COLUMN delivery_city TEXT"],
+    ["public_tracking_token", "ALTER TABLE shipments ADD COLUMN public_tracking_token TEXT"],
   ],
   import_batches: [
     ["table", "CREATE TABLE IF NOT EXISTS import_batches(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,source_system TEXT NOT NULL,source_file TEXT NOT NULL,entity TEXT NOT NULL,status TEXT DEFAULT 'Pendiente',rows_read INTEGER DEFAULT 0,rows_inserted INTEGER DEFAULT 0,rows_updated INTEGER DEFAULT 0,rows_skipped INTEGER DEFAULT 0,started_at TEXT,completed_at TEXT,notes TEXT,created_by TEXT DEFAULT 'Sistema',created_at TEXT)"],
@@ -200,6 +202,7 @@ for (const sql of [
   "CREATE INDEX IF NOT EXISTS idx_order_lines_order ON order_lines(order_id)",
   "CREATE INDEX IF NOT EXISTS idx_invoices_client ON invoices(client_id)",
   "CREATE INDEX IF NOT EXISTS idx_shipments_order ON shipments(order_id)",
+  "CREATE INDEX IF NOT EXISTS idx_shipments_public_tracking ON shipments(public_tracking_token)",
   "CREATE INDEX IF NOT EXISTS idx_goods_receipt_incidents_receipt ON goods_receipt_incidents(receipt_id, status)",
   "CREATE INDEX IF NOT EXISTS idx_tasks_status_next_run ON scheduled_tasks(status, next_run)",
   "CREATE INDEX IF NOT EXISTS idx_backup_snapshots_created ON backup_snapshots(created_at)",
@@ -207,5 +210,10 @@ for (const sql of [
   "CREATE INDEX IF NOT EXISTS idx_delivery_route_stops_route ON delivery_route_stops(route_id, position)",
 ]) await client.execute(sql);
 await client.execute("INSERT OR IGNORE INTO invoice_orders(invoice_id,order_id) SELECT id,order_id FROM invoices WHERE order_id IS NOT NULL");
+const shipmentRows = await client.execute("SELECT id,public_tracking_token FROM shipments WHERE public_tracking_token IS NULL OR TRIM(public_tracking_token)='' LIMIT 5000");
+for (const row of shipmentRows.rows) {
+  const token = randomBytes(24).toString("base64url");
+  await client.execute({ sql: "UPDATE shipments SET public_tracking_token=? WHERE id=?", args: [token, row.id] });
+}
 await client.close();
 console.log(`Remote schema ready: ${applied} migrations applied.`);

@@ -542,6 +542,14 @@ for (const column of ["origin_address", "departure_at", "delivery_window_start",
   try { db.exec(`ALTER TABLE shipments ADD COLUMN ${column} TEXT`); } catch {}
 }
 try { db.exec("ALTER TABLE shipments ADD COLUMN urgent INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE shipments ADD COLUMN public_tracking_token TEXT"); } catch {}
+if (!remoteMode) {
+  try {
+    const missingTrackingTokens = db.prepare("SELECT id FROM shipments WHERE public_tracking_token IS NULL OR TRIM(public_tracking_token)=''").all();
+    const assignTrackingToken = db.prepare("UPDATE shipments SET public_tracking_token=? WHERE id=?");
+    for (const shipment of missingTrackingTokens) assignTrackingToken.run(randomBytes(24).toString("base64url"), Number(shipment.id));
+  } catch {}
+}
 db.exec(
   `CREATE TABLE IF NOT EXISTS order_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,order_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS quote_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,quote_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS delivery_note_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,delivery_note_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0);CREATE TABLE IF NOT EXISTS invoice_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL,product_id INTEGER NOT NULL,quantity REAL DEFAULT 0,unit_price REAL DEFAULT 0,discount REAL DEFAULT 0,vat REAL DEFAULT 21,amount REAL DEFAULT 0);`,
 );
@@ -939,7 +947,7 @@ const lookupFields = {
   collection_points: ["id", "code", "name", "client_id", "address", "city", "contact", "phone", "email", "opening_hours", "opening_time", "closing_time", "geocoding_status", "latitude", "longitude"],
   products: ["id", "name", "sku", "unit", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "vat", "stock", "stock_reserved", "min_stock", "stock_min", "category", "brand", "format", "active", "product_status", "warehouse_id", "supplier_id", "primary_supplier_id", "warehouse_location", "cost_price", "photo_url", "photo_thumbnail_url", "photo_web_url"],
   orders: ["id", "code", "client_id", "status", "amount", "created_at", "updated_at", "delivery_date", "preparation_date", "shipping_date", "address", "delivery_city", "collection_point_id", "urgent", "stock_alert"],
-  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "delivery_city", "delivery_window_start", "delivery_window_end", "carrier", "packages", "incidents", "notes"],
+  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "delivery_city", "delivery_window_start", "delivery_window_end", "carrier", "packages", "incidents", "notes", "public_tracking_token"],
   invoices: ["id", "code", "order_id", "client_id", "amount", "status", "created_at", "issue_date", "due_date"],
   purchase_orders: ["id", "code", "supplier_id", "status", "order_date", "expected_date", "amount", "validation_status"],
   goods_receipts: ["id", "code", "supplier_id", "purchase_order_id", "purchase_invoice_id", "warehouse_id", "receipt_date", "status", "validation_status", "validated_by", "validated_at", "line_count", "incident_count", "received_by", "notes"],
@@ -1090,6 +1098,18 @@ function getRouteWithStops(id) {
   const mapsUrl = coordinates.length ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(route.origin_address || coordinates[0])}&destination=${encodeURIComponent(coordinates[coordinates.length - 1])}${coordinates.length > 2 ? `&waypoints=${encodeURIComponent(coordinates.slice(0, -1).join("|"))}` : ""}` : "";
   return { ...route, stops, maps_url: mapsUrl };
 }
+function ensureShipmentTrackingToken(id) {
+  const shipmentId = Number(id);
+  if (!Number.isInteger(shipmentId) || shipmentId <= 0) return "";
+  const current = db.prepare("SELECT public_tracking_token FROM shipments WHERE id=?").get(shipmentId);
+  if (!current) return "";
+  const existing = String(current.public_tracking_token || "").trim();
+  if (existing) return existing;
+  const token = randomBytes(24).toString("base64url");
+  db.prepare("UPDATE shipments SET public_tracking_token=? WHERE id=?").run(token, shipmentId);
+  invalidateReadCache("shipments");
+  return token;
+}
 const read = (req) =>
   new Promise((ok) => {
     let s = "";
@@ -1110,6 +1130,45 @@ export async function crmApiHandler(req, res) {
       .filter(Boolean);
     try {
       const actor = req.headers["x-actor"] || "Usuario local";
+      if (p[1] === "public" && p[2] === "shipments" && p[3] && req.method === "GET") {
+        const trackingToken = decodeURIComponent(String(p[3]));
+        const shipment = db.prepare(`
+          SELECT s.id,s.code,s.order_id,s.status,s.expected_delivery_at,s.preparation_date,
+                 s.address,s.delivery_city,s.packages,s.incidents,
+                 s.delivery_window_start,s.delivery_window_end,
+                 c.name AS client_name,cp.name AS location_name,o.code AS order_code
+          FROM shipments s
+          LEFT JOIN clients c ON c.id=s.client_id
+          LEFT JOIN collection_points cp ON cp.id=s.collection_point_id
+          LEFT JOIN orders o ON o.id=s.order_id
+          WHERE s.public_tracking_token=? AND CAST(COALESCE(s.deleted,0) AS INTEGER)=0
+          LIMIT 1`).get(trackingToken);
+        if (!shipment) return send(res, 404, { error: "Enlace de seguimiento no válido o caducado" });
+        const lines = db.prepare(`
+          SELECT ol.product_id,ol.quantity,ol.quantity_requested,ol.quantity_unit,
+                 ol.prepared_quantity,ol.preparation_status,p.name AS product_name
+          FROM order_lines ol
+          LEFT JOIN products p ON p.id=ol.product_id
+          WHERE ol.order_id=? ORDER BY ol.id`).all(Number(shipment.order_id || 0));
+        return send(res, 200, {
+          shipment: {
+            code: shipment.code,
+            order_code: shipment.order_code || "",
+            status: shipment.status || "Preparando",
+            expected_delivery_at: shipment.expected_delivery_at || "",
+            preparation_date: shipment.preparation_date || "",
+            address: shipment.address || "",
+            delivery_city: shipment.delivery_city || "",
+            packages: Math.max(1, Number(shipment.packages || 1)),
+            incidents: String(shipment.incidents || "").trim(),
+            delivery_window_start: shipment.delivery_window_start || "",
+            delivery_window_end: shipment.delivery_window_end || "",
+            client_name: shipment.client_name || "Cliente",
+            location_name: shipment.location_name || "",
+          },
+          lines,
+        });
+      }
       if (p[1] === "documents" && p[2] && p[3] === "share" && p[4] && req.method === "GET") {
         const type = String(p[2]).toLowerCase();
         const config = commercialPdfConfig(type);
@@ -2020,12 +2079,14 @@ export async function crmApiHandler(req, res) {
           const tableReference = t === "orders" ? "orders" : t;
           const deletedClause = includeDeleted || !hasColumn(tableReference, "deleted") ? "" : ` AND CAST(COALESCE(${tableReference}.deleted,0) AS INTEGER)=0`;
           const row = db.prepare(`SELECT ${selection} FROM ${source} WHERE ${tableReference}.id=?${deletedClause}`).get(Number(p[2]));
-          return row ? send(res, 200, row) : send(res, 404, { error: "Registro no encontrado" });
+          if (!row) return send(res, 404, { error: "Registro no encontrado" });
+          if (t === "shipments") row.public_tracking_token = ensureShipmentTrackingToken(row.id);
+          return send(res, 200, row);
         }
         const cached = !isLookup && limitValue === null && offsetValue === 0
           ? cachedRows(t, includeDeleted, includeInactive)
           : null;
-        if (cached) return send(res, 200, cached);
+        if (cached) return send(res, 200, t === "shipments" ? cached.map((row) => ({ ...row, public_tracking_token: ensureShipmentTrackingToken(row.id) })) : cached);
         const source = t === "orders"
           ? `orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id`
           : t;
@@ -2051,12 +2112,15 @@ export async function crmApiHandler(req, res) {
           ? "CASE WHEN TRIM(COALESCE(products.photo_web_url,''))<>'' THEN 0 ELSE 1 END, products.id DESC"
           : `${t === "orders" ? "orders.id" : "id"} DESC`;
         const rows = db.prepare(`SELECT ${selection} FROM ${source} ${where} ORDER BY ${orderBy}${pagination}`).all();
+        const responseRows = t === "shipments"
+          ? rows.map((row) => ({ ...row, public_tracking_token: ensureShipmentTrackingToken(row.id) }))
+          : rows;
         return send(
           res,
           200,
           !isLookup && limitValue === null && offsetValue === 0
-            ? storeRows(t, includeDeleted, includeInactive, rows)
-            : rows,
+            ? storeRows(t, includeDeleted, includeInactive, responseRows)
+            : responseRows,
         );
       }
       const d = await read(req);
@@ -2295,6 +2359,7 @@ export async function crmApiHandler(req, res) {
         if (t === "order_lines" && d.order_id) markCommercialDocumentPdfStale("order", d.order_id);
         if (t === "quote_lines" && d.quote_id) markCommercialDocumentPdfStale("quote", d.quote_id);
         const createdRecord = { id: Number(r.lastInsertRowid), ...d };
+        if (t === "shipments") createdRecord.public_tracking_token = ensureShipmentTrackingToken(Number(r.lastInsertRowid));
         if (t === "products") Object.assign(createdRecord, db.prepare("SELECT photo_url,photo_public_id,photo_thumbnail_url,photo_web_url,photo_bytes,photo_width,photo_height,photo_format FROM products WHERE id=?").get(Number(r.lastInsertRowid)) || {});
         if (t === "orders") createdRecord.stock_alerts = [...stockShortages, ...stockAlerts];
         if (t === "orders" || t === "quotes") {
