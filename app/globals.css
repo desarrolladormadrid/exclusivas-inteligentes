@@ -1349,6 +1349,9 @@ select option:hover { background-color: #d1d5db; color: #1f2937; }
 .route-metrics span { color: #71818a; font-size: 10px; }
 .route-time-warnings { display: grid; gap: 4px; margin: 10px 0; padding: 10px 12px; border-left: 3px solid #b91c1c; background: #fff5f5; color: #8f2525; font-size: 10px; }
 .route-time-warnings b { font-size: 12px; }
+.automation-presets { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0 0 13px; color: #71818a; font-size: 10px; }
+.automation-presets button { padding: 6px 9px; border: 1px solid #d5dfe2; background: #f8fafb; color: #526670; cursor: pointer; font: inherit; }
+.automation-presets button:hover { border-color: #b91c1c; color: #b91c1c; background: #fff8f8; }
 @media (max-width: 650px) { .route-metrics { grid-template-columns: 1fr; } }
 @media (max-width: 700px) { .home-alert-grid { grid-template-columns: 1fr; }.home-alert-head { flex-direction: column; gap: 8px; }.home-alert-head > strong { align-self: flex-start; } }
 .home-content .important-notes .panel-head h2 { font-size: 14px; }

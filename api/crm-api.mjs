@@ -1067,6 +1067,30 @@ function executeScheduledTask(task) {
     }
   }
   const now = new Date().toISOString();
+  const createAutomationNote = (title, content, priority, module, recordId) => {
+    const existing = db.prepare("SELECT id FROM notes WHERE module=? AND record_id=? AND title=? AND date(created_at)=date(?) AND CAST(COALESCE(deleted,0) AS INTEGER)=0 LIMIT 1").get(module, Number(recordId || 0), title, now);
+    if (existing) return false;
+    db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,created_at,updated_at,created_by) VALUES(?,?,?,?,?,?,?,?,?)").run(title, content, priority, module, Number(recordId || 0) || null, 1, now, now, task.created_by || "Sistema");
+    return true;
+  };
+  if (/factura(?:s)?\s+vencida|cobro\s+vencido/i.test(text)) {
+    const overdue = db.prepare("SELECT i.id,i.code,i.amount,i.due_date,c.name client_name FROM invoices i LEFT JOIN clients c ON c.id=i.client_id WHERE CAST(COALESCE(i.deleted,0) AS INTEGER)=0 AND COALESCE(i.status,'Pendiente') NOT IN ('Cobrada','Pagada','Anulada') AND date(COALESCE(i.due_date,i.issue_date,i.created_at)) < date(?) ORDER BY date(COALESCE(i.due_date,i.issue_date,i.created_at)) ASC LIMIT 50").all(now.slice(0, 10));
+    let created = 0;
+    for (const invoice of overdue) if (createAutomationNote(`Factura vencida · ${invoice.code}`, `${invoice.client_name || "Cliente sin asignar"} tiene pendiente ${Number(invoice.amount || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}. Fecha de vencimiento: ${invoice.due_date || "no indicada"}.`, "Urgente", "Facturas", invoice.id)) created += 1;
+    result = `${created} avisos de facturas vencidas creados${overdue.length ? ` · ${overdue.length} vencidas detectadas` : ""}`;
+  }
+  if (/cliente(?:s)?\s+(?:nuevo|web)|registro(?:s)?\s+web/i.test(text)) {
+    const registrations = db.prepare("SELECT id,company_name,contact_name,email FROM web_registrations WHERE COALESCE(status,'Pendiente de validar')='Pendiente de validar' ORDER BY id DESC LIMIT 50").all();
+    let created = 0;
+    for (const registration of registrations) if (createAutomationNote(`Nuevo cliente web · ${registration.company_name}`, `Revisar el registro de ${registration.contact_name || registration.email}. Valida sus datos y decide si crear el acceso de cliente.`, "Alta", "Clientes web", registration.id)) created += 1;
+    result = `${created} avisos de clientes web creados${registrations.length ? ` · ${registrations.length} pendientes` : ""}`;
+  }
+  if (/ubicaci(?:ó|o)n(?:es)?\s+(?:pendiente|no verificada)|verificar\s+ubicaci/i.test(text)) {
+    const lines = db.prepare("SELECT grl.id,gr.code receipt_code,grl.product_name_snapshot FROM goods_receipt_lines grl JOIN goods_receipts gr ON gr.id=grl.receipt_id WHERE CAST(COALESCE(gr.deleted,0) AS INTEGER)=0 AND CAST(COALESCE(grl.deleted,0) AS INTEGER)=0 AND COALESCE(grl.location_verified_status,'Pendiente')='Pendiente' LIMIT 50").all();
+    let created = 0;
+    for (const line of lines) if (createAutomationNote(`Ubicación pendiente · ${line.product_name_snapshot || "Producto"}`, `Verifica la ubicación de ${line.product_name_snapshot || "este producto"} en la entrada ${line.receipt_code || "sin código"}.`, "Alta", "Entradas", line.id)) created += 1;
+    result = `${created} avisos de ubicaciones pendientes creados${lines.length ? ` · ${lines.length} pendientes` : ""}`;
+  }
   let next = null, status = task.status;
   if (task.schedule_type === "Recurrente") {
     const recurrence = String(task.recurrence || "diaria").toLowerCase();

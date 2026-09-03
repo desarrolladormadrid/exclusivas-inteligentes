@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.55";
+const APP_VERSION = "2.0.56";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -7458,6 +7458,7 @@ function ScheduledTasks() {
       {loadError && <div className="error-message">{loadError}</div>}
       <div className="panel scheduled-form">
         <h3>Nueva tarea</h3>
+        <div className="automation-presets"><span>Crear rápidamente:</span><button type="button" onClick={() => setForm({ ...form, title: "Revisar facturas vencidas", action_text: "Revisar facturas vencidas y crear avisos", schedule_type: "Recurrente", recurrence: "diaria" })}>Facturas vencidas</button><button type="button" onClick={() => setForm({ ...form, title: "Revisar clientes web", action_text: "Revisar clientes web pendientes", schedule_type: "Recurrente", recurrence: "diaria" })}>Clientes web</button><button type="button" onClick={() => setForm({ ...form, title: "Revisar ubicaciones", action_text: "Revisar ubicaciones pendientes de verificar", schedule_type: "Recurrente", recurrence: "diaria" })}>Ubicaciones</button><button type="button" onClick={() => setForm({ ...form, title: "Copia de seguridad diaria", action_text: "Crear copia de seguridad", schedule_type: "Recurrente", recurrence: "diaria" })}>Copia diaria</button></div>
         <form onSubmit={save}>
           <label>
             Título
