@@ -1118,7 +1118,25 @@ function getRouteWithStops(id) {
   const stops = db.prepare("SELECT * FROM delivery_route_stops WHERE route_id=? ORDER BY position").all(Number(id));
   const coordinates = stops.filter((stop) => stop.latitude != null && stop.longitude != null).map((stop) => `${stop.latitude},${stop.longitude}`);
   const mapsUrl = coordinates.length ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(route.origin_address || coordinates[0])}&destination=${encodeURIComponent(coordinates[coordinates.length - 1])}${coordinates.length > 2 ? `&waypoints=${encodeURIComponent(coordinates.slice(0, -1).join("|"))}` : ""}` : "";
-  return { ...route, stops, maps_url: mapsUrl };
+  const parseTime = (value) => {
+    const match = String(value || "").match(/(?:T|^|\s)(\d{1,2}):(\d{2})/);
+    return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+  };
+  const totalDistanceKm = stops.reduce((total, stop) => total + Number(stop.distance_km || 0), 0);
+  const warnings = [];
+  let elapsedMinutes = 0;
+  const departureMinutes = 8 * 60;
+  for (const stop of stops) {
+    elapsedMinutes += Number(stop.distance_km || 0) * 2;
+    const opening = parseTime(stop.opening_time);
+    const closing = parseTime(stop.closing_time);
+    const arrival = departureMinutes + elapsedMinutes;
+    if (opening !== null && closing !== null && closing < opening) warnings.push({ stop_id: stop.id, position: stop.position, client_name: stop.client_name, message: "Horario inválido: el cierre es anterior a la apertura." });
+    else if (closing !== null && arrival > closing) warnings.push({ stop_id: stop.id, position: stop.position, client_name: stop.client_name, message: `Llegada estimada fuera de horario (${Math.floor(arrival / 60).toString().padStart(2, "0")}:${String(Math.round(arrival % 60)).padStart(2, "0")}).` });
+    else if (opening !== null && arrival < opening) elapsedMinutes += opening - arrival;
+    elapsedMinutes += 15;
+  }
+  return { ...route, stops, maps_url: mapsUrl, total_distance_km: Number(totalDistanceKm.toFixed(1)), estimated_minutes: Math.max(0, Math.round(elapsedMinutes)), time_window_warnings: warnings };
 }
 function ensureShipmentTrackingToken(id) {
   const shipmentId = Number(id);
