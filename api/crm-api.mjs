@@ -375,8 +375,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS goods_receipts(id INTEGER PRIMARY KEY AUTOIN
 for (const column of ["purchase_invoice_id INTEGER", "validation_status TEXT DEFAULT 'Pendiente'", "validated_by TEXT", "validated_at TEXT"]) {
   try { db.exec(`ALTER TABLE goods_receipts ADD COLUMN ${column}`); } catch {}
 }
-db.exec(`CREATE TABLE IF NOT EXISTS goods_receipt_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,receipt_id INTEGER NOT NULL,product_id INTEGER NOT NULL,product_name_snapshot TEXT,expected_quantity REAL DEFAULT 0,received_quantity REAL DEFAULT 0,damaged_quantity REAL DEFAULT 0,substituted_quantity REAL DEFAULT 0,substitute_product_id INTEGER,unit_cost REAL DEFAULT 0,expected_value REAL DEFAULT 0,received_value REAL DEFAULT 0,economic_difference REAL DEFAULT 0,status TEXT DEFAULT 'Correcta',notes TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT);`);
-for (const column of ["damaged_quantity REAL DEFAULT 0", "substituted_quantity REAL DEFAULT 0", "substitute_product_id INTEGER", "expected_value REAL DEFAULT 0", "received_value REAL DEFAULT 0", "economic_difference REAL DEFAULT 0"]) {
+db.exec(`CREATE TABLE IF NOT EXISTS goods_receipt_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,receipt_id INTEGER NOT NULL,product_id INTEGER NOT NULL,product_name_snapshot TEXT,expected_quantity REAL DEFAULT 0,received_quantity REAL DEFAULT 0,damaged_quantity REAL DEFAULT 0,substituted_quantity REAL DEFAULT 0,substitute_product_id INTEGER,unit_cost REAL DEFAULT 0,expected_value REAL DEFAULT 0,received_value REAL DEFAULT 0,economic_difference REAL DEFAULT 0,status TEXT DEFAULT 'Correcta',notes TEXT,location_verified_status TEXT DEFAULT 'Pendiente',location_verified_code TEXT,location_verified_reason TEXT,location_verified_by TEXT,location_verified_at TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT);`);
+for (const column of ["damaged_quantity REAL DEFAULT 0", "substituted_quantity REAL DEFAULT 0", "substitute_product_id INTEGER", "expected_value REAL DEFAULT 0", "received_value REAL DEFAULT 0", "economic_difference REAL DEFAULT 0", "location_verified_status TEXT DEFAULT 'Pendiente'", "location_verified_code TEXT", "location_verified_reason TEXT", "location_verified_by TEXT", "location_verified_at TEXT"]) {
   try { db.exec(`ALTER TABLE goods_receipt_lines ADD COLUMN ${column}`); } catch {}
 }
 db.exec(`CREATE TABLE IF NOT EXISTS goods_receipt_incidents(id INTEGER PRIMARY KEY AUTOINCREMENT,receipt_id INTEGER NOT NULL,receipt_line_id INTEGER,supplier_id INTEGER,type TEXT DEFAULT 'Diferencia',description TEXT NOT NULL,expected_quantity REAL,received_quantity REAL,damaged_quantity REAL DEFAULT 0,substituted_quantity REAL DEFAULT 0,substitute_product_id INTEGER,economic_difference REAL DEFAULT 0,status TEXT DEFAULT 'Abierta',attachment_name TEXT,attachment_mime TEXT,attachment_data TEXT,attachments_json TEXT,claim_status TEXT DEFAULT 'No reclamada',claim_message TEXT,claim_created_by TEXT,claim_created_at TEXT,created_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT);`);
@@ -951,7 +951,7 @@ const lookupFields = {
   invoices: ["id", "code", "order_id", "client_id", "amount", "status", "created_at", "issue_date", "due_date"],
   purchase_orders: ["id", "code", "supplier_id", "status", "order_date", "expected_date", "amount", "validation_status"],
   goods_receipts: ["id", "code", "supplier_id", "purchase_order_id", "purchase_invoice_id", "warehouse_id", "receipt_date", "status", "validation_status", "validated_by", "validated_at", "line_count", "incident_count", "received_by", "notes"],
-  goods_receipt_lines: ["id", "receipt_id", "product_id", "product_name_snapshot", "expected_quantity", "received_quantity", "damaged_quantity", "substituted_quantity", "substitute_product_id", "unit_cost", "expected_value", "received_value", "economic_difference", "status", "notes"],
+  goods_receipt_lines: ["id", "receipt_id", "product_id", "product_name_snapshot", "expected_quantity", "received_quantity", "damaged_quantity", "substituted_quantity", "substitute_product_id", "unit_cost", "expected_value", "received_value", "economic_difference", "status", "notes", "location_verified_status", "location_verified_code", "location_verified_reason", "location_verified_by", "location_verified_at"],
   goods_receipt_incidents: ["id", "receipt_id", "receipt_line_id", "supplier_id", "type", "description", "expected_quantity", "received_quantity", "damaged_quantity", "substituted_quantity", "substitute_product_id", "economic_difference", "status", "claim_status", "attachment_name", "attachment_mime", "created_by", "created_at"],
   payments: ["id", "invoice_id", "amount", "payment_date", "method"],
   inventory_movements: ["id", "product_id", "warehouse_id", "movement_type", "quantity", "reference", "movement_date", "notes"],
@@ -1617,6 +1617,27 @@ export async function crmApiHandler(req, res) {
         invalidateRelatedReadCaches("goods_receipt_incidents");
         return send(res, 200, { id: incidentId, claim_status: "Preparada", claim_message: message, claim_created_by: actor, claim_created_at: now, supplier_email: incident.supplier_email || null });
       }
+      if (t === "goods_receipt_lines" && req.method === "PUT" && p[2] && p[3] === "location") {
+        const lineId = Number(p[2]);
+        const body = await read(req);
+        const line = db.prepare("SELECT gl.id,gl.receipt_id,p.warehouse_location FROM goods_receipt_lines gl LEFT JOIN products p ON p.id=gl.product_id WHERE gl.id=? AND CAST(COALESCE(gl.deleted,0) AS INTEGER)=0").get(lineId);
+        if (!line) return send(res, 404, { error: "Línea de entrada no encontrada" });
+        const mode = String(body.mode || "scan").trim().toLowerCase() === "manual" ? "manual" : "scan";
+        const scannedCode = String(body.scanned_code || "").trim();
+        const expectedCode = String(line.warehouse_location || "").trim();
+        const normalizeLocation = (value) => String(value || "").trim().toLocaleUpperCase("es-ES").replace(/\s+/g, "");
+        let status = "Pendiente";
+        if (mode === "manual") status = "Validada manualmente";
+        else if (scannedCode && expectedCode && normalizeLocation(scannedCode) === normalizeLocation(expectedCode)) status = "Validada por lectura";
+        else if (scannedCode) status = "No coincide";
+        const now = new Date().toISOString();
+        const updated = db.prepare("UPDATE goods_receipt_lines SET location_verified_status=?,location_verified_code=?,location_verified_reason=?,location_verified_by=?,location_verified_at=?,updated_at=? WHERE id=?").run(status, scannedCode || null, String(body.reason || "").trim() || null, mode === "manual" || status === "Validada por lectura" ? actor : null, status === "Pendiente" ? null : now, now, lineId);
+        if (!updated.changes) return send(res, 404, { error: "No se pudo actualizar la validación de ubicación" });
+        const current = db.prepare("SELECT gl.*,p.name product_name,p.sku,p.warehouse_location,sp.name substitute_product_name FROM goods_receipt_lines gl LEFT JOIN products p ON p.id=gl.product_id LEFT JOIN products sp ON sp.id=gl.substitute_product_id WHERE gl.id=?").get(lineId);
+        recordAudit(actor, "PUT", `goods_receipt_lines/${lineId}/location`, "Validar ubicación de entrada", JSON.stringify({ receipt_id: Number(line.receipt_id), status, scanned_code: scannedCode || null, expected_code: expectedCode || null, mode }));
+        invalidateRelatedReadCaches("goods_receipt_lines");
+        return send(res, 200, current);
+      }
       if (t === "goods_receipts" && req.method === "GET" && !p[2]) {
         const rows = db.prepare("SELECT gr.*,s.name supplier_name,w.name warehouse_name,po.code purchase_order_code,pi.code purchase_invoice_code,pi.status purchase_invoice_status,(SELECT COUNT(*) FROM goods_receipt_lines gl WHERE gl.receipt_id=gr.id AND CAST(COALESCE(gl.deleted,0) AS INTEGER)=0) line_count,(SELECT COUNT(*) FROM goods_receipt_incidents gi WHERE gi.receipt_id=gr.id AND CAST(COALESCE(gi.deleted,0) AS INTEGER)=0) incident_count,(SELECT COALESCE(SUM(gl.economic_difference),0) FROM goods_receipt_lines gl WHERE gl.receipt_id=gr.id AND CAST(COALESCE(gl.deleted,0) AS INTEGER)=0) economic_difference FROM goods_receipts gr LEFT JOIN suppliers s ON s.id=gr.supplier_id LEFT JOIN warehouses w ON w.id=gr.warehouse_id LEFT JOIN purchase_orders po ON po.id=gr.purchase_order_id LEFT JOIN invoices pi ON pi.id=gr.purchase_invoice_id WHERE CAST(COALESCE(gr.deleted,0) AS INTEGER)=0 ORDER BY gr.receipt_date DESC,gr.id DESC LIMIT 500").all();
         return send(res, 200, rows);
@@ -1625,7 +1646,7 @@ export async function crmApiHandler(req, res) {
         const receiptId = Number(p[3]);
         const receipt = db.prepare("SELECT gr.*,s.name supplier_name,w.name warehouse_name,po.code purchase_order_code,pi.code purchase_invoice_code,pi.status purchase_invoice_status FROM goods_receipts gr LEFT JOIN suppliers s ON s.id=gr.supplier_id LEFT JOIN warehouses w ON w.id=gr.warehouse_id LEFT JOIN purchase_orders po ON po.id=gr.purchase_order_id LEFT JOIN invoices pi ON pi.id=gr.purchase_invoice_id WHERE gr.id=? AND CAST(COALESCE(gr.deleted,0) AS INTEGER)=0").get(receiptId);
         if (!receipt) return send(res, 404, { error: "Entrada no encontrada" });
-        const lines = db.prepare("SELECT gl.*,p.name product_name,p.sku,sp.name substitute_product_name FROM goods_receipt_lines gl LEFT JOIN products p ON p.id=gl.product_id LEFT JOIN products sp ON sp.id=gl.substitute_product_id WHERE gl.receipt_id=? AND CAST(COALESCE(gl.deleted,0) AS INTEGER)=0 ORDER BY gl.id").all(receiptId);
+        const lines = db.prepare("SELECT gl.*,p.name product_name,p.sku,p.warehouse_location,p.warehouse_id AS product_warehouse_id,w2.name AS product_warehouse_name,sp.name substitute_product_name FROM goods_receipt_lines gl LEFT JOIN products p ON p.id=gl.product_id LEFT JOIN warehouses w2 ON w2.id=p.warehouse_id LEFT JOIN products sp ON sp.id=gl.substitute_product_id WHERE gl.receipt_id=? AND CAST(COALESCE(gl.deleted,0) AS INTEGER)=0 ORDER BY gl.id").all(receiptId);
         const incidentRows = db.prepare("SELECT gi.*,p.name product_name,sp.name substitute_product_name FROM goods_receipt_incidents gi LEFT JOIN goods_receipt_lines gl ON gl.id=gi.receipt_line_id LEFT JOIN products p ON p.id=gl.product_id LEFT JOIN products sp ON sp.id=gi.substitute_product_id WHERE gi.receipt_id=? AND CAST(COALESCE(gi.deleted,0) AS INTEGER)=0 ORDER BY gi.id").all(receiptId);
         const incidents = incidentRows.map((incident) => { let attachments = []; try { attachments = JSON.parse(String(incident.attachments_json || "[]")); } catch {} return { ...incident, attachments: Array.isArray(attachments) ? attachments : [] }; });
         return send(res, 200, { ...receipt, lines, incidents });

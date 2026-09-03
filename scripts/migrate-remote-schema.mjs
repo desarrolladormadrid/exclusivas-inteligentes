@@ -15,7 +15,12 @@ const migrationsByTable = {
     ["table", "CREATE TABLE IF NOT EXISTS goods_receipts(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,supplier_id INTEGER NOT NULL,purchase_order_id INTEGER,warehouse_id INTEGER,receipt_date TEXT NOT NULL,status TEXT DEFAULT 'Borrador',notes TEXT,created_by TEXT,received_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT)"],
   ],
   goods_receipt_lines: [
-    ["table", "CREATE TABLE IF NOT EXISTS goods_receipt_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,receipt_id INTEGER NOT NULL,product_id INTEGER NOT NULL,product_name_snapshot TEXT,expected_quantity REAL DEFAULT 0,received_quantity REAL DEFAULT 0,unit_cost REAL DEFAULT 0,status TEXT DEFAULT 'Correcta',notes TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT)"],
+    ["table", "CREATE TABLE IF NOT EXISTS goods_receipt_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,receipt_id INTEGER NOT NULL,product_id INTEGER NOT NULL,product_name_snapshot TEXT,expected_quantity REAL DEFAULT 0,received_quantity REAL DEFAULT 0,unit_cost REAL DEFAULT 0,status TEXT DEFAULT 'Correcta',notes TEXT,location_verified_status TEXT DEFAULT 'Pendiente',location_verified_code TEXT,location_verified_reason TEXT,location_verified_by TEXT,location_verified_at TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT)"],
+    ["location_verified_status", "ALTER TABLE goods_receipt_lines ADD COLUMN location_verified_status TEXT DEFAULT 'Pendiente'"],
+    ["location_verified_code", "ALTER TABLE goods_receipt_lines ADD COLUMN location_verified_code TEXT"],
+    ["location_verified_reason", "ALTER TABLE goods_receipt_lines ADD COLUMN location_verified_reason TEXT"],
+    ["location_verified_by", "ALTER TABLE goods_receipt_lines ADD COLUMN location_verified_by TEXT"],
+    ["location_verified_at", "ALTER TABLE goods_receipt_lines ADD COLUMN location_verified_at TEXT"],
   ],
   goods_receipt_incidents: [
     ["table", "CREATE TABLE IF NOT EXISTS goods_receipt_incidents(id INTEGER PRIMARY KEY AUTOINCREMENT,receipt_id INTEGER NOT NULL,receipt_line_id INTEGER,supplier_id INTEGER,type TEXT DEFAULT 'Diferencia',description TEXT NOT NULL,expected_quantity REAL,received_quantity REAL,status TEXT DEFAULT 'Pendiente',attachment_name TEXT,attachment_mime TEXT,attachment_data TEXT,created_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT)"],

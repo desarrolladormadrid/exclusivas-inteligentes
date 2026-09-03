@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.48";
+const APP_VERSION = "2.0.49";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -2251,6 +2251,9 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [entryEdit, setEntryEdit] = useState<any>(null);
   const [entryIncidentSaving, setEntryIncidentSaving] = useState<number | null>(null);
   const [entryValidationSaving, setEntryValidationSaving] = useState(false);
+  const [entryLocationSaving, setEntryLocationSaving] = useState<number | null>(null);
+  const [entryLocationDrafts, setEntryLocationDrafts] = useState<Record<string, string>>({});
+  const [entryLocationReasons, setEntryLocationReasons] = useState<Record<string, string>>({});
   const [labelProduct, setLabelProduct] = useState<any>(null);
   const [productDetail, setProductDetail] = useState<any>(null);
   const [batchLabelProducts, setBatchLabelProducts] = useState<any[]>([]);
@@ -3192,7 +3195,28 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     const response = await fetch(`/api/goods_receipts/detail/${row.id}`, { headers: actorHeaders });
     const detail = await response.json().catch(() => ({}));
     if (!response.ok) return alert(detail.error || "No se pudo cargar el detalle de la entrada");
+    setEntryLocationDrafts(Object.fromEntries((detail.lines || []).map((line: any) => [String(line.id), line.location_verified_code || ""])));
+    setEntryLocationReasons(Object.fromEntries((detail.lines || []).map((line: any) => [String(line.id), line.location_verified_reason || ""])));
     setEntryDetail(detail);
+  }
+  async function validateEntryLocation(line: any, mode: "scan" | "manual" = "scan") {
+    if (!line?.id || entryLocationSaving) return;
+    const lineId = Number(line.id);
+    const scannedCode = String(entryLocationDrafts[String(lineId)] || "").trim();
+    const reason = String(entryLocationReasons[String(lineId)] || "").trim();
+    if (mode === "scan" && !scannedCode) return alert("Lee o escribe el código de la ubicación antes de validarlo.");
+    if (mode === "manual" && !reason) return alert("Indica brevemente por qué se valida manualmente.");
+    setEntryLocationSaving(lineId);
+    try {
+      const response = await fetch(`/api/goods_receipt_lines/${lineId}/location`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ mode, scanned_code: scannedCode, reason }) });
+      const updated = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(updated.error || "No se pudo validar la ubicación.");
+      setEntryDetail((current: any) => current ? { ...current, lines: (current.lines || []).map((item: any) => item.id === lineId ? { ...item, ...updated } : item) } : current);
+    } catch (caught: any) {
+      alert(caught?.message || "No se pudo validar la ubicación.");
+    } finally {
+      setEntryLocationSaving(null);
+    }
   }
   async function resolveEntryIncident(incident: any, status: string) {
     if (!incident?.id || entryIncidentSaving) return;
@@ -5209,7 +5233,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             <header className="preview-header"><div><b>Entrada · {entryDetail.code}</b><small>{entryDetail.supplier_name || "Proveedor sin nombre"} · {formatTableValue("receipt_date", entryDetail.receipt_date)} · {entryDetail.warehouse_name || "Almacén"}</small></div><button type="button" className="preview-close" aria-label="Cerrar" onClick={() => setEntryDetail(null)}>×</button></header>
             <div className="goods-receipt-detail-meta"><span><b>Estado</b>{entryDetail.status}</span><span><b>Pedido de compra</b>{entryDetail.purchase_order_code || "Sin vincular"}</span><span><b>Factura de compra</b>{entryDetail.purchase_invoice_code || "Sin vincular"}</span><span><b>Recepcionado por</b>{entryDetail.received_by || "—"}</span><span><b>Validación responsable</b><select aria-label="Validación de la entrada" value={entryDetail.validation_status || "Pendiente"} disabled={entryValidationSaving} onChange={(event) => void validateEntry(event.target.value)}><option>Pendiente</option><option>Validada</option><option>Rechazada</option></select>{entryDetail.validated_by && <small>{entryDetail.validated_by}{entryDetail.validated_at ? ` · ${formatTableValue("created_at", entryDetail.validated_at)}` : ""}</small>}</span><span><b>Diferencia económica</b>{(entryDetail.lines || []).reduce((sum: number, line: any) => sum + Number(line.economic_difference || 0), 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</span></div>
             {entryDetail.notes && <div className="goods-receipt-detail-notes"><b>Notas de la entrada</b><p>{entryDetail.notes}</p></div>}
-            <div className="goods-receipt-detail-lines">{(entryDetail.lines || []).map((line: any) => <article key={line.id}><div><b>{line.product_name || line.product_name_snapshot}</b><small>{line.sku || "Sin referencia"}{line.substitute_product_name ? ` · Sustituye a: ${line.substitute_product_name}` : ""}</small></div><span>Esperadas <b>{line.expected_quantity}</b></span><span>Recibidas <b>{line.received_quantity}</b></span><span>Daño <b>{line.damaged_quantity || 0}</b> · Sustituidas <b>{line.substituted_quantity || 0}</b></span><strong className={line.status !== "Correcta" ? "goods-receipt-incident-text" : ""}>{line.status}<small>{Number(line.economic_difference || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</small></strong></article>)}</div>
+            <div className="goods-receipt-detail-lines">{(entryDetail.lines || []).map((line: any) => { const locationStatus = String(line.location_verified_status || "Pendiente"); const locationClass = locationStatus === "Validada por lectura" || locationStatus === "Validada manualmente" ? "is-verified" : locationStatus === "No coincide" ? "is-mismatch" : "is-pending"; return <article key={line.id}><div><b>{line.product_name || line.product_name_snapshot}</b><small>{line.sku || "Sin referencia"}{line.substitute_product_name ? ` · Sustituye a: ${line.substitute_product_name}` : ""}</small></div><span>Esperadas <b>{line.expected_quantity}</b></span><span>Recibidas <b>{line.received_quantity}</b></span><span>Daño <b>{line.damaged_quantity || 0}</b> · Sustituidas <b>{line.substituted_quantity || 0}</b></span><strong className={line.status !== "Correcta" ? "goods-receipt-incident-text" : ""}>{line.status}<small>{Number(line.economic_difference || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</small></strong><div className={`goods-receipt-location-check ${locationClass}`}><div><b>Ubicación de almacenaje</b><small>{line.warehouse_location ? `${line.product_warehouse_name || entryDetail.warehouse_name || "Almacén"} · ${line.warehouse_location}` : "Producto sin ubicación asignada"}</small></div><label><span>Lectura opcional</span><input aria-label={`Código de ubicación de ${line.product_name || line.product_name_snapshot || "producto"}`} value={entryLocationDrafts[String(line.id)] ?? ""} placeholder={line.warehouse_location || "Escanea ubicación"} disabled={entryLocationSaving === Number(line.id)} onChange={(event) => setEntryLocationDrafts((current) => ({ ...current, [String(line.id)]: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void validateEntryLocation(line, "scan"); } }} /></label><div className="goods-receipt-location-actions"><button type="button" className="button primary" disabled={entryLocationSaving === Number(line.id)} onClick={() => void validateEntryLocation(line, "scan")}>{entryLocationSaving === Number(line.id) ? "Validando…" : "Validar lectura"}</button><input aria-label={`Motivo de validación manual de ${line.product_name || line.product_name_snapshot || "producto"}`} value={entryLocationReasons[String(line.id)] ?? ""} placeholder="Motivo si no se lee" disabled={entryLocationSaving === Number(line.id)} onChange={(event) => setEntryLocationReasons((current) => ({ ...current, [String(line.id)]: event.target.value }))} /><button type="button" className="button secondary" disabled={entryLocationSaving === Number(line.id)} onClick={() => void validateEntryLocation(line, "manual")}>Validar manual</button></div><span className="goods-receipt-location-status">{locationStatus === "Pendiente" ? "Ubicación no verificada" : locationStatus}{line.location_verified_by ? ` · ${line.location_verified_by}` : ""}{line.location_verified_reason ? ` · ${line.location_verified_reason}` : ""}</span></div></article>; })}</div>
             {(entryDetail.incidents || []).length > 0 && <section className="goods-receipt-detail-incidents"><b>Incidencias de la entrada</b>{entryDetail.incidents.map((incident: any) => <article key={incident.id}><div><strong>{incident.type}</strong><span>{incident.product_name ? `${incident.product_name} · ` : ""}{incident.description}</span><small>Estado: {incident.status || "Abierta"}{incident.resolved_by ? ` · ${incident.resolved_by}` : ""} · Reclamación: {incident.claim_status || "No reclamada"}</small>{incident.resolution && <small>{incident.resolution}</small>}{Number(incident.economic_difference || 0) !== 0 && <small>Diferencia económica: {Number(incident.economic_difference).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</small>}</div>{(incident.attachments?.length ? incident.attachments : incident.attachment_data ? [{ name: incident.attachment_name, data: incident.attachment_data }] : []).map((attachment: any, attachmentIndex: number) => <a className="goods-receipt-attachment-link" key={`${attachment.name || "adjunto"}-${attachmentIndex}`} href={attachment.url || attachment.data} target="_blank" rel="noreferrer"><img src={attachment.thumbnail_url || attachment.url || attachment.data} alt={attachment.name || "Fotografía de incidencia"} /><small>Ver adjunto</small></a>)}<div className="goods-receipt-incident-actions"><select aria-label={`Estado de incidencia ${incident.type}`} value={["Pendiente", "Abierta"].includes(incident.status || "") ? "Abierta" : incident.status} disabled={entryIncidentSaving === Number(incident.id)} onChange={(event) => void resolveEntryIncident(incident, event.target.value)}><option>Abierta</option><option>En revisión</option><option>Resuelta</option><option>Rechazada</option></select><button type="button" className="button secondary" disabled={entryIncidentSaving === Number(incident.id) || incident.claim_status === "Preparada"} onClick={() => void claimEntryIncident(incident)}>{incident.claim_status === "Preparada" ? "Reclamación creada" : "Crear reclamación"}</button></div></article>)}</section>}
             <footer className="preview-actions"><button type="button" className="button secondary" onClick={() => setEntryEdit(entryDetail)}>Editar datos</button><button type="button" className="button secondary" onClick={() => window.print()}>Imprimir / guardar PDF</button><button type="button" className="button primary" onClick={() => setEntryDetail(null)}>Cerrar</button></footer>
           </section>
