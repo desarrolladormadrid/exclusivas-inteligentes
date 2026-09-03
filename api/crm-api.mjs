@@ -96,6 +96,28 @@ async function uploadReceiptAttachment(dataUrl, receiptCode, incidentKey, index)
     format: String(body.format || parsed.mime.split("/")[1] || ""),
   };
 }
+async function uploadDeliveryProofAttachment(dataUrl, shipmentCode, index) {
+  const parsed = parseImageDataUrl(dataUrl);
+  if (!parsed || !cloudinaryReady()) return null;
+  const cloud = String(process.env.CLOUDINARY_CLOUD_NAME).trim();
+  const timestamp = Math.floor(Date.now() / 1000);
+  const folder = "exclusivas-inteligentes/entregas";
+  const publicId = `${slugifyProductName(shipmentCode)}-${index + 1}-${randomBytes(4).toString("hex")}`;
+  const signed = { folder, public_id: publicId, timestamp };
+  const signatureBase = Object.keys(signed).sort().map((key) => `${key}=${signed[key]}`).join("&");
+  const signature = createHash("sha1").update(`${signatureBase}${process.env.CLOUDINARY_API_SECRET}`).digest("hex");
+  const form = new FormData();
+  form.append("file", new Blob([parsed.buffer], { type: parsed.mime }), `${publicId}.${parsed.mime.split("/")[1] || "jpg"}`);
+  form.append("api_key", String(process.env.CLOUDINARY_API_KEY).trim());
+  form.append("timestamp", String(timestamp));
+  form.append("folder", folder);
+  form.append("public_id", publicId);
+  form.append("signature", signature);
+  const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloud)}/image/upload`, { method: "POST", body: form });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.secure_url) throw new Error(body?.error?.message || "No se pudo subir la fotografía de entrega");
+  return { name: `${shipmentCode}-${index + 1}`, mime: parsed.mime, url: body.secure_url, thumbnail_url: cloudinaryTransform(body.secure_url, "c_fill,w_360,h_240,f_auto,q_auto") };
+}
 function pdfSafeText(value) {
   return String(value ?? "")
     .normalize("NFD")
@@ -538,7 +560,7 @@ for (const statement of [
 db.exec(
   `CREATE TABLE IF NOT EXISTS shipments(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,order_id INTEGER,delivery_note_id INTEGER,client_id INTEGER,carrier TEXT,status TEXT DEFAULT 'Preparando',prepared_at TEXT,shipped_at TEXT,expected_delivery_at TEXT,delivered_at TEXT,address TEXT,tracking TEXT,packages INTEGER DEFAULT 1,incidents TEXT);`,
 );
-for (const column of ["origin_address", "departure_at", "delivery_window_start", "delivery_window_end", "notes", "preparation_started_at", "preparation_started_by", "stock_released_at", "stock_released_by", "delivery_signature_data", "delivery_recipient_name", "delivery_signature_status", "delivery_signature_at", "delivery_signature_by", "delivery_signature_note"]) {
+for (const column of ["origin_address", "departure_at", "delivery_window_start", "delivery_window_end", "notes", "preparation_started_at", "preparation_started_by", "stock_released_at", "stock_released_by", "delivery_signature_data", "delivery_recipient_name", "delivery_signature_status", "delivery_signature_at", "delivery_signature_by", "delivery_signature_note", "delivery_attachments_json"]) {
   try { db.exec(`ALTER TABLE shipments ADD COLUMN ${column} TEXT`); } catch {}
 }
 try { db.exec("ALTER TABLE shipments ADD COLUMN urgent INTEGER DEFAULT 0"); } catch {}
@@ -1604,6 +1626,11 @@ export async function crmApiHandler(req, res) {
         recordAudit(actor, "POST", `assistant/adjust-order-line/${line.id}`, "Ajuste de línea", JSON.stringify({ ...preview, confirmed: true }));
         return send(res, 200, { ok: true, preview: { ...preview, final_quantity: next, order_amount: Number(total || 0) } });
       }
+      if (t === "shipments" && req.method === "GET" && p[2] && p[3] === "delivery-proof") {
+        const shipment = db.prepare("SELECT id,code,order_id,status,delivery_signature_data,delivery_recipient_name,delivery_signature_status,delivery_signature_at,delivery_signature_by,delivery_signature_note,delivery_attachments_json FROM shipments WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(Number(p[2]));
+        if (!shipment) return send(res, 404, { error: "Envío no encontrado" });
+        return send(res, 200, shipment);
+      }
       if (t === "shipments" && req.method === "POST" && p[2] && p[3] === "delivery-confirmation") {
         const shipmentId = Number(p[2]);
         const body = await read(req);
@@ -1615,12 +1642,23 @@ export async function crmApiHandler(req, res) {
         const signatureData = String(body.signature_data || "").trim();
         const recipientName = String(body.recipient_name || "").trim();
         const note = String(body.note || "").trim();
+        const rawPhotos = Array.isArray(body.photos) ? body.photos.slice(0, 4) : [];
         if (signatureStatus === "Firmado" && (!signatureData.startsWith("data:image/") || signatureData.length < 120)) return send(res, 400, { error: "Dibuja la firma antes de confirmar la entrega" });
         if (signatureStatus === "Firmado" && !recipientName) return send(res, 400, { error: "Indica quién recibe la mercancía" });
         if (signatureStatus !== "Firmado" && !note) return send(res, 400, { error: "Deja una observación explicando por qué no hay firma" });
         if (signatureData.length > 2200000) return send(res, 400, { error: "La firma ocupa demasiado. Borra y vuelve a firmar con un trazo más sencillo" });
+        const deliveryPhotos = [];
+        for (let index = 0; index < rawPhotos.length; index += 1) {
+          const photo = rawPhotos[index] || {};
+          const data = String(photo.data || "").trim();
+          if (!data.startsWith("data:image/")) return send(res, 400, { error: "Una de las fotografías no tiene un formato válido" });
+          if (data.length > 6000000) return send(res, 400, { error: "Cada fotografía de entrega debe ocupar menos de 4 MB" });
+          let uploaded = null;
+          try { uploaded = await uploadDeliveryProofAttachment(data, String(shipment.code || `ENV-${shipmentId}`), index); } catch {}
+          deliveryPhotos.push(uploaded || { name: String(photo.name || `entrega-${index + 1}.jpg`), mime: String(photo.mime || "image/jpeg"), data });
+        }
         const now = new Date().toISOString();
-        const result = db.prepare(`UPDATE shipments SET status='Entregado',delivered_at=?,delivered_by=?,delivery_signature_data=?,delivery_recipient_name=?,delivery_signature_status=?,delivery_signature_at=?,delivery_signature_by=?,delivery_signature_note=?,updated_at=? WHERE id=?`).run(
+        const result = db.prepare(`UPDATE shipments SET status='Entregado',delivered_at=?,delivered_by=?,delivery_signature_data=?,delivery_recipient_name=?,delivery_signature_status=?,delivery_signature_at=?,delivery_signature_by=?,delivery_signature_note=?,delivery_attachments_json=?,updated_at=? WHERE id=?`).run(
           now,
           actor,
           signatureStatus === "Firmado" ? signatureData : null,
@@ -1629,6 +1667,7 @@ export async function crmApiHandler(req, res) {
           signatureStatus === "Firmado" ? now : null,
           signatureStatus === "Firmado" ? actor : null,
           note || null,
+          JSON.stringify(deliveryPhotos),
           now,
           shipmentId,
         );

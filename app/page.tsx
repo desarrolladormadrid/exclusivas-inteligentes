@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.51";
+const APP_VERSION = "2.0.52";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -2111,15 +2111,39 @@ function OrderWorkflowPanel({ order, shipment, billingStatus, paymentStatus, inv
   </section>;
 }
 
+function parseDeliveryPhotos(value: any): any[] {
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
 function DeliverySignaturePanel({ shipment, actor, onSaved }: { shipment: any; actor: string; onSaved: (shipment: any) => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
+  const [proof, setProof] = useState<any>(shipment);
   const [hasInk, setHasInk] = useState(false);
   const [recipientName, setRecipientName] = useState(String(shipment?.delivery_recipient_name || ""));
   const [note, setNote] = useState(String(shipment?.delivery_signature_note || ""));
+  const [photos, setPhotos] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
-  const signatureStatus = String(shipment?.delivery_signature_status || "Pendiente");
+  const signatureStatus = String(proof?.delivery_signature_status || "Pendiente");
+  const existingPhotos = parseDeliveryPhotos(proof?.delivery_attachments_json);
+
+  useEffect(() => {
+    let cancelled = false;
+    setProof(shipment);
+    setRecipientName(String(shipment?.delivery_recipient_name || ""));
+    setNote(String(shipment?.delivery_signature_note || ""));
+    setPhotos([]);
+    if (!shipment?.id) return () => { cancelled = true; };
+    fetch(`/api/shipments/${shipment.id}/delivery-proof`).then((response) => response.ok ? response.json() : null).then((data) => {
+      if (!cancelled && data) setProof((current: any) => ({ ...current, ...data }));
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [shipment?.id]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -2177,6 +2201,22 @@ function DeliverySignaturePanel({ shipment, actor, onSaved }: { shipment: any; a
     setHasInk(false);
     setMessage("");
   }
+  async function attachPhotos(files: FileList | null) {
+    const selected = Array.from(files || []);
+    if (!selected.length) return;
+    if (existingPhotos.length + photos.length + selected.length > 4) return setMessage("Puedes guardar como máximo 4 fotografías de la entrega.");
+    if (selected.some((file) => file.size > 4 * 1024 * 1024)) return setMessage("Cada fotografía no puede superar 4 MB.");
+    try {
+      const loaded = await Promise.all(selected.map((file) => new Promise<any>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ name: file.name, mime: file.type || "image/jpeg", data: String(reader.result || "") });
+        reader.onerror = () => reject(new Error("No se pudo leer una de las fotografías."));
+        reader.readAsDataURL(file);
+      })));
+      setPhotos((current) => [...current, ...loaded]);
+      setMessage("");
+    } catch (error: any) { setMessage(error?.message || "No se pudieron añadir las fotografías."); }
+  }
   async function confirmDelivery(nextStatus: "Firmado" | "Sin firma" | "Rechazó firmar") {
     const cleanName = recipientName.trim();
     const cleanNote = note.trim();
@@ -2193,6 +2233,8 @@ function DeliverySignaturePanel({ shipment, actor, onSaved }: { shipment: any; a
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "No se pudo confirmar la entrega.");
+      setProof(data);
+      setPhotos([]);
       onSaved(data);
       setMessage(nextStatus === "Firmado" ? "Entrega confirmada con firma." : "Entrega confirmada y motivo guardado.");
     } catch (error: any) {
@@ -2203,8 +2245,10 @@ function DeliverySignaturePanel({ shipment, actor, onSaved }: { shipment: any; a
   }
   return <section className="delivery-signature-panel" aria-label="Firma de recepción">
     <div className="delivery-signature-head"><div><b>Firma de recepción</b><small>El cliente puede firmar en el móvil o tableta del conductor. La firma es recomendable, pero no obligatoria.</small></div><span className={`delivery-signature-badge ${signatureStatus === "Firmado" ? "signed" : signatureStatus === "Rechazó firmar" ? "rejected" : signatureStatus === "Sin firma" ? "unsigned" : "pending"}`}>{signatureStatus === "Pendiente" ? "Pendiente" : signatureStatus}</span></div>
-    {signatureStatus === "Firmado" && shipment?.delivery_signature_data && <div className="delivery-signature-existing"><img src={shipment.delivery_signature_data} alt="Firma de recepción guardada" /><div><b>Recepción firmada</b><small>{shipment.delivery_recipient_name || "Receptor no indicado"}{shipment.delivery_signature_at ? ` · ${String(shipment.delivery_signature_at).slice(0, 16).replace("T", " ")}` : ""}</small></div></div>}
+    {signatureStatus === "Firmado" && proof?.delivery_signature_data && <div className="delivery-signature-existing"><img src={proof.delivery_signature_data} alt="Firma de recepción guardada" /><div><b>Recepción firmada</b><small>{proof.delivery_recipient_name || "Receptor no indicado"}{proof.delivery_signature_at ? ` · ${String(proof.delivery_signature_at).slice(0, 16).replace("T", " ")}` : ""}</small></div></div>}
     <div className="delivery-signature-fields"><label>Nombre de quien recibe<input value={recipientName} onChange={(event) => setRecipientName(event.target.value)} placeholder="Nombre y apellidos" disabled={saving} /></label><label>Observaciones {signatureStatus !== "Firmado" && <em>(obligatorio si no firma)</em>}<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ej.: entrega recibida sin firma por indicación del cliente…" rows={2} disabled={saving} /></label></div>
+    {(existingPhotos.length > 0 || photos.length > 0) && <div className="delivery-proof-photos"><div><b>Fotografías de la entrega</b><small>Quedan asociadas a este pedido y a su recepción.</small></div><div className="delivery-proof-photo-grid">{[...existingPhotos, ...photos].map((photo: any, index: number) => <div key={`${photo.name || "foto"}-${index}`}><img src={photo.thumbnail_url || photo.url || photo.data} alt={photo.name || "Fotografía de la entrega"} /><small>{photo.name || `Fotografía ${index + 1}`}</small>{index >= existingPhotos.length && <button type="button" className="link-button" onClick={() => setPhotos((current) => current.filter((_, photoIndex) => photoIndex !== index - existingPhotos.length))}>Quitar</button>}</div>)}</div></div>}
+    <label className="delivery-proof-photo-picker">Añadir fotografías<input type="file" accept="image/*" capture="environment" multiple onChange={(event) => { void attachPhotos(event.target.files); event.currentTarget.value = ""; }} disabled={saving} /><small>Opcional · hasta 4 fotos · máximo 4 MB cada una</small></label>
     <div className="delivery-signature-canvas-wrap"><div className="delivery-signature-canvas-head"><span>Firma aquí</span><button type="button" className="link-button" onClick={clearSignature} disabled={saving || !hasInk}>Borrar firma</button></div><canvas ref={canvasRef} className="delivery-signature-canvas" onPointerDown={startDrawing} onPointerMove={draw} onPointerUp={stopDrawing} onPointerCancel={stopDrawing} onPointerLeave={stopDrawing} aria-label="Área para firmar la recepción" /></div>
     {message && <p className="delivery-signature-message" role="status">{message}</p>}
     <div className="delivery-signature-actions"><button type="button" className="button primary" disabled={saving} onClick={() => void confirmDelivery("Firmado")}>{saving ? "Guardando…" : "Confirmar entrega firmada"}</button><button type="button" className="button secondary" disabled={saving} onClick={() => void confirmDelivery("Sin firma")}>Entregar sin firma</button><button type="button" className="button ghost" disabled={saving} onClick={() => void confirmDelivery("Rechazó firmar")}>Cliente rechaza firmar</button></div>
