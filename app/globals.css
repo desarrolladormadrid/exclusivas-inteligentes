@@ -515,6 +515,7 @@
   padding: 0 9px;
   background: #fff;
 }
+.password-field{position:relative;display:block}.password-field>input{width:100%;box-sizing:border-box;padding-right:76px!important}.password-toggle{position:absolute;top:1px;right:1px;height:32px;padding:0 9px;border:0;background:transparent;color:var(--red);font:inherit;font-size:10px;font-weight:700;cursor:pointer}.password-toggle:hover,.password-toggle:focus-visible{text-decoration:underline;outline:none}.password-toggle:focus-visible{box-shadow:0 0 0 2px #bd202744}
 .login-card small {
   font-size: 10px;
   color: #87929a;

@@ -13,6 +13,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [name, setName] = useState("Luis");
   const [users, setUsers] = useState<any[]>([{ username: "Luis" }, { username: "Jose" }]);
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
@@ -90,6 +91,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     sessionStorage.removeItem("excluvas.session");
     setUser(null);
     setPassword("");
+    setShowPassword(false);
   }
   if (!sessionReady)
     return <main className="auth-loading"><div className="auth-loading-mark">E</div><span>Comprobando sesión…</span></main>;
@@ -109,12 +111,18 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           </label>
           <label>
             Contraseña
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoFocus
-            />
+            <span className="password-field">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoFocus
+                aria-label="Contraseña"
+              />
+              <button type="button" className="password-toggle" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"} aria-pressed={showPassword}>
+                {showPassword ? "Ocultar" : "Mostrar"}
+              </button>
+            </span>
           </label>
           <label className="remember-option">
             <input
