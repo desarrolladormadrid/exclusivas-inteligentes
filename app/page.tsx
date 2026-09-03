@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 // @ts-ignore Tipos incluidos por la librería.
 import JsBarcode from "jsbarcode";
 
-const APP_VERSION = "2.0.52";
+const APP_VERSION = "2.0.53";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -2455,6 +2455,8 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [preparationAnnotationSaving, setPreparationAnnotationSaving] = useState(false);
   const [preparationAnnotationMessage, setPreparationAnnotationMessage] = useState("");
   const [preparationAnnotationError, setPreparationAnnotationError] = useState("");
+  const [preparationLineSavingId, setPreparationLineSavingId] = useState<number | null>(null);
+  const [preparationValidationMessage, setPreparationValidationMessage] = useState("");
   const [preparationAddressDraft, setPreparationAddressDraft] = useState("");
   const [preparationCityDraft, setPreparationCityDraft] = useState("");
   const [preparationOpeningTimeDraft, setPreparationOpeningTimeDraft] = useState("");
@@ -3883,6 +3885,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       setPreparationAnnotation("");
       setPreparationAnnotationMessage("");
       setPreparationAnnotationError("");
+      setPreparationValidationMessage("");
       const rowLocation = (lookups.collection_points || []).find((item: any) => Number(item.id) === Number(row.collection_point_id));
       const rowClient = (lookups.clients || []).find((item: any) => Number(item.id) === Number(row.client_id));
       setPreparationAddressDraft(String(row.address || rowLocation?.address || rowClient?.address || ""));
@@ -4008,13 +4011,18 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     const nextShipmentStatus = hasIncident ? "Preparado con incidencia" : allDone ? "Preparado" : "Preparando";
     setPreview((current: any) => current ? { ...current, status: nextShipmentStatus } : current);
     setRows((current) => current.map((item) => item.id === preview?.id ? { ...item, status: nextShipmentStatus } : item));
-    void fetch(`/api/order_lines/${line.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify(next) }).then(async (response) => {
+    try {
+      const response = await fetch(`/api/order_lines/${line.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify(next) });
       if (!response.ok) throw new Error("No se pudo actualizar la línea de preparación.");
       if (preview?.id && active === "Preparación de pedidos") {
         const shipmentResponse = await fetch(`/api/shipments/${preview.id}`, { method: "PUT", headers: actorHeaders, body: JSON.stringify({ ...preview, status: nextShipmentStatus, prepared_by: user?.username || "Usuario local" }) });
         if (!shipmentResponse.ok) throw new Error("No se pudo actualizar el estado de la preparación.");
       }
-    }).catch(() => setError("No se pudo sincronizar la última modificación de la preparación. Revisa la conexión y vuelve a intentarlo."));
+      return true;
+    } catch {
+      setError("No se pudo sincronizar la última modificación de la preparación. Revisa la conexión y vuelve a intentarlo.");
+      return false;
+    }
   }
   async function updatePreparationLocation(product: any, value: string) {
     if (!product?.id) return;
@@ -4102,7 +4110,12 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   async function markPreparationLine(line: any, prepared: boolean) {
     const quantity = prepared ? Math.max(0, Number(line.prepared_quantity ?? line.quantity ?? 0)) : 0;
     const requested = Number(line.quantity || 0);
-    await updatePreparationLine(line, { prepared: prepared && quantity >= requested ? 1 : 0, prepared_quantity: quantity, preparation_status: prepared && quantity >= requested ? "Preparado" : prepared && quantity > 0 ? "Parcial" : "Pendiente" });
+    if (preparationLineSavingId !== null) return;
+    setPreparationLineSavingId(Number(line.id));
+    setPreparationValidationMessage("");
+    const saved = await updatePreparationLine(line, { prepared: prepared && quantity >= requested ? 1 : 0, prepared_quantity: quantity, preparation_status: prepared && quantity >= requested ? "Preparado" : prepared && quantity > 0 ? "Parcial" : "Pendiente" });
+    if (saved) setPreparationValidationMessage(`Línea validada: ${productOptions.find((product: any) => Number(product.id) === Number(line.product_id))?.name || "producto"}.`);
+    setPreparationLineSavingId(null);
   }
   async function startPreparation() {
     if (!preview?.id || !isLoadPreparation || ["Preparado", "Preparado con incidencia"].includes(String(preview.status || "")) || (String(preview.status || "") === "Preparando" && String(preview.prepared_by || "").trim())) return;
@@ -5539,8 +5552,9 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                   // línea debe volver a mostrarse como completa antes de
                   // pulsar Validar.
                   const lineIsComplete = preparedQuantity >= requestedQuantity;
+                  const lineIsValidated = Number(line.prepared) === 1 && line.preparation_status === "Preparado";
                   const displayLineStatus = lineIsComplete
-                    ? "Completo"
+                    ? lineIsValidated ? "Validado" : "Completo"
                     : line.preparation_status === "Incidencia"
                       ? "Incidencia"
                       : "Incompleto";
@@ -5551,7 +5565,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                     <td>{isLoadPreparation || (["Pedidos", "Presupuestos", "Facturas", "Albaranes"].includes(active) && (line.quantity_unit || line.quantity_requested)) ? <div className="prep-quantity-summary"><b>{line.quantity_requested || line.quantity} {quantityUnitLabel(line.quantity_unit)}{(line.quantity_requested || line.quantity) !== 1 && !String(line.quantity_unit || "unidad").startsWith("pack_") ? "s" : ""}</b><small>· {line.quantity} unidades totales</small></div> : line.quantity}</td>
                     {isLoadPreparation && <td><div className="prep-line-controls"><input className="prep-real-quantity" aria-label={`Cantidad preparada de ${product?.name || "producto"}`} type="number" min="0" max={requestedQuantity} step="any" value={line.prepared_quantity ?? 0} onFocus={(event) => event.currentTarget.select()} onChange={(event) => { const raw = event.target.value; setPreviewLines((current) => current.map((item) => { if (item.id !== line.id) return item; if (raw === "") return { ...item, prepared_quantity: "" }; const requested = Number(item.quantity || 0); return { ...item, prepared_quantity: Math.min(requested, Math.max(0, Number(raw) || 0)) }; })) }} onBlur={() => { if (line.prepared_quantity === "") setPreviewLines((current) => current.map((item) => item.id === line.id ? { ...item, prepared_quantity: 0 } : item)); }} /><span className="prep-unit-caption">uds.</span></div></td>}
                     {isLoadPreparation && <td><span className={`prep-line-status prep-line-status-${displayLineStatus.toLowerCase()}`}>{displayLineStatus}</span></td>}
-                    {isLoadPreparation && <td><div className="prep-line-actions">{line.preparation_status === "Incidencia" && !lineIsComplete ? <span className="prep-incident-open">Incidencia registrada</span> : <button type="button" className="row-action save" onClick={() => void markPreparationLine(line, true)}>Validar</button>}</div></td>}
+                    {isLoadPreparation && <td><div className="prep-line-actions">{line.preparation_status === "Incidencia" && !lineIsComplete ? <span className="prep-incident-open">Incidencia registrada</span> : <button type="button" className={`row-action ${lineIsValidated ? "validated" : "save"}`} disabled={lineIsValidated || preparationLineSavingId !== null} onClick={() => void markPreparationLine(line, true)}>{preparationLineSavingId === Number(line.id) ? "Validando…" : lineIsValidated ? "Validado ✓" : "Validar"}</button>}</div></td>}
                     {!isLoadPreparation && <td>{unitPrice.toFixed(2)} €</td>}
                     {!isLoadPreparation && <td>{amount.toFixed(2)} €</td>}
                   </tr>
@@ -5590,6 +5604,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                 {bulkIncidentOpen && <div className="prep-bulk-incident-form"><textarea aria-label="Observaciones de la incidencia" value={bulkIncidentText} onChange={(event) => setBulkIncidentText(event.target.value)} placeholder="Añade una observación común para la incidencia (opcional)." rows={3} />{bulkIncidentError && <p className="prep-bulk-incident-error" role="alert">{bulkIncidentError}</p>}<div className="prep-bulk-incident-actions"><button type="button" className="row-action danger" disabled={bulkIncidentSaving} onClick={() => void createBulkPreparationIncident(incompletePreparationLines)}>{bulkIncidentSaving ? <><span className="button-spinner" aria-hidden="true" /> Registrando…</> : "Confirmar incidencia"}</button><button type="button" className="row-action" disabled={bulkIncidentSaving} onClick={() => { setBulkIncidentOpen(false); setBulkIncidentText(""); setBulkIncidentError(""); }}>Cancelar</button></div></div>}
               </section>
             )}
+            {isLoadPreparation && preparationValidationMessage && <p className="preparation-validation-success" role="status">{preparationValidationMessage} Los cambios quedan guardados en la nota de carga.</p>}
             {active !== "Cobros" && active !== "Compras" && !(active === "Pedidos" && isOrderSent(preview)) && <div className="add-line">
               <select
                 value={newLine.product_id}
