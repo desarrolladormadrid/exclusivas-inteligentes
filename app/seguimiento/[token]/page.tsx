@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+// Genera el mismo enlace seguro que contiene el QR de la etiqueta impresa.
+// @ts-ignore Tipos incluidos por la librería.
+import QRCode from "qrcode";
 
 type TrackingLine = {
   product_name?: string;
@@ -62,6 +65,7 @@ export default function ShipmentTrackingPage() {
   const [data, setData] = useState<TrackingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [qrImage, setQrImage] = useState("");
 
   useEffect(() => {
     const segments = window.location.pathname.split("/").filter(Boolean);
@@ -81,6 +85,13 @@ export default function ShipmentTrackingPage() {
       .catch((reason) => setError(reason instanceof Error ? reason.message : "No se ha podido cargar el envío."))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!data || typeof window === "undefined") return;
+    QRCode.toDataURL(window.location.href, { width: 220, margin: 1, errorCorrectionLevel: "M" })
+      .then((value: string) => setQrImage(value))
+      .catch(() => setQrImage(""));
+  }, [data]);
 
   const currentStage = useMemo(() => stageIndex(data?.shipment.status), [data?.shipment.status]);
 
@@ -112,8 +123,8 @@ export default function ShipmentTrackingPage() {
         </ol>
 
         <div className="tracking-grid">
-          <section className="tracking-panel"><p className="tracking-eyebrow">ENTREGA</p><h2>{shipment.client_name || "Cliente"}</h2>{shipment.location_name && <p className="tracking-location">{shipment.location_name}</p>}<p>{shipment.address || "Dirección pendiente de confirmar"}{shipment.delivery_city ? ` · ${shipment.delivery_city}` : ""}</p><div className="tracking-facts"><div><span>HORARIO</span><b>{timeWindow}</b></div><div><span>BULTOS</span><b>{Math.max(1, Number(shipment.packages || 1))}</b></div>{shipment.expected_delivery_at && <div><span>ENTREGA PREVISTA</span><b>{formatDate(shipment.expected_delivery_at)}</b></div>}</div></section>
-          <section className="tracking-panel tracking-content-panel"><div className="tracking-panel-heading"><div><p className="tracking-eyebrow">CONTENIDO DEL ENVÍO</p><h2>{lines.length} referencias</h2></div><span className="tracking-content-mark">QR</span></div>{lines.length ? <ul className="tracking-lines">{lines.map((line, index) => <li key={`${line.product_name || "producto"}-${index}`}><b>{lineQuantity(line)} {line.quantity_unit || "unidades"}</b><span>{line.product_name || "Producto sin identificar"}</span>{line.preparation_status && <small>{line.preparation_status}</small>}</li>)}</ul> : <p className="tracking-muted">El contenido aún no está disponible.</p>}</section>
+          <section className="tracking-panel"><p className="tracking-eyebrow">ENTREGA</p><h2>{shipment.client_name || "Cliente"}</h2>{shipment.location_name && <p className="tracking-location">{shipment.location_name}</p>}<p>{shipment.address || "Dirección pendiente de confirmar"}{shipment.delivery_city ? ` · ${shipment.delivery_city}` : ""}</p><div className="tracking-facts"><div><span>HORARIO</span><b>{timeWindow}</b></div><div><span>BULTOS</span><b>{Math.max(1, Number(shipment.packages || 1))}</b></div>{shipment.expected_delivery_at && <div><span>ENTREGA PREVISTA</span><b>{formatDate(shipment.expected_delivery_at)}</b></div>}</div><div className="tracking-qr-card">{qrImage ? <img src={qrImage} alt={`Código QR del envío ${shipment.code || ""}`} /> : <div className="tracking-qr-placeholder">QR</div>}<div><b>Consulta rápida</b><p>Escanea este código para volver a abrir el seguimiento del envío.</p></div></div></section>
+          <section className="tracking-panel tracking-content-panel"><div className="tracking-panel-heading"><div><p className="tracking-eyebrow">CONTENIDO DEL ENVÍO</p><h2>{lines.length} referencias</h2></div></div>{lines.length ? <ul className="tracking-lines">{lines.map((line, index) => <li key={`${line.product_name || "producto"}-${index}`}><b>{lineQuantity(line)} {line.quantity_unit || "unidades"}</b><span>{line.product_name || "Producto sin identificar"}</span>{line.preparation_status && <small>{line.preparation_status}</small>}</li>)}</ul> : <p className="tracking-muted">El contenido aún no está disponible.</p>}</section>
         </div>
 
         {shipment.incidents && <aside className="tracking-incident"><b>Incidencia comunicada</b><p>{shipment.incidents}</p></aside>}
