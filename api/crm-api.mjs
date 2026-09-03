@@ -477,8 +477,8 @@ if (remoteMode && process.env.RUN_REMOTE_MIGRATIONS === "1") {
 for (const [table, columns] of [
   ["clients", ["city TEXT", "deleted INTEGER DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
   ["suppliers", ["active INTEGER DEFAULT 1", "deleted INTEGER DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
-  ["orders", ["delivery_date TEXT", "address TEXT", "collection_point_id INTEGER", "preparation_date TEXT", "shipping_date TEXT", "delivery_city TEXT", "urgent INTEGER DEFAULT 0", "created_by TEXT", "stock_alert INTEGER DEFAULT 0", "deleted INTEGER DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
-  ["products", ["active INTEGER DEFAULT 1", "product_status TEXT DEFAULT 'Activo'", "min_stock REAL DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
+  ["orders", ["unit_price REAL DEFAULT 0", "discount REAL DEFAULT 0", "vat REAL DEFAULT 21", "notes TEXT", "delivery_date TEXT", "address TEXT", "collection_point_id INTEGER", "prepared_by TEXT", "shipped_by TEXT", "delivered_by TEXT", "preparation_date TEXT", "shipping_date TEXT", "delivery_city TEXT", "urgent INTEGER DEFAULT 0", "created_by TEXT", "stock_alert INTEGER DEFAULT 0", "deleted INTEGER DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
+  ["products", ["sku TEXT", "cost_price REAL DEFAULT 0", "category TEXT", "format TEXT", "unit TEXT", "vat REAL DEFAULT 21", "stock_reserved REAL DEFAULT 0", "active INTEGER DEFAULT 1", "product_status TEXT DEFAULT 'Activo'", "min_stock REAL DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
   ["delivery_notes", ["created_at TEXT", "updated_at TEXT", "deleted INTEGER DEFAULT 0"]],
   ["invoices", ["issue_date TEXT", "due_date TEXT", "created_at TEXT", "updated_at TEXT", "deleted INTEGER DEFAULT 0"]],
   ["payments", ["deleted INTEGER DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
@@ -490,8 +490,8 @@ if (remoteMode && process.env.RUN_REMOTE_MIGRATIONS === "1") {
   for (const [table, columns] of [
     ["clients", ["city TEXT", "deleted INTEGER DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
     ["suppliers", ["active INTEGER DEFAULT 1", "deleted INTEGER DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
-    ["orders", ["delivery_date TEXT", "address TEXT", "collection_point_id INTEGER", "preparation_date TEXT", "shipping_date TEXT", "delivery_city TEXT", "urgent INTEGER DEFAULT 0", "created_by TEXT", "stock_alert INTEGER DEFAULT 0", "deleted INTEGER DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
-    ["products", ["active INTEGER DEFAULT 1", "product_status TEXT DEFAULT 'Activo'", "min_stock REAL DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
+    ["orders", ["unit_price REAL DEFAULT 0", "discount REAL DEFAULT 0", "vat REAL DEFAULT 21", "notes TEXT", "delivery_date TEXT", "address TEXT", "collection_point_id INTEGER", "prepared_by TEXT", "shipped_by TEXT", "delivered_by TEXT", "preparation_date TEXT", "shipping_date TEXT", "delivery_city TEXT", "urgent INTEGER DEFAULT 0", "created_by TEXT", "stock_alert INTEGER DEFAULT 0", "deleted INTEGER DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
+    ["products", ["sku TEXT", "cost_price REAL DEFAULT 0", "category TEXT", "format TEXT", "unit TEXT", "vat REAL DEFAULT 21", "stock_reserved REAL DEFAULT 0", "active INTEGER DEFAULT 1", "product_status TEXT DEFAULT 'Activo'", "min_stock REAL DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
     ["delivery_notes", ["created_at TEXT", "updated_at TEXT", "deleted INTEGER DEFAULT 0"]],
     ["invoices", ["issue_date TEXT", "due_date TEXT", "created_at TEXT", "updated_at TEXT", "deleted INTEGER DEFAULT 0"]],
     ["payments", ["deleted INTEGER DEFAULT 0", "created_at TEXT", "updated_at TEXT"]],
