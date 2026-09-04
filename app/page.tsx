@@ -10192,64 +10192,68 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
                 <b>Periodo</b>
               </div>
               <div className="home-order-range">
-                <label>
-                  Desde
-                  <input
-                    type="date"
-                    value={homeOrderRangeStart}
-                    max={homeOrderRangeEnd}
-                    onChange={(event) => {
-                      setHomeRangePresetState(null);
-                      setHomeOrderRangeStart(event.target.value);
-                    }}
-                  />
-                </label>
-                <span>—</span>
-                <label>
-                  Hasta
-                  <input
-                    type="date"
-                    value={homeOrderRangeEnd}
-                    min={homeOrderRangeStart}
-                    onChange={(event) => {
-                      setHomeRangePresetState(null);
-                      setHomeOrderRangeEnd(event.target.value);
-                    }}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className={homeRangePreset === "hoy" ? "active" : ""}
-                  aria-pressed={homeRangePreset === "hoy"}
-                  onClick={() => setHomeRangePreset("hoy")}
-                >
-                  Hoy
-                </button>
-                <button
-                  type="button"
-                  className={homeRangePreset === "semana" ? "active" : ""}
-                  aria-pressed={homeRangePreset === "semana"}
-                  onClick={() => setHomeRangePreset("semana")}
-                >
-                  Esta semana
-                </button>
-                <button
-                  type="button"
-                  className={homeRangePreset === "mes" ? "active" : ""}
-                  aria-pressed={homeRangePreset === "mes"}
-                  onClick={() => setHomeRangePreset("mes")}
-                >
-                  Este mes
-                </button>
-                <button type="button" className={homeRangePreset === "trimestre" ? "active" : ""} aria-pressed={homeRangePreset === "trimestre"} onClick={() => setHomeRangePreset("trimestre")}>
-                  Trimestre
-                </button>
-                <button type="button" className={homeRangePreset === "semestre" ? "active" : ""} aria-pressed={homeRangePreset === "semestre"} onClick={() => setHomeRangePreset("semestre")}>
-                  Semestre
-                </button>
-                <button type="button" className={homeRangePreset === "anio" ? "active" : ""} aria-pressed={homeRangePreset === "anio"} onClick={() => setHomeRangePreset("anio")}>
-                  Año actual
-                </button>
+                <div className="home-range-inputs">
+                  <label>
+                    Desde
+                    <input
+                      type="date"
+                      value={homeOrderRangeStart}
+                      max={homeOrderRangeEnd}
+                      onChange={(event) => {
+                        setHomeRangePresetState(null);
+                        setHomeOrderRangeStart(event.target.value);
+                      }}
+                    />
+                  </label>
+                  <span>—</span>
+                  <label>
+                    Hasta
+                    <input
+                      type="date"
+                      value={homeOrderRangeEnd}
+                      min={homeOrderRangeStart}
+                      onChange={(event) => {
+                        setHomeRangePresetState(null);
+                        setHomeOrderRangeEnd(event.target.value);
+                      }}
+                    />
+                  </label>
+                </div>
+                <div className="home-range-presets">
+                  <button
+                    type="button"
+                    className={homeRangePreset === "hoy" ? "active" : ""}
+                    aria-pressed={homeRangePreset === "hoy"}
+                    onClick={() => setHomeRangePreset("hoy")}
+                  >
+                    Hoy
+                  </button>
+                  <button
+                    type="button"
+                    className={homeRangePreset === "semana" ? "active" : ""}
+                    aria-pressed={homeRangePreset === "semana"}
+                    onClick={() => setHomeRangePreset("semana")}
+                  >
+                    Esta semana
+                  </button>
+                  <button
+                    type="button"
+                    className={homeRangePreset === "mes" ? "active" : ""}
+                    aria-pressed={homeRangePreset === "mes"}
+                    onClick={() => setHomeRangePreset("mes")}
+                  >
+                    Este mes
+                  </button>
+                  <button type="button" className={homeRangePreset === "trimestre" ? "active" : ""} aria-pressed={homeRangePreset === "trimestre"} onClick={() => setHomeRangePreset("trimestre")}>
+                    Trimestre
+                  </button>
+                  <button type="button" className={homeRangePreset === "semestre" ? "active" : ""} aria-pressed={homeRangePreset === "semestre"} onClick={() => setHomeRangePreset("semestre")}>
+                    Semestre
+                  </button>
+                  <button type="button" className={homeRangePreset === "anio" ? "active" : ""} aria-pressed={homeRangePreset === "anio"} onClick={() => setHomeRangePreset("anio")}>
+                    Año actual
+                  </button>
+                </div>
               </div>
             </div>
           )}
