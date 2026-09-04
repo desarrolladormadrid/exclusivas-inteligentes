@@ -4037,6 +4037,256 @@ select.form-control option:hover {
 .public-web-order-link:hover, .public-web-order-link:focus-visible { background: #991b1b; color: #fff !important; }
 .public-web-order-link span, .public-web-text-link span { color: #fff; font-size: 16px; }
 .public-web-header nav .public-web-menu-order-link { background: #bd2027; color: #fff !important; }.public-web-header nav .public-web-menu-order-link span { color: #fff; }
+
+/* CRM móvil: la interfaz operativa necesita una composición propia. Este
+   bloque final corrige los anchos heredados de escritorio y deja los
+   controles, listados y modales cómodos para usar con el pulgar. */
+@media (max-width: 650px) {
+  .crm-shell {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
+    background: #f4f7f8;
+  }
+
+  .crm-shell .appbar {
+    height: 60px;
+    min-height: 60px;
+    padding: 0 58px 0 12px;
+    border-top-width: 3px;
+  }
+  .crm-shell .brand { min-width: 0; gap: 7px; margin-top: 4px; }
+  .crm-shell .brand-mark { width: 30px; height: 30px; font-size: 18px; }
+  .crm-shell .brand strong { max-width: 108px; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+  .crm-shell .brand small { margin-top: 2px; font-size: 8px; letter-spacing: 1.4px; }
+  .crm-shell .appbar-actions { min-width: 0; gap: 4px; margin: 0; }
+  .crm-shell .notification-button { width: 34px; height: 34px; }
+  .crm-shell .notification-menu { top: 54px; left: 8px; right: 8px; width: auto; max-height: min(66dvh, 440px); }
+  .crm-shell .user-menu-trigger {
+    width: 72px;
+    min-width: 72px;
+    height: 36px;
+    min-height: 36px;
+    margin: 0;
+    padding: 4px 6px;
+    gap: 3px;
+  }
+  .crm-shell .user-menu-trigger > div { display: block; min-width: 0; }
+  .crm-shell .user-menu-trigger > div b { display: block; max-width: 48px; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .crm-shell .user-menu-trigger > div small { display: none; }
+  .crm-shell .user-menu-chevron { margin-left: 0; font-size: 11px; }
+
+  .crm-shell .workspace {
+    display: block;
+    width: 100%;
+    min-height: calc(100vh - 60px);
+    padding-top: 60px;
+  }
+  .crm-shell .workspace .sidebar.mobile-open { top: 60px; max-height: calc(100dvh - 60px); }
+  .crm-shell .workspace .sidebar.mobile-open .mobile-sidebar-toggle { top: 8px; right: 10px; }
+  .crm-shell .content {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 14px 10px 30px;
+    overflow-x: clip;
+  }
+  .crm-shell .content-head { gap: 8px; margin-bottom: 12px; }
+  .crm-shell .content-head.section-context { display: none; }
+  .crm-shell .content-head h1,
+  .crm-shell .home-content .content-head h1 { max-width: 100%; font-size: 24px !important; line-height: 1.08; }
+  .crm-shell .content-head .muted { max-width: 100%; line-height: 1.35; }
+
+  .crm-shell .head-actions,
+  .crm-shell .content-head .head-actions,
+  .crm-shell .manager-head > div:last-child,
+  .crm-shell .contacts-toolbar > div:last-child { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 6px; }
+  .crm-shell .head-actions .button,
+  .crm-shell .manager-head > div:last-child > .button,
+  .crm-shell .contacts-toolbar > div:last-child > .button { width: 100%; min-width: 0; min-height: 38px; padding: 0 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .crm-shell .home-global-range {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding: 11px 10px;
+  }
+  .crm-shell .home-global-range > div:first-child { color: #26343d; }
+  .crm-shell .home-order-range { display: grid; gap: 10px; width: 100%; }
+  .crm-shell .home-range-inputs { display: grid; grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr); align-items: end; gap: 5px; width: 100%; }
+  .crm-shell .home-range-inputs label { min-width: 0; }
+  .crm-shell .home-range-inputs input { width: 100%; min-width: 0; height: 36px; padding: 0 6px; }
+  .crm-shell .home-range-inputs > span { padding-bottom: 8px; text-align: center; }
+  .crm-shell .home-range-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; width: 100%; }
+  .crm-shell .home-range-presets button { width: 100%; min-height: 36px; padding: 0 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .crm-shell .home-content .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-bottom: 10px; }
+  .crm-shell .home-content .kpis article { min-width: 0; min-height: 96px; padding: 10px 9px; }
+  .crm-shell .home-content .kpis article > span { font-size: 10px; line-height: 1.15; }
+  .crm-shell .home-content .kpis article strong { display: block; margin: 10px 0 4px; font-size: 20px; line-height: 1; }
+  .crm-shell .home-content .kpis article b { display: block; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .crm-shell .home-content .kpis article small { font-size: 9px; line-height: 1.2; }
+
+  .crm-shell .home-alert-center { margin: 10px 0; padding: 12px 10px; }
+  .crm-shell .home-alert-head { align-items: stretch; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .crm-shell .home-alert-head h2 { font-size: 16px; }
+  .crm-shell .home-alert-head > strong { align-self: flex-start; }
+  .crm-shell .home-alert-grid { grid-template-columns: 1fr; gap: 6px; }
+  .crm-shell .home-alert-card { grid-template-columns: 26px minmax(0, 1fr) auto; min-height: 62px; padding: 8px; }
+  .crm-shell .home-alert-card b { font-size: 11px; }
+  .crm-shell .home-alert-card small { font-size: 10px; }
+
+  .crm-shell .pending-orders-head { min-height: 54px; padding: 10px; }
+  .crm-shell .pending-orders-head b { font-size: 13px; }
+  .crm-shell .pending-orders-head small { font-size: 10px; }
+  .crm-shell .pending-orders-list { overflow: visible; }
+  .crm-shell .pending-orders-columns { display: none; }
+  .crm-shell .pending-orders-list .pending-order-row,
+  .crm-shell .pending-orders-list .home-step-order-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px 10px;
+    min-width: 0;
+    padding: 12px 10px;
+    border-top: 1px solid #e5ebed;
+  }
+  .crm-shell .pending-order-row > span,
+  .crm-shell .pending-order-row > b,
+  .crm-shell .pending-order-row > strong,
+  .crm-shell .home-step-order-row > span,
+  .crm-shell .home-step-order-row > b,
+  .crm-shell .home-step-order-row > strong { min-width: 0; overflow-wrap: anywhere; }
+  .crm-shell .pending-order-row > span::before,
+  .crm-shell .pending-order-row > b::before,
+  .crm-shell .pending-order-row > strong::before,
+  .crm-shell .home-step-order-row > span::before,
+  .crm-shell .home-step-order-row > b::before,
+  .crm-shell .home-step-order-row > strong::before { display: block; margin-bottom: 2px; color: #71818a; font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .crm-shell .pending-order-row > span:nth-child(1),
+  .crm-shell .pending-order-row > span:nth-child(2),
+  .crm-shell .home-step-order-row > b { grid-column: 1 / -1; }
+  .crm-shell .pending-order-row > span:nth-child(1)::before,
+  .crm-shell .home-step-order-row > b::before { content: "Pedido"; }
+  .crm-shell .pending-order-row > span:nth-child(2)::before { content: "Cliente"; }
+  .crm-shell .pending-order-row > span:nth-child(3)::before { content: "Registrado"; }
+  .crm-shell .pending-order-row > span:nth-child(4)::before { content: "Entrega"; }
+  .crm-shell .pending-order-row > b::before { content: "Estado"; }
+  .crm-shell .pending-order-row > strong::before { content: "Importe"; }
+  .crm-shell .pending-order-row > .row-actions,
+  .crm-shell .home-step-order-row > .row-actions { grid-column: 1 / -1; min-width: 0; padding-top: 8px; border-top: 1px solid #eef2f3; }
+
+  .crm-shell .manager { min-width: 0; width: 100%; }
+  .crm-shell .manager-head { gap: 10px; }
+  .crm-shell .manager-head h2,
+  .crm-shell .contacts-toolbar h2 { font-size: 21px; }
+  .crm-shell .manager-head .muted { line-height: 1.4; }
+  .crm-shell .manager input,
+  .crm-shell .manager select,
+  .crm-shell .manager textarea,
+  .crm-shell .manager .button,
+  .crm-shell .manager .import-button,
+  .crm-shell .manager .header-button,
+  .crm-shell .manager .header-select,
+  .crm-shell .manager .header-input { max-width: 100%; min-width: 0; min-height: 38px; }
+  .crm-shell .manager textarea { min-height: 78px; }
+  .crm-shell .manager-head > div:last-child > .db-badge { grid-column: 1 / -1; }
+  .crm-shell .table-tools { display: grid; gap: 8px; padding: 9px; }
+  .crm-shell .table-tools-primary,
+  .crm-shell .table-tools-filters { display: grid; grid-template-columns: 1fr; width: 100%; gap: 7px; }
+  .crm-shell .table-tools-primary > input,
+  .crm-shell .table-tools-filters > select,
+  .crm-shell .table-tools-filters > .list-filter-field,
+  .crm-shell .table-tools-filters > .deleted-toggle { width: 100%; min-width: 0; }
+  .crm-shell .saved-views { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .crm-shell .saved-view-button { width: 100%; min-height: 36px; }
+  .crm-shell .table-scroll .row-actions { display: flex; min-width: 0; gap: 6px; }
+  .crm-shell .table-scroll .row-action { min-width: 0; min-height: 34px; padding: 6px 8px; }
+  .crm-shell .table-pagination { gap: 7px; padding: 9px; }
+  .crm-shell .table-pagination .button { min-height: 36px; }
+
+  /* En móvil los formularios se leen de arriba abajo: la etiqueta nunca
+     comparte una fila estrecha con el campo. */
+  .crm-shell .form-accordion[open] {
+    top: 8px;
+    left: 8px;
+    width: calc(100vw - 16px) !important;
+    max-width: none;
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+  .crm-shell .form-accordion[open] .record-form:not(.product-master-form) > label,
+  .crm-shell .form-accordion[open] .order-general-fields > label { display: grid; grid-template-columns: 1fr; gap: 4px; }
+  .crm-shell .form-accordion[open] .record-form:not(.product-master-form) > label > span,
+  .crm-shell .form-accordion[open] .order-general-fields > label > span { min-height: 0; padding: 0; border: 0; background: transparent; }
+  .crm-shell .form-accordion[open] .record-form > button,
+  .crm-shell .form-accordion[open] .record-form > .button { justify-self: stretch; width: 100% !important; min-height: 40px; }
+  .crm-shell .record-form { gap: 10px; }
+
+  .crm-shell .preview-overlay { align-items: start; padding: 8px; overflow-y: auto; }
+  .crm-shell .document-preview,
+  .crm-shell .note-preview-card,
+  .crm-shell .billing-modal,
+  .crm-shell .contact-edit-modal,
+  .crm-shell .smart-request-modal,
+  .crm-shell .promotion-modal,
+  .crm-shell .quick-expense-modal,
+  .crm-shell .product-label-modal,
+  .crm-shell .supplier-create-modal,
+  .crm-shell .product-batch-modal,
+  .crm-shell .document-template-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - 16px);
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .crm-shell .document-preview { min-height: 0; padding: 18px 12px; }
+  .crm-shell .preview-close { top: 8px; right: 9px; min-width: 34px; min-height: 34px; }
+  .crm-shell .preview-document-actions,
+  .crm-shell .invoice-document-actions,
+  .crm-shell .document-pdf-actions,
+  .crm-shell .order-preview-actions,
+  .crm-shell .quote-preview-actions,
+  .crm-shell .billing-footer { display: grid; grid-template-columns: 1fr; gap: 7px; }
+  .crm-shell .preview-document-actions .button,
+  .crm-shell .invoice-document-actions .button,
+  .crm-shell .document-pdf-actions .button,
+  .crm-shell .order-preview-actions .button,
+  .crm-shell .quote-preview-actions .button,
+  .crm-shell .billing-footer .button { width: 100%; min-height: 40px; }
+
+  /* Contactos era el listado que más fácilmente provocaba scroll lateral. */
+  .crm-shell .contacts-table-wrap { overflow: visible; }
+  .crm-shell .contacts-table { display: block; width: 100%; min-width: 0 !important; }
+  .crm-shell .contacts-table thead { display: none; }
+  .crm-shell .contacts-table tbody,
+  .crm-shell .contacts-table tr,
+  .crm-shell .contacts-table td { display: block; width: 100%; box-sizing: border-box; }
+  .crm-shell .contacts-table tr { height: auto !important; padding: 10px; border-bottom: 1px solid #e5ebed; }
+  .crm-shell .contacts-table td { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 7px; min-width: 0; padding: 5px 0; border: 0; overflow-wrap: anywhere; word-break: break-word; }
+  .crm-shell .contacts-table td:first-child { display: flex; align-items: center; gap: 7px; }
+  .crm-shell .contacts-table td:first-child b { min-width: 0; overflow-wrap: anywhere; }
+  .crm-shell .contacts-table td::before { color: #71818a; font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .crm-shell .contacts-table td:first-child::before { display: none; }
+  .crm-shell .contacts-table td:nth-child(2)::before { content: "Correo"; }
+  .crm-shell .contacts-table td:nth-child(3)::before { content: "Teléfono"; }
+  .crm-shell .contacts-table td:nth-child(4)::before { content: "Tipo"; }
+  .crm-shell .contacts-table td.contacts-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 8px; margin-top: 4px; border-top: 1px solid #eef2f3; }
+  .crm-shell .contacts-table td.contacts-actions::before { content: "Acciones"; width: 78px; }
+}
+
+@media (max-width: 380px) {
+  .crm-shell .appbar { padding-left: 9px; padding-right: 54px; }
+  .crm-shell .brand strong { max-width: 88px; }
+  .crm-shell .user-menu-trigger { width: 62px; min-width: 62px; }
+  .crm-shell .user-menu-trigger > div b { max-width: 38px; }
+  .crm-shell .home-content .kpis { grid-template-columns: 1fr; }
+  .crm-shell .home-range-presets { grid-template-columns: 1fr; }
+  .crm-shell .head-actions,
+  .crm-shell .content-head .head-actions,
+  .crm-shell .manager-head > div:last-child,
+  .crm-shell .contacts-toolbar > div:last-child { grid-template-columns: 1fr; }
+}
 .public-web-hero { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(390px, .8fr); align-items: center; min-height: 670px; width: min(1280px, calc(100% - 36px)); margin: 0 auto; padding: 80px 8%; background: radial-gradient(circle at 76% 37%, #44230f 0, #16100d 17%, transparent 36%), linear-gradient(120deg, #0a0a09 0%, #11110f 60%, #180f0b 100%); }
 .public-web-hero-copy { position: relative; z-index: 2; max-width: 650px; }
 .public-web-kicker { margin: 0 0 18px; color: #bd2027; font-size: 10px; font-weight: 800; letter-spacing: .2em; }
