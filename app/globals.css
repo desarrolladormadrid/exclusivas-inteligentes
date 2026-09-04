@@ -4096,6 +4096,7 @@ select.form-control option:hover {
 @media(max-width:560px){.goods-receipt-edit-grid{grid-template-columns:1fr}.goods-receipt-edit-grid .goods-receipt-wide{grid-column:auto}}
 
 /* La ficha de entrada se convierte en tarjetas legibles en tablet; evita que las líneas densas se pisen. */
+.goods-receipt-detail { position: relative; background: #fff; border: 1px solid #d1dce1; box-shadow: 0 18px 50px rgba(25,40,48,.24); }
 .goods-receipt-detail-lines article > span,
 .goods-receipt-detail-lines article > strong,
 .goods-receipt-detail-lines article > div:first-child { min-width: 0; }
