@@ -93,6 +93,7 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 - En tablet, los datos generales del pedido deben poder colapsarse para dejar visible y cómoda la lista de productos.
 - La creación de líneas debe tener una maquetación estable en tablet, sin solapamientos ni campos huérfanos.
 - La nota de carga debe probarse abierta con varias líneas en móvil y tablet: todas las ubicaciones, productos, cantidades, estados y acciones deben quedar visibles y utilizables sin scroll horizontal; en móvil las líneas pueden convertirse en tarjetas compactas.
+- La auditoría de tablet de Logística y almacén debe recorrer siempre Productos, Stock, Almacenes, Preparación de pedidos, Lugares de recogida, Rutas, Entradas, Salidas y Devoluciones. Los listados deben priorizar por defecto los datos operativos y reservar la información secundaria para el detalle o “Columnas visibles”; no aceptar tarjetas interminables con todas las columnas maestras.
 - La ficha/modal de una entrada de mercancía también debe probarse abierta con varias líneas e incidencias en tablet: el encabezado del modal nunca puede quedar oculto bajo la cabecera del CRM, cada línea debe conservar separación vertical entre producto, cantidades, resultado y validación de ubicación, y las tarjetas de lectura opcional no pueden solaparse entre sí. En tablet se acepta desplazamiento vertical interno, pero nunca contenido superpuesto, cortado o scroll horizontal.
 
 ## Verificación y despliegue

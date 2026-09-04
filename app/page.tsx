@@ -2499,6 +2499,14 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const [visibleFields, setVisibleFields] = useState<string[]>(c.fields);
   const orderListFields = ["code", "client_id", "status", "billing_status", "payment_status", "shipping_status", "preparation_date", "delivery_date"];
   const stockListFields = ["product_id", "unit", "warehouse_name", "stock", "stock_reserved", "available_stock", "min_stock", "stock_status"];
+  const warehouseListFields: Record<string, string[]> = {
+    products: ["name", "sku", "barcode", "category", "format", "unit", "unit_price", "cost_price", "stock", "stock_reserved", "min_stock", "warehouse_location", "warehouse_id", "product_status"],
+    warehouses: ["code", "name", "address", "manager"],
+    collection_points: ["code", "name", "address", "city", "opening_time", "closing_time", "geocoding_status"],
+    goods_receipts: ["code", "supplier_id", "purchase_order_id", "warehouse_id", "receipt_date", "status", "validation_status", "economic_difference", "line_count", "incident_count", "received_by"],
+    inventory_movements: ["order_id", "shipment_id", "product_id", "warehouse_id", "movement_type", "quantity", "movement_date", "client_id", "created_by", "reference"],
+    returns: ["code", "client_id", "invoice_id", "product_id", "quantity", "reason", "status", "amount"],
+  };
   useEffect(() => {
     if (inlineEditing === null) return;
     const closeWithEscape = (event: KeyboardEvent) => {
@@ -2565,7 +2573,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   }
   useEffect(() => {
     try {
-    if (c.api === "orders") {
+      if (c.api === "orders") {
         setVisibleFields(orderListFields);
         localStorage.setItem(`excluvas.columns.${c.api}`, JSON.stringify(orderListFields));
         return;
@@ -2575,7 +2583,17 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
         localStorage.setItem(`excluvas.columns.${c.api}`, JSON.stringify(stockListFields));
         return;
       }
+      const compactFields = warehouseListFields[c.api];
+      const compactVersionKey = `excluvas.columns.compact-v1.${c.api}`;
       const saved = localStorage.getItem(`excluvas.columns.${c.api}`);
+      if (compactFields) {
+        if (!saved || localStorage.getItem(compactVersionKey) !== "1") {
+          setVisibleFields(compactFields);
+          localStorage.setItem(`excluvas.columns.${c.api}`, JSON.stringify(compactFields));
+          localStorage.setItem(compactVersionKey, "1");
+          return;
+        }
+      }
       if (saved) {
         const storedFields = JSON.parse(saved);
         setVisibleFields(storedFields);
