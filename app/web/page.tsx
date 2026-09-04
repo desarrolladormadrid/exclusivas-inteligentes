@@ -92,6 +92,9 @@ export default function WebPage() {
   useEffect(() => {
     if (window.location.hash === "#login") setLoginOpen(true);
   }, []);
+  useEffect(() => {
+    if (promotionMode === "all" && webPromotions.length) setPromotionMode(webPromotions[0].promotion_type);
+  }, [webPromotions, promotionMode]);
   const publicProducts = useMemo(() => { const merged = [...products]; for (const fallback of catalogFallbackProducts) if (!merged.some((product) => product.id === fallback.id)) merged.push(fallback); return merged; }, [products]);
   const categories = useMemo(() => Array.from(new Set(publicProducts.map(productCategory))).filter(Boolean).slice(0, 14), [publicProducts]);
   const imageProducts = useMemo(() => publicProducts.filter((product) => Boolean(productImage(product))), [publicProducts]);
