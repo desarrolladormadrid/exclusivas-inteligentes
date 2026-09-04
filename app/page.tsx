@@ -10,6 +10,7 @@ const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : 
 
 const initialModules = [
   "Inicio",
+  "Promociones web",
   "Productos",
   "Stock",
   "Envíos",
@@ -878,6 +879,7 @@ const sidebarGroups = [
   {
     name: "Ventas y clientes",
     items: [
+      "Promociones web",
       "Clientes",
       "Contactos",
       "Pedidos",
@@ -9396,6 +9398,106 @@ function HomeNotePreviewModal({ note, user, onClose, onOpenPreparation, onEdit }
   </div>;
 }
 
+type PromotionDraft = {
+  code: string;
+  title: string;
+  promotion_type: "flash" | "week" | "month";
+  description: string;
+  kicker: string;
+  discount_type: "percent" | "amount" | "none";
+  discount_value: string;
+  start_at: string;
+  end_at: string;
+  min_quantity: string;
+  stock_limit: string;
+  conditions: string;
+  product_ids: number[];
+};
+const promotionTypeLabels: Record<PromotionDraft["promotion_type"], string> = { flash: "Flash · solo hoy", week: "Semana · selección renovada", month: "Mes · ofertas del mes" };
+const promotionStatusLabels: Record<string, string> = { Borrador: "Borrador", Publicada: "Publicada", Pausada: "Pausada" };
+function localDateTime(offsetHours = 0) {
+  const date = new Date(Date.now() + offsetHours * 3600000);
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+function emptyPromotionDraft(): PromotionDraft {
+  return { code: `PROMO-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`, title: "", promotion_type: "flash", description: "", kicker: "OFERTA FLASH · SOLO HOY", discount_type: "percent", discount_value: "", start_at: localDateTime(), end_at: localDateTime(24), min_quantity: "", stock_limit: "", conditions: "", product_ids: [] };
+}
+function PublicPromotionsManager({ user }: { user: any }) {
+  const [promotions, setPromotions] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [draft, setDraft] = useState<PromotionDraft>(emptyPromotionDraft);
+  const [editing, setEditing] = useState<any>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Todas");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const actor = user?.username || "Usuario local";
+  async function load() {
+    setLoading(true);
+    try {
+      const [promotionResponse, productResponse] = await Promise.all([
+        fetch("/api/web_promotions?include_deleted=0", { headers: { "X-Actor": actor, "X-Audit-Query": "true" } }),
+        fetch("/api/products?view=lookup&limit=2000&include_inactive=1", { headers: { "X-Actor": actor } }),
+      ]);
+      if (!promotionResponse.ok || !productResponse.ok) throw new Error("No se han podido cargar las promociones.");
+      const promotionRows = await promotionResponse.json();
+      const productRows = await productResponse.json();
+      setPromotions(Array.isArray(promotionRows) ? promotionRows : []);
+      setProducts(Array.isArray(productRows) ? productRows.filter((row) => String(row.name || "").trim()) : []);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "No se han podido cargar las promociones."); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+  function openNew() { setEditing(null); setDraft(emptyPromotionDraft()); setProductSearch(""); setError(""); setModalOpen(true); }
+  function openEdit(row: any) {
+    let productIds: number[] = [];
+    try { productIds = (Array.isArray(row.product_ids) ? row.product_ids : JSON.parse(String(row.product_ids || "[]"))).map(Number).filter(Number.isInteger); } catch {}
+    setEditing(row);
+    setDraft({ code: row.code || `PROMO-${row.id}`, title: row.title || "", promotion_type: ["flash", "week", "month"].includes(row.promotion_type) ? row.promotion_type : "flash", description: row.description || "", kicker: row.kicker || "", discount_type: ["percent", "amount", "none"].includes(row.discount_type) ? row.discount_type : "percent", discount_value: row.discount_value === null || row.discount_value === undefined ? "" : String(row.discount_value), start_at: String(row.start_at || "").slice(0, 16), end_at: String(row.end_at || "").slice(0, 16), min_quantity: row.min_quantity ? String(row.min_quantity) : "", stock_limit: row.stock_limit ? String(row.stock_limit) : "", conditions: row.conditions || "", product_ids: productIds });
+    setProductSearch(""); setError(""); setModalOpen(true);
+  }
+  function updateDraft(field: keyof PromotionDraft, value: any) {
+    setDraft((current) => {
+      const next = { ...current, [field]: value };
+      if (field === "promotion_type" && !editing) next.kicker = value === "flash" ? "OFERTA FLASH · SOLO HOY" : value === "week" ? "SELECCIÓN DE LA SEMANA" : "OFERTAS DEL MES";
+      return next;
+    });
+  }
+  function toggleProduct(id: number) { setDraft((current) => ({ ...current, product_ids: current.product_ids.includes(id) ? current.product_ids.filter((value) => value !== id) : [...current.product_ids, id] })); }
+  async function save(event: FormEvent) {
+    event.preventDefault(); setSaving(true); setError(""); setMessage("");
+    if (!draft.title.trim() || !draft.product_ids.length) { setError("Indica un título y selecciona al menos un producto."); setSaving(false); return; }
+    if (draft.end_at < draft.start_at) { setError("La fecha de fin debe ser posterior a la fecha de inicio."); setSaving(false); return; }
+    const payload = { ...draft, discount_value: Number(draft.discount_value || 0), min_quantity: Number(draft.min_quantity || 0), stock_limit: draft.stock_limit ? Number(draft.stock_limit) : null, product_ids: JSON.stringify(draft.product_ids), created_by: actor, updated_at: new Date().toISOString() };
+    try {
+      const response = await fetch(editing ? `/api/web_promotions/${editing.id}` : "/api/web_promotions", { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify(payload) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se ha podido guardar la promoción.");
+      setModalOpen(false); setMessage(editing ? "Promoción actualizada." : "Promoción guardada como borrador. Revísala y publícala cuando esté lista."); await load();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "No se ha podido guardar la promoción."); }
+    finally { setSaving(false); }
+  }
+  async function changeStatus(row: any, action: "publish" | "pause") {
+    setError(""); setMessage("");
+    try {
+      const response = await fetch(`/api/web_promotions/${row.id}/${action}`, { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": actor } });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se ha podido actualizar el estado.");
+      setMessage(action === "publish" ? `“${row.title}” ya está visible en la web.` : `“${row.title}” se ha pausado.`); await load();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "No se ha podido actualizar el estado."); }
+  }
+  const productMap = new Map(products.map((product) => [Number(product.id), product]));
+  const visibleProducts = products.filter((product) => matchesSearch(`${product.name} ${product.sku || ""} ${product.brand || ""}`, productSearch)).slice(0, 80);
+  const visiblePromotions = promotions.filter((row) => statusFilter === "Todas" || row.status === statusFilter);
+  const selectedNames = draft.product_ids.map((id) => productMap.get(id)?.name || `Producto #${id}`);
+  const formatDiscount = (row: any) => row.discount_type === "percent" ? `-${Number(row.discount_value || 0)}%` : row.discount_type === "amount" ? `-${Number(row.discount_value || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}` : "Condición especial";
+  return <section className="public-promotions-manager"><div className="manager-head"><div><p className="eyebrow">PUBLICACIÓN COMERCIAL</p><h2>Promociones web</h2><p className="muted">Crea una campaña, selecciona referencias y publícala en Flash, Semana o Mes. Solo las promociones publicadas y vigentes aparecen en la web.</p></div><div><button type="button" className="button secondary" onClick={() => void load()}>Actualizar</button><button type="button" className="button primary" onClick={openNew}>Nueva promoción</button></div></div>{message && <div className="success-message" role="status">{message}</div>}{error && !modalOpen && <div className="error-message" role="alert">{error}</div>}<section className="promotion-summary"><article><span>Publicadas</span><strong>{promotions.filter((row) => row.status === "Publicada").length}</strong><small>visibles al público</small></article><article><span>Borradores</span><strong>{promotions.filter((row) => row.status === "Borrador").length}</strong><small>pendientes de revisión</small></article><article><span>Referencias elegidas</span><strong>{new Set(promotions.flatMap((row) => { try { return JSON.parse(String(row.product_ids || "[]")); } catch { return []; } })).size}</strong><small>productos en campañas</small></article></section><section className="promotion-list-panel"><div className="promotion-list-toolbar"><div><b>Campañas</b><small>{loading ? "Cargando…" : `${visiblePromotions.length} campañas encontradas`}</small></div><label>Estado<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>Todas</option><option>Publicada</option><option>Borrador</option><option>Pausada</option></select></label></div>{!loading && !visiblePromotions.length && <p className="empty-state">Todavía no hay campañas. Crea la primera promoción para que el equipo pueda revisarla y publicarla.</p>}<div className="promotion-list">{visiblePromotions.map((row) => { let ids: number[] = []; try { ids = JSON.parse(String(row.product_ids || "[]")); } catch {} const names = ids.map((id) => productMap.get(Number(id))?.name || `Producto #${id}`); return <article className="promotion-card" key={row.id}><div className="promotion-card-main"><div className="promotion-card-top"><span className={`promotion-status status-${String(row.status || "Borrador").toLowerCase()}`}>{promotionStatusLabels[row.status] || row.status}</span><span className="promotion-type">{promotionTypeLabels[row.promotion_type] || "Promoción"}</span><strong>{formatDiscount(row)}</strong></div><h3>{row.title}</h3><p>{row.description || "Sin descripción comercial."}</p><small>{row.code} · {String(row.start_at || "").replace("T", " ").slice(0, 16)} → {String(row.end_at || "").replace("T", " ").slice(0, 16)}</small><div className="promotion-product-tags">{names.slice(0, 4).map((name) => <span key={name}>{name}</span>)}{names.length > 4 && <span>+{names.length - 4} referencias</span>}</div></div><div className="promotion-card-actions"><button type="button" className="button secondary" onClick={() => openEdit(row)}>Editar</button>{row.status === "Publicada" ? <button type="button" className="button secondary" onClick={() => void changeStatus(row, "pause")}>Pausar</button> : <button type="button" className="button primary" onClick={() => void changeStatus(row, "publish")}>Publicar</button>}</div></article>; })}</div></section>{modalOpen && <div className="preview-overlay promotion-overlay" onMouseDown={(event) => event.target === event.currentTarget && !saving && setModalOpen(false)}><form className="promotion-modal" onSubmit={(event) => void save(event)}><header><div><p className="eyebrow">{editing ? "EDITAR CAMPAÑA" : "NUEVA CAMPAÑA"}</p><h2>{editing ? "Ajustar promoción" : "Crear promoción web"}</h2><small>Guarda primero como borrador y publícala solo cuando las referencias y fechas estén revisadas.</small></div><button type="button" onClick={() => !saving && setModalOpen(false)} aria-label="Cerrar">×</button></header><div className="promotion-modal-grid"><fieldset><legend>Mensaje comercial</legend><label>Código interno<input required value={draft.code} onChange={(event) => updateDraft("code", event.target.value)} /></label><label>Tipo de promoción<select value={draft.promotion_type} onChange={(event) => updateDraft("promotion_type", event.target.value)}>{Object.entries(promotionTypeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Título público<input required value={draft.title} onChange={(event) => updateDraft("title", event.target.value)} placeholder="Ej. Refrescos para llenar la cámara" /></label><label>Texto corto<textarea rows={3} value={draft.description} onChange={(event) => updateDraft("description", event.target.value)} placeholder="Qué gana el cliente y por qué debería consultar la oferta." /></label><label>Etiqueta visible<input value={draft.kicker} onChange={(event) => updateDraft("kicker", event.target.value)} /></label><label>Condiciones<textarea rows={3} value={draft.conditions} onChange={(event) => updateDraft("conditions", event.target.value)} placeholder="Ej. Pedido mínimo de 3 cajas. Oferta para clientes profesionales." /></label></fieldset><fieldset><legend>Descuento y vigencia</legend><div className="promotion-inline-fields"><label>Tipo<select value={draft.discount_type} onChange={(event) => updateDraft("discount_type", event.target.value)}><option value="percent">Porcentaje</option><option value="amount">Importe fijo</option><option value="none">Sin descuento</option></select></label><label>Descuento<input type="number" min="0" step="0.01" disabled={draft.discount_type === "none"} value={draft.discount_value} onChange={(event) => updateDraft("discount_value", event.target.value)} /></label></div><div className="promotion-inline-fields"><label>Empieza<input type="datetime-local" required value={draft.start_at} onChange={(event) => updateDraft("start_at", event.target.value)} /></label><label>Termina<input type="datetime-local" required value={draft.end_at} onChange={(event) => updateDraft("end_at", event.target.value)} /></label></div><div className="promotion-inline-fields"><label>Pedido mínimo<input type="number" min="0" step="1" value={draft.min_quantity} onChange={(event) => updateDraft("min_quantity", event.target.value)} placeholder="Opcional" /></label><label>Límite de unidades<input type="number" min="0" step="1" value={draft.stock_limit} onChange={(event) => updateDraft("stock_limit", event.target.value)} placeholder="Opcional" /></label></div><div className="promotion-preview"><span>Así lo verá el cliente</span><strong>{draft.discount_type === "percent" && draft.discount_value ? `-${draft.discount_value}%` : draft.discount_type === "amount" && draft.discount_value ? `-${draft.discount_value} €` : "Condición especial"}</strong><b>{draft.title || "Título de la promoción"}</b><small>{draft.description || "Añade una descripción breve y clara."}</small></div></fieldset></div><fieldset className="promotion-product-picker"><legend>Productos de la promoción <small>{draft.product_ids.length} seleccionados</small></legend><input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Buscar por producto, marca o SKU…" />{selectedNames.length > 0 && <div className="promotion-selected-products">{selectedNames.map((name, index) => <button type="button" key={`${draft.product_ids[index]}-${name}`} onClick={() => toggleProduct(draft.product_ids[index])}>{name} ×</button>)}</div>}<div className="promotion-product-options">{visibleProducts.map((product) => <label key={product.id} className={draft.product_ids.includes(Number(product.id)) ? "selected" : ""}><input type="checkbox" checked={draft.product_ids.includes(Number(product.id))} onChange={() => toggleProduct(Number(product.id))} /><span><b>{product.name}</b><small>{product.sku || product.brand || product.format || "Referencia profesional"}</small></span></label>)}{!visibleProducts.length && <small>No hay productos que coincidan con la búsqueda.</small>}</div></fieldset>{error && <p className="error-message" role="alert">{error}</p>}<footer><button type="button" className="button secondary" onClick={() => !saving && setModalOpen(false)}>Cancelar</button><button type="submit" className="button primary" disabled={saving}>{saving ? "Guardando…" : editing ? "Guardar cambios" : "Guardar borrador"}</button></footer></form></div>}</section>;
+}
+
 function WebRegistrationsManager({ user }: { user: any }) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -10563,6 +10665,8 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
                 </div>
               )}
             </>
+          ) : active === "Promociones web" ? (
+            <PublicPromotionsManager user={currentUser} />
           ) : active === "Altas web" ? (
             <WebRegistrationsManager user={currentUser} />
           ) : active === "OCR inteligente" ? (

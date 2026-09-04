@@ -439,6 +439,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS web_registrations(id INTEGER PRIMARY KEY AUT
 for (const column of ["crm_record_id INTEGER", "crm_record_type TEXT", "rejection_reason TEXT"]) {
   try { db.exec(`ALTER TABLE web_registrations ADD COLUMN ${column}`); } catch {}
 }
+db.exec(`CREATE TABLE IF NOT EXISTS web_promotions(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,title TEXT NOT NULL,promotion_type TEXT NOT NULL DEFAULT 'flash',description TEXT,kicker TEXT,discount_type TEXT NOT NULL DEFAULT 'percent',discount_value REAL DEFAULT 0,start_at TEXT NOT NULL,end_at TEXT NOT NULL,min_quantity REAL DEFAULT 0,stock_limit REAL,product_ids TEXT NOT NULL DEFAULT '[]',image_url TEXT,conditions TEXT,status TEXT NOT NULL DEFAULT 'Borrador',created_by TEXT,created_at TEXT,updated_at TEXT,published_at TEXT,published_by TEXT,paused_at TEXT,paused_by TEXT,deleted INTEGER DEFAULT 0,deleted_at TEXT,deleted_by TEXT);`);
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_web_promotions_status_dates ON web_promotions(status,start_at,end_at)"); } catch {}
 db.exec(`CREATE TABLE IF NOT EXISTS whatsapp_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,wa_id TEXT,client_id INTEGER,direction TEXT DEFAULT 'Entrante',message_type TEXT DEFAULT 'Texto',content TEXT,media_name TEXT,media_mime TEXT,media_data TEXT,status TEXT DEFAULT 'Pendiente',transcription TEXT,human_review INTEGER DEFAULT 0,suggested_action TEXT,created_at TEXT,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS product_price_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,supplier_id INTEGER,price_type TEXT DEFAULT 'Coste',amount REAL DEFAULT 0,currency TEXT DEFAULT 'EUR',valid_from TEXT,valid_to TEXT,source TEXT,notes TEXT,created_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS product_suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,supplier_id INTEGER NOT NULL,supplier_ref TEXT,unit_cost REAL DEFAULT 0,minimum_order REAL DEFAULT 0,order_unit TEXT DEFAULT 'caja',transport_cost REAL DEFAULT 0,lead_time_days INTEGER DEFAULT 0,promotion TEXT,rappel_percent REAL DEFAULT 0,reliability_percent REAL DEFAULT 0,is_primary INTEGER DEFAULT 0,is_fixed INTEGER DEFAULT 0,active INTEGER DEFAULT 1,created_at TEXT,updated_at TEXT);`);
@@ -747,6 +749,7 @@ const tables = new Set([
   "expenses",
   "ocr_documents",
   "web_registrations",
+  "web_promotions",
   "whatsapp_messages",
   "product_price_history",
   "product_suppliers",
@@ -1494,6 +1497,47 @@ export async function crmApiHandler(req, res) {
       const t = p[1];
       if (p[0] !== "api")
         return send(res, 404, { error: "Recurso no encontrado" });
+      if (t === "public_promotions" && req.method === "GET") {
+        const now = new Date().toISOString();
+        const promotions = db.prepare("SELECT * FROM web_promotions WHERE status='Publicada' AND CAST(COALESCE(deleted,0) AS INTEGER)=0 AND start_at<=? AND end_at>=? ORDER BY CASE promotion_type WHEN 'flash' THEN 1 WHEN 'week' THEN 2 WHEN 'month' THEN 3 ELSE 4 END,id DESC").all(now, now);
+        const result = promotions.map((promotion) => {
+          let productIds = [];
+          try { productIds = JSON.parse(String(promotion.product_ids || "[]")); } catch {}
+          productIds = Array.from(new Set((Array.isArray(productIds) ? productIds : []).map(Number).filter(Number.isInteger)));
+          const products = productIds.length
+            ? db.prepare(`SELECT id,name,family,category,subfamily,brand,format,sku,description,photo_url,photo_thumbnail_url,photo_web_url FROM products WHERE id IN (${productIds.map(() => "?").join(",")}) AND CAST(COALESCE(active,1) AS INTEGER)=1 AND LOWER(COALESCE(product_status,'Activo')) NOT IN ('inactivo','baja','descatalogado')`).all(...productIds)
+            : [];
+          return { ...promotion, product_ids: productIds, products };
+        });
+        return send(res, 200, result);
+      }
+      if (t === "web_promotions" && p[2] && p[3] === "publish" && req.method === "POST") {
+        const id = Number(p[2]);
+        const promotion = db.prepare("SELECT * FROM web_promotions WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(id);
+        if (!promotion) return send(res, 404, { error: "Promoción no encontrada" });
+        let productIds = [];
+        try { productIds = JSON.parse(String(promotion.product_ids || "[]")); } catch {}
+        productIds = Array.from(new Set((Array.isArray(productIds) ? productIds : []).map(Number).filter(Number.isInteger)));
+        if (!productIds.length) return send(res, 400, { error: "Selecciona al menos un producto antes de publicar" });
+        if (!promotion.start_at || !promotion.end_at || promotion.end_at < promotion.start_at) return send(res, 400, { error: "Revisa las fechas de inicio y fin" });
+        const now = new Date().toISOString();
+        db.prepare("UPDATE web_promotions SET status='Pausada',paused_at=?,paused_by=?,updated_at=? WHERE promotion_type=? AND id<>? AND status='Publicada' AND CAST(COALESCE(deleted,0) AS INTEGER)=0").run(now, actor, now, promotion.promotion_type, id);
+        db.prepare("UPDATE web_promotions SET status='Publicada',published_at=?,published_by=?,paused_at=NULL,paused_by=NULL,updated_at=? WHERE id=?").run(now, actor, now, id);
+        db.prepare("INSERT INTO notes(title,content,priority,module,record_id,important,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)").run(`Promoción publicada · ${promotion.title}`, `La promoción ${promotion.code} ya está visible en la web con ${productIds.length} referencias.`, "Normal", "Web", id, 0, actor, now, now);
+        recordAudit(actor, "POST", `web_promotions/${id}/publish`, "Publicar promoción web", JSON.stringify({ id, code: promotion.code, product_ids: productIds }));
+        invalidateRelatedReadCaches("web_promotions");
+        return send(res, 200, { ok: true, id, status: "Publicada", published_at: now });
+      }
+      if (t === "web_promotions" && p[2] && p[3] === "pause" && req.method === "POST") {
+        const id = Number(p[2]);
+        const promotion = db.prepare("SELECT id,code,title FROM web_promotions WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(id);
+        if (!promotion) return send(res, 404, { error: "Promoción no encontrada" });
+        const now = new Date().toISOString();
+        db.prepare("UPDATE web_promotions SET status='Pausada',paused_at=?,paused_by=?,updated_at=? WHERE id=?").run(now, actor, now, id);
+        recordAudit(actor, "POST", `web_promotions/${id}/pause`, "Pausar promoción web", JSON.stringify({ id, code: promotion.code }));
+        invalidateRelatedReadCaches("web_promotions");
+        return send(res, 200, { ok: true, id, status: "Pausada", paused_at: now });
+      }
       if (t === "quotes" && req.method === "POST" && (p.includes("convert-order") || String(req.url || "").includes("/convert-order"))) {
         const actionIndex = p.indexOf("convert-order");
         const pathId = actionIndex >= 0 ? (p[actionIndex + 1] || p[actionIndex - 1]) : String(req.url || "").match(/convert-order\/?(\d+)/)?.[1];

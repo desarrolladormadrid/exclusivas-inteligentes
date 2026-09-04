@@ -60,6 +60,9 @@ const migrationsByTable = {
     ["crm_record_type", "ALTER TABLE web_registrations ADD COLUMN crm_record_type TEXT"],
     ["rejection_reason", "ALTER TABLE web_registrations ADD COLUMN rejection_reason TEXT"],
   ],
+  web_promotions: [
+    ["table", "CREATE TABLE IF NOT EXISTS web_promotions(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,title TEXT NOT NULL,promotion_type TEXT NOT NULL DEFAULT 'flash',description TEXT,kicker TEXT,discount_type TEXT NOT NULL DEFAULT 'percent',discount_value REAL DEFAULT 0,start_at TEXT NOT NULL,end_at TEXT NOT NULL,min_quantity REAL DEFAULT 0,stock_limit REAL,product_ids TEXT NOT NULL DEFAULT '[]',image_url TEXT,conditions TEXT,status TEXT NOT NULL DEFAULT 'Borrador',created_by TEXT,created_at TEXT,updated_at TEXT,published_at TEXT,published_by TEXT,paused_at TEXT,paused_by TEXT,deleted INTEGER DEFAULT 0,deleted_at TEXT,deleted_by TEXT)"],
+  ],
   purchase_requests: [
     ["table", "CREATE TABLE IF NOT EXISTS purchase_requests(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,request_type TEXT DEFAULT 'Solicitud de oferta',status TEXT DEFAULT 'Borrador',product_ids TEXT,supplier_ids TEXT,notes TEXT,created_by TEXT,validated_by TEXT,created_at TEXT,updated_at TEXT,public_token TEXT,channels TEXT,sent_at TEXT)"],
     ["public_token", "ALTER TABLE purchase_requests ADD COLUMN public_token TEXT"],
@@ -311,6 +314,7 @@ for (const sql of [
   "CREATE INDEX IF NOT EXISTS idx_backup_snapshots_created ON backup_snapshots(created_at)",
   "CREATE INDEX IF NOT EXISTS idx_delivery_routes_date ON delivery_routes(route_date, status)",
   "CREATE INDEX IF NOT EXISTS idx_delivery_route_stops_route ON delivery_route_stops(route_id, position)",
+  "CREATE INDEX IF NOT EXISTS idx_web_promotions_status_dates ON web_promotions(status, start_at, end_at)",
 ]) await client.execute(sql);
 await client.execute("INSERT OR IGNORE INTO invoice_orders(invoice_id,order_id) SELECT id,order_id FROM invoices WHERE order_id IS NOT NULL");
 const shipmentRows = await client.execute("SELECT id,public_tracking_token FROM shipments WHERE public_tracking_token IS NULL OR TRIM(public_tracking_token)='' LIMIT 5000");
