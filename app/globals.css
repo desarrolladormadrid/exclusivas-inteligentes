@@ -4204,6 +4204,129 @@ select.form-control option:hover {
   .crm-shell .table-pagination { gap: 7px; padding: 9px; }
   .crm-shell .table-pagination .button { min-height: 36px; }
 
+  /* Los listados anchos se leen como fichas: cada dato conserva su etiqueta
+     y las acciones quedan debajo, sin obligar a arrastrar una tabla lateral. */
+  .crm-shell .table-scroll-top { display: none; }
+  .crm-shell .table-scroll,
+  .crm-shell .history-scroll { max-width: 100%; overflow: visible; }
+  .crm-shell .table-scroll > table,
+  .crm-shell .history-scroll > table { display: block; width: 100%; min-width: 0; }
+  .crm-shell .table-scroll > table thead,
+  .crm-shell .history-scroll > table thead { display: none; }
+  .crm-shell .table-scroll > table tbody,
+  .crm-shell .table-scroll > table tr,
+  .crm-shell .table-scroll > table td,
+  .crm-shell .history-scroll > table tbody,
+  .crm-shell .history-scroll > table tr,
+  .crm-shell .history-scroll > table td { display: block; width: 100%; box-sizing: border-box; }
+  .crm-shell .table-scroll > table tr,
+  .crm-shell .history-scroll > table tr { height: auto; padding: 10px; border-bottom: 1px solid #e1e8ea; }
+  .crm-shell .table-scroll > table td,
+  .crm-shell .history-scroll > table td {
+    display: grid;
+    grid-template-columns: 82px minmax(0, 1fr);
+    align-items: start;
+    gap: 7px;
+    min-width: 0;
+    padding: 5px 0;
+    border: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.3;
+  }
+  .crm-shell .table-scroll > table td::before,
+  .crm-shell .history-scroll > table td::before {
+    content: attr(data-label);
+    color: #71818a;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    line-height: 1.3;
+    text-transform: uppercase;
+  }
+  .crm-shell .history-table .history-scroll > table td:nth-child(1)::before { content: "Fecha"; }
+  .crm-shell .history-table .history-scroll > table td:nth-child(2)::before { content: "Usuario"; }
+  .crm-shell .history-table .history-scroll > table td:nth-child(3)::before { content: "Operación"; }
+  .crm-shell .history-table .history-scroll > table td:nth-child(4)::before { content: "Recurso"; }
+  .crm-shell .history-table .history-scroll > table td:nth-child(5)::before { content: "Método"; }
+  .crm-shell .history-table .history-scroll > table td:nth-child(6)::before { content: "Detalle"; }
+  .crm-shell .scheduled-list .history-scroll > table td:nth-child(1)::before { content: "Tarea"; }
+  .crm-shell .scheduled-list .history-scroll > table td:nth-child(2)::before { content: "Acción"; }
+  .crm-shell .scheduled-list .history-scroll > table td:nth-child(3)::before { content: "Tipo"; }
+  .crm-shell .scheduled-list .history-scroll > table td:nth-child(4)::before { content: "Próxima ejecución"; }
+  .crm-shell .scheduled-list .history-scroll > table td:nth-child(5)::before { content: "Estado"; }
+  .crm-shell .scheduled-list .history-scroll > table td:nth-child(6)::before { content: "Último resultado"; }
+  .crm-shell .scheduled-list .history-scroll > table td:nth-child(7)::before { content: "Acciones"; }
+  .crm-shell .table-scroll > table td:last-child,
+  .crm-shell .history-scroll > table td:last-child { padding-top: 8px; margin-top: 4px; border-top: 1px solid #eef2f3; }
+  .crm-shell .table-scroll > table td:last-child .row-actions {
+    display: grid;
+    grid-column: 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    min-width: 0 !important;
+    gap: 6px;
+    white-space: normal;
+  }
+  .crm-shell .table-scroll > table td:last-child .row-action,
+  .crm-shell .history-scroll > table td:last-child .row-action {
+    width: 100%;
+    min-width: 0;
+    min-height: 34px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .crm-shell .history-scroll > table td { grid-template-columns: 88px minmax(0, 1fr); }
+
+  .crm-shell .users-table-wrap,
+  .crm-shell .trash-table-wrap { overflow: visible; }
+  .crm-shell .users-table,
+  .crm-shell .trash-table { display: block; width: 100%; min-width: 0; }
+  .crm-shell .users-table thead,
+  .crm-shell .trash-table thead { display: none; }
+  .crm-shell .users-table tbody,
+  .crm-shell .users-table tr,
+  .crm-shell .users-table td,
+  .crm-shell .trash-table tbody,
+  .crm-shell .trash-table tr,
+  .crm-shell .trash-table td { display: block; width: 100%; box-sizing: border-box; }
+  .crm-shell .users-table tr,
+  .crm-shell .trash-table tr { height: auto; padding: 10px; border-bottom: 1px solid #e1e8ea; }
+  .crm-shell .users-table td,
+  .crm-shell .trash-table td {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    align-items: start;
+    gap: 7px;
+    min-width: 0;
+    padding: 5px 0;
+    border: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    word-break: break-word;
+  }
+  .crm-shell .users-table td::before,
+  .crm-shell .trash-table td::before { color: #71818a; font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .crm-shell .users-table td:nth-child(1)::before { content: "Usuario"; }
+  .crm-shell .users-table td:nth-child(2)::before { content: "Rol"; }
+  .crm-shell .users-table td:nth-child(3)::before { content: "Acceso"; }
+  .crm-shell .users-table td:nth-child(4)::before,
+  .crm-shell .trash-table td:last-child::before { content: "Acciones"; }
+  .crm-shell .trash-table td:nth-child(1)::before { content: "Registro"; }
+  .crm-shell .trash-table td:nth-child(2)::before { content: "Sección"; }
+  .crm-shell .trash-table td:nth-child(3)::before { content: "Eliminado por"; }
+  .crm-shell .trash-table td:nth-child(4)::before { content: "Fecha"; }
+  .crm-shell .users-table td:last-child,
+  .crm-shell .trash-table td:last-child { padding-top: 8px; margin-top: 4px; border-top: 1px solid #eef2f3; }
+  .crm-shell .users-table td:last-child .table-action,
+  .crm-shell .trash-table td:last-child .table-action { margin: 0 6px 0 0; min-height: 32px; }
+
+  .crm-shell .mini-report-head { display: none; }
+  .crm-shell .mini-report-row { grid-template-columns: minmax(0, 1fr) auto; gap: 6px; min-width: 0; padding: 9px 0; }
+  .crm-shell .mini-report-row > * { min-width: 0; overflow-wrap: anywhere; }
+  .crm-shell .mini-report-row > span:last-child { grid-column: 1 / -1; font-size: 10px; }
+
   /* En móvil los formularios se leen de arriba abajo: la etiqueta nunca
      comparte una fila estrecha con el campo. */
   .crm-shell .form-accordion[open] {
