@@ -3607,6 +3607,8 @@ footer span {
    un sidebar fijo, una modal o un control flotante. */
 @media (max-width: 900px) {
   .manager-head { align-items: flex-start; }
+  .manager > .manager-head { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .manager > .manager-head > div:last-child { width: 100%; justify-content: flex-start; }
   .manager-head > div:last-child { width: 100%; justify-content: flex-start; }
   .manager-head .muted { white-space: normal; }
   .business-related-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -3841,6 +3843,97 @@ select.form-control option:hover {
 .scheduled-list td { padding: 7px 12px; font-size: 12px; line-height: 1.25; }
 .table-scroll tbody tr.order-list-row td { height: 36px; }
 .contacts-table-wide .contacts-table tbody tr { height: 36px; }
+
+/* Tablet: los listados con texto variable se leen como tarjetas, sin solapes ni scroll horizontal. */
+@media (min-width: 651px) and (max-width: 900px) {
+  .contacts-table-wrap { overflow: visible; }
+  .contacts-table { display: block; width: 100%; min-width: 0 !important; table-layout: fixed; }
+  .contacts-table thead { display: none; }
+  .contacts-table tbody,
+  .contacts-table tr,
+  .contacts-table td { display: block; width: 100%; box-sizing: border-box; }
+  .contacts-table tr { height: auto !important; padding: 9px 12px; border-bottom: 1px solid #e8edef; }
+  .contacts-table td {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 5px 0;
+    border: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .contacts-table td:first-child { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .contacts-table td:first-child .contact-avatar { flex: 0 0 auto; }
+  .contacts-table td:first-child b { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+  .contacts-table td::before { color: #71818a; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .contacts-table td:first-child::before { display: none; }
+  .contacts-table td:nth-child(2)::before { content: "Correo"; }
+  .contacts-table td:nth-child(3)::before { content: "Teléfono"; }
+  .contacts-table td:nth-child(4)::before { content: "Tipo"; }
+  .contacts-table td.contacts-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding-top: 8px;
+    margin-top: 4px;
+    border-top: 1px solid #eef2f3;
+  }
+  .contacts-table td.contacts-actions::before {
+    content: "Acciones";
+    width: 92px;
+    color: #71818a;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .contacts-table .contact-action { min-height: 32px; margin-right: 0; }
+
+  .scheduled-list .history-scroll { overflow-x: visible; overflow-y: visible; }
+  .scheduled-list table { display: block; width: 100%; min-width: 0; }
+  .scheduled-list thead { display: none; }
+  .scheduled-list tbody,
+  .scheduled-list tr,
+  .scheduled-list td { display: block; width: 100%; box-sizing: border-box; }
+  .scheduled-list tr { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; }
+  .scheduled-list td {
+    display: grid;
+    grid-template-columns: 118px minmax(0, 1fr);
+    gap: 8px;
+    min-width: 0;
+    padding: 5px 0;
+    border: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .scheduled-list td::before { color: #71818a; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .scheduled-list td:nth-child(1)::before { content: "Tarea"; }
+  .scheduled-list td:nth-child(2)::before { content: "Acción"; }
+  .scheduled-list td:nth-child(3)::before { content: "Tipo"; }
+  .scheduled-list td:nth-child(4)::before { content: "Próxima ejecución"; }
+  .scheduled-list td:nth-child(5)::before { content: "Estado"; }
+  .scheduled-list td:nth-child(6)::before { content: "Último resultado"; }
+  .scheduled-list td:nth-child(7) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding-top: 8px;
+    margin-top: 4px;
+    border-top: 1px solid #eef2f3;
+  }
+  .scheduled-list td:nth-child(7)::before {
+    content: "Acciones";
+    width: 118px;
+    color: #71818a;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .scheduled-list td:nth-child(7) .row-action { min-height: 32px; white-space: normal; }
+}
 .users-table th,
 .users-table td,
 .trash-table th,
