@@ -2710,7 +2710,10 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     onAssistantFormConsumed?.();
   }, [assistantFormIntent, active, lookups]);
   useLayoutEffect(() => {
-    const cacheKey = `excluvas.listado.${c.api}.${showDeleted ? "deleted" : "active"}.${showInactive ? "all-statuses" : "active-only"}`;
+    // Las estructuras de los listados han cambiado varias veces (por ejemplo,
+    // Entradas pasó de compartir datos con movimientos a usar goods_receipts).
+    // Versionar la clave evita rehidratar filas antiguas con IDs incompatibles.
+    const cacheKey = `excluvas.listado.v2.${c.api}.${showDeleted ? "deleted" : "active"}.${showInactive ? "all-statuses" : "active-only"}`;
     const applyList = (value: any[]) => {
       const enrichedRows = c.api === "orders"
         ? value.map((item: any) => ({ ...item, billing_status: item.billing_status || (item.status === "Facturado" ? "Facturado" : "Sin facturar") }))
@@ -3370,9 +3373,14 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
     setFormDirty(false);
   }
   async function openEntryDetail(row: any) {
-    const response = await fetch(`/api/goods_receipts/detail/${row.id}`, { headers: actorHeaders });
+    const receiptId = Number(row?.id);
+    if (!Number.isInteger(receiptId) || receiptId <= 0 || !String(row?.code || "").trim()) {
+      return setError("Esta fila no contiene una entrada válida. Actualiza el listado e inténtalo de nuevo.");
+    }
+    const response = await fetch(`/api/goods_receipts/detail/${receiptId}`, { headers: actorHeaders });
     const detail = await response.json().catch(() => ({}));
-    if (!response.ok) return alert(detail.error || "No se pudo cargar el detalle de la entrada");
+    if (!response.ok) return setError(detail.error || "No se pudo cargar el detalle de la entrada");
+    setError("");
     setEntryLocationDrafts(Object.fromEntries((detail.lines || []).map((line: any) => [String(line.id), line.location_verified_code || ""])));
     setEntryLocationReasons(Object.fromEntries((detail.lines || []).map((line: any) => [String(line.id), line.location_verified_reason || ""])));
     setEntryDetail(detail);
