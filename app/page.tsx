@@ -2229,7 +2229,7 @@ function DeliverySignaturePanel({ shipment, actor, onSaved }: { shipment: any; a
       const response = await fetch(`/api/shipments/${shipment.id}/delivery-confirmation`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Actor": actor },
-        body: JSON.stringify({ signature_status: nextStatus, signature_data: nextStatus === "Firmado" ? canvasRef.current?.toDataURL("image/png") : "", recipient_name: cleanName, note: cleanNote }),
+        body: JSON.stringify({ signature_status: nextStatus, signature_data: nextStatus === "Firmado" ? canvasRef.current?.toDataURL("image/png") : "", recipient_name: cleanName, note: cleanNote, photos }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "No se pudo confirmar la entrega.");

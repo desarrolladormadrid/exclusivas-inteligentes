@@ -10,6 +10,7 @@
     "build": "vinext build",
     "start": "vinext start",
     "db:seed-historico": "node seed-historico.mjs",
+    "db:seed-operativa-semana": "node scripts/seed-operativa-semana.mjs",
     "db:datos-reales": "node depurar-datos-reales.mjs",
     "db:geolocalizar": "node scripts/geocode-locations.mjs",
     "db:migrate-remote": "node scripts/migrate-remote-schema.mjs",
