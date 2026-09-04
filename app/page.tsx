@@ -2121,7 +2121,7 @@ function parseDeliveryPhotos(value: any): any[] {
   } catch { return []; }
 }
 
-function DeliverySignaturePanel({ shipment, actor, onSaved }: { shipment: any; actor: string; onSaved: (shipment: any) => void }) {
+function DeliverySignaturePanel({ shipment, actor, client, lines = [], products = [], onSaved }: { shipment: any; actor: string; client?: any; lines?: any[]; products?: any[]; onSaved: (shipment: any) => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const [proof, setProof] = useState<any>(shipment);
@@ -2131,6 +2131,8 @@ function DeliverySignaturePanel({ shipment, actor, onSaved }: { shipment: any; a
   const [photos, setPhotos] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [clientMode, setClientMode] = useState(false);
+  const [signedCopyOpen, setSignedCopyOpen] = useState(false);
   const signatureStatus = String(proof?.delivery_signature_status || "Pendiente");
   const existingPhotos = parseDeliveryPhotos(proof?.delivery_attachments_json);
 
@@ -2245,15 +2247,17 @@ function DeliverySignaturePanel({ shipment, actor, onSaved }: { shipment: any; a
       setSaving(false);
     }
   }
-  return <section className="delivery-signature-panel" aria-label="Firma de recepción">
-    <div className="delivery-signature-head"><div><b>Firma de recepción</b><small>El cliente puede firmar en el móvil o tableta del conductor. La firma es recomendable, pero no obligatoria.</small></div><span className={`delivery-signature-badge ${signatureStatus === "Firmado" ? "signed" : signatureStatus === "Rechazó firmar" ? "rejected" : signatureStatus === "Sin firma" ? "unsigned" : "pending"}`}>{signatureStatus === "Pendiente" ? "Pendiente" : signatureStatus}</span></div>
+  return <section className={`delivery-signature-panel${clientMode ? " is-client-mode" : ""}`} aria-label="Firma de recepción">
+    <div className="delivery-signature-head"><div><b>{clientMode ? "Firma de recepción del pedido" : "Firma de recepción"}</b><small>{clientMode ? "Comprueba los datos y firma dentro del recuadro para confirmar que has recibido la mercancía." : "El cliente puede firmar en el móvil o tableta del conductor. La firma es recomendable, pero no obligatoria."}</small></div><div className="delivery-signature-head-actions">{clientMode && <button type="button" className="button secondary" onClick={() => setClientMode(false)} disabled={saving}>Volver al detalle</button>}<span className={`delivery-signature-badge ${signatureStatus === "Firmado" ? "signed" : signatureStatus === "Rechazó firmar" ? "rejected" : signatureStatus === "Sin firma" ? "unsigned" : "pending"}`}>{signatureStatus === "Pendiente" ? "Pendiente" : signatureStatus}</span></div></div>
+    {!clientMode && signatureStatus !== "Firmado" && <div className="delivery-signature-client-cta"><div><b>¿Va a firmar el cliente?</b><small>Abre una vista limpia y grande para que pueda leer los datos y firmar con el dedo.</small></div><button type="button" className="button primary" onClick={() => setClientMode(true)}>Mostrar al cliente para firmar</button></div>}
     {signatureStatus === "Firmado" && proof?.delivery_signature_data && <div className="delivery-signature-existing"><img src={proof.delivery_signature_data} alt="Firma de recepción guardada" /><div><b>Recepción firmada</b><small>{proof.delivery_recipient_name || "Receptor no indicado"}{proof.delivery_signature_at ? ` · ${String(proof.delivery_signature_at).slice(0, 16).replace("T", " ")}` : ""}</small></div></div>}
     <div className="delivery-signature-fields"><label>Nombre de quien recibe<input value={recipientName} onChange={(event) => setRecipientName(event.target.value)} placeholder="Nombre y apellidos" disabled={saving} /></label><label>Observaciones {signatureStatus !== "Firmado" && <em>(obligatorio si no firma)</em>}<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ej.: entrega recibida sin firma por indicación del cliente…" rows={2} disabled={saving} /></label></div>
     {(existingPhotos.length > 0 || photos.length > 0) && <div className="delivery-proof-photos"><div><b>Fotografías de la entrega</b><small>Quedan asociadas a este pedido y a su recepción.</small></div><div className="delivery-proof-photo-grid">{[...existingPhotos, ...photos].map((photo: any, index: number) => <div key={`${photo.name || "foto"}-${index}`}><img src={photo.thumbnail_url || photo.url || photo.data} alt={photo.name || "Fotografía de la entrega"} /><small>{photo.name || `Fotografía ${index + 1}`}</small>{index >= existingPhotos.length && <button type="button" className="link-button" onClick={() => setPhotos((current) => current.filter((_, photoIndex) => photoIndex !== index - existingPhotos.length))}>Quitar</button>}</div>)}</div></div>}
     <label className="delivery-proof-photo-picker">Añadir fotografías<input type="file" accept="image/*" capture="environment" multiple onChange={(event) => { void attachPhotos(event.target.files); event.currentTarget.value = ""; }} disabled={saving} /><small>Opcional · hasta 4 fotos · máximo 4 MB cada una</small></label>
     <div className="delivery-signature-canvas-wrap"><div className="delivery-signature-canvas-head"><span>Firma aquí</span><button type="button" className="link-button" onClick={clearSignature} disabled={saving || !hasInk}>Borrar firma</button></div><canvas ref={canvasRef} className="delivery-signature-canvas" onPointerDown={startDrawing} onPointerMove={draw} onPointerUp={stopDrawing} onPointerCancel={stopDrawing} onPointerLeave={stopDrawing} aria-label="Área para firmar la recepción" /></div>
     {message && <p className="delivery-signature-message" role="status">{message}</p>}
-    <div className="delivery-signature-actions"><button type="button" className="button primary" disabled={saving} onClick={() => void confirmDelivery("Firmado")}>{saving ? "Guardando…" : "Confirmar entrega firmada"}</button><button type="button" className="button secondary" disabled={saving} onClick={() => void confirmDelivery("Sin firma")}>Entregar sin firma</button><button type="button" className="button ghost" disabled={saving} onClick={() => void confirmDelivery("Rechazó firmar")}>Cliente rechaza firmar</button></div>
+    <div className="delivery-signature-actions">{signatureStatus === "Firmado" ? <><button type="button" className="button primary" onClick={() => setSignedCopyOpen(true)}>Ver copia firmada</button><button type="button" className="button secondary" onClick={() => window.print()}>Imprimir copia</button></> : <><button type="button" className="button primary" disabled={saving} onClick={() => void confirmDelivery("Firmado")}>{saving ? "Guardando…" : "Confirmar entrega firmada"}</button><button type="button" className="button secondary" disabled={saving} onClick={() => void confirmDelivery("Sin firma")}>Entregar sin firma</button><button type="button" className="button ghost" disabled={saving} onClick={() => void confirmDelivery("Rechazó firmar")}>Cliente rechaza firmar</button></>}</div>
+    {signedCopyOpen && <div className="delivery-signed-copy-overlay" role="dialog" aria-modal="true" aria-label="Copia firmada de la entrega" onMouseDown={(event) => event.target === event.currentTarget && setSignedCopyOpen(false)}><article className="delivery-signed-copy" onClick={(event) => event.stopPropagation()}><header><div><p className="eyebrow">JUSTIFICANTE DE ENTREGA</p><h3>{shipment.code || "Entrega"}</h3><small>{client?.name || "Cliente"}{client?.city ? ` · ${client.city}` : ""}</small></div><button type="button" className="preview-close" aria-label="Cerrar copia firmada" onClick={() => setSignedCopyOpen(false)}>×</button></header><div className="delivery-signed-copy-meta"><span><b>Estado</b>Entregado · {signatureStatus}</span><span><b>Recibe</b>{proof?.delivery_recipient_name || "No indicado"}</span><span><b>Fecha</b>{proof?.delivery_signature_at ? String(proof.delivery_signature_at).slice(0, 16).replace("T", " ") : "—"}</span><span><b>Registrado por</b>{proof?.delivery_signature_by || proof?.delivered_by || actor}</span><span><b>Dirección</b>{proof?.address || shipment.address || client?.address || "No indicada"}</span></div>{lines.length > 0 && <div className="delivery-signed-copy-lines"><b>Contenido de la entrega</b>{lines.map((line: any, index: number) => <div key={`${line.id || line.product_id}-${index}`}><span>{line.quantity || line.prepared_quantity || 0} {line.quantity_unit || "uds."}</span><strong>{line.product_name || products.find((product: any) => Number(product.id) === Number(line.product_id))?.name || `Producto #${line.product_id}`}</strong></div>)}</div>}{proof?.delivery_signature_note && <div className="delivery-signed-copy-note"><b>Observaciones</b><p>{proof.delivery_signature_note}</p></div>}<div className="delivery-signed-copy-signature"><b>Firma de quien recibe</b>{proof?.delivery_signature_data ? <img src={proof.delivery_signature_data} alt="Firma de recepción" /> : <span>Entrega registrada sin firma</span>}</div>{existingPhotos.length > 0 && <div className="delivery-signed-copy-photos"><b>Fotografías adjuntas</b><div>{existingPhotos.map((photo: any, index: number) => <img key={`${photo.name || "foto"}-${index}`} src={photo.thumbnail_url || photo.url || photo.data} alt={photo.name || `Fotografía ${index + 1}`} />)}</div></div>}<footer><button type="button" className="button secondary" onClick={() => setSignedCopyOpen(false)}>Cerrar</button><button type="button" className="button primary" onClick={() => window.print()}>Imprimir / guardar PDF</button></footer></article></div>}
   </section>;
 }
 
@@ -5232,7 +5236,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             </thead>
             <tbody>
               {pagedRows.map((r) => (
-                  <tr key={r.id ?? r.product_id} data-inline-row={r.id ?? r.product_id} data-row-modal={active === "Presupuestos" || active === "Pedidos" || usesRecordModal || active === "Entradas" ? "true" : undefined} className={`${isProducts && Number(r.stock || 0) - Number(r.stock_reserved || 0) <= Number(r.min_stock || 0) ? "product-row-critical" : ""}${isLoadPreparation && Number(r.urgent) === 1 ? " prep-row-urgent" : ""}${isLoadPreparation && r.status === "Preparado con incidencia" ? " prep-row-incident" : ""}${Number(r.deleted) === 1 ? " deleted-row" : ""}${active === "Pedidos" ? " order-list-row" : ""}`} onClick={(event) => { if (inlineEditing === (r.id ?? r.product_id) || (event.target as HTMLElement).closest("button, input, select, textarea, a")) return; if (active === "Entradas") { void openEntryDetail(r); return; } if (active === "Presupuestos" || active === "Pedidos") { if (active === "Pedidos" && isOrderSent(r)) void openPreview(r); else void openRecordModal(r); return; } if (isLoadPreparation) { void openPreparationRow(r); return; } if (usesRecordModal) { void openRecordModal(r); return; } beginInline(r); }}>
+                  <tr key={r.id ?? r.product_id} data-inline-row={r.id ?? r.product_id} data-row-modal={active === "Presupuestos" || active === "Pedidos" || active === "Envíos" || usesRecordModal || active === "Entradas" ? "true" : undefined} className={`${isProducts && Number(r.stock || 0) - Number(r.stock_reserved || 0) <= Number(r.min_stock || 0) ? "product-row-critical" : ""}${isLoadPreparation && Number(r.urgent) === 1 ? " prep-row-urgent" : ""}${isLoadPreparation && r.status === "Preparado con incidencia" ? " prep-row-incident" : ""}${Number(r.deleted) === 1 ? " deleted-row" : ""}${active === "Pedidos" ? " order-list-row" : ""}`} onClick={(event) => { if (inlineEditing === (r.id ?? r.product_id) || (event.target as HTMLElement).closest("button, input, select, textarea, a")) return; if (active === "Entradas") { void openEntryDetail(r); return; } if (active === "Envíos") { void openPreview(r); return; } if (active === "Presupuestos" || active === "Pedidos") { if (active === "Pedidos" && isOrderSent(r)) void openPreview(r); else void openRecordModal(r); return; } if (isLoadPreparation) { void openPreparationRow(r); return; } if (usesRecordModal) { void openRecordModal(r); return; } beginInline(r); }}>
                     {isProducts && <td className="product-check-column" data-label="Seleccionar"><input type="checkbox" checked={selectedProductIds.includes(Number(r.id))} onChange={() => toggleProductSelection(Number(r.id))} aria-label={`Seleccionar ${r.name}`} /></td>}
                     {isProducts && <td className="product-image-column" data-label="Imagen"><button type="button" className={`product-thumbnail-button${productImageSource(r) ? "" : " product-reference-thumbnail"}`} onClick={() => setProductDetail(r)} aria-label={`Abrir imagen de ${r.name}`}>{<img src={productDisplayImageSource(r)} alt={productImageSource(r) ? "" : `Imagen de referencia para ${r.name}`} loading="lazy" />}</button></td>}
                     {visibleFields.map((f: string) => (
@@ -5344,6 +5348,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                           </>
                         )}
                         {active === "Entradas" && <button className="row-action primary" onClick={() => void openEntryDetail(r)}>Ver detalle</button>}
+                        {active === "Envíos" && <button className="row-action primary" onClick={() => void openPreview(r)}>Abrir entrega y firma</button>}
                         {inlineEditing === (r.id ?? r.product_id) ? (
                           <>
                             <button
@@ -5362,7 +5367,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                               Cancelar
                             </button>
                           </>
-                        ) : active === "Pedidos" || active === "Entradas" ? null : (
+                        ) : active === "Pedidos" || active === "Entradas" || active === "Envíos" ? null : (
                           <button
                             className="row-action"
                             onClick={() => usesRecordModal ? void openRecordModal(r) : beginInline(r)}
@@ -5454,9 +5459,10 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             className="document-preview"
             onClick={(e) => e.stopPropagation()}
           >
-            <button className="preview-close" onClick={() => { setPreview(null); setShipmentLabelOpen(false); }}>
+            <button type="button" className="preview-close" aria-label="Cerrar detalle" onClick={() => { setPreview(null); setShipmentLabelOpen(false); }}>
               ×
             </button>
+            <button type="button" className="preview-close-text" onClick={() => { setPreview(null); setShipmentLabelOpen(false); }}>Cerrar detalle</button>
             <p className="eyebrow">
               EXCLUSIVAS INTELIGENTES · DISTRIBUIDORA DE BEBIDAS
             </p>
@@ -5504,7 +5510,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
             {(active === "Pedidos" || active === "Envíos") && (() => {
               const deliveryShipment = active === "Envíos" ? preview : getOrderShipment(preview);
               if (!deliveryShipment) return null;
-              return <DeliverySignaturePanel shipment={deliveryShipment} actor={user?.username || "Usuario local"} onSaved={(updated) => {
+              return <DeliverySignaturePanel shipment={deliveryShipment} actor={user?.username || "Usuario local"} client={previewClient} lines={previewLines} products={productOptions} onSaved={(updated) => {
                 setLookups((current: any) => ({ ...current, shipments: (current.shipments || []).map((item: any) => Number(item.id) === Number(updated.id) ? { ...item, ...updated } : item) }));
                 setPreview((current: any) => current ? active === "Envíos" ? { ...current, ...updated } : { ...current, status: "Entregado", delivery_signature_status: updated.delivery_signature_status, delivery_recipient_name: updated.delivery_recipient_name, delivery_signature_at: updated.delivery_signature_at, delivery_signature_by: updated.delivery_signature_by, delivery_signature_note: updated.delivery_signature_note } : current);
                 setRows((current) => current.map((item) => active === "Envíos" && Number(item.id) === Number(updated.id) ? { ...item, ...updated } : active === "Pedidos" && Number(item.id) === Number(updated.order_id || deliveryShipment.order_id) ? { ...item, status: "Entregado" } : item));
