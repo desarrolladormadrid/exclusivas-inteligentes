@@ -4613,6 +4613,21 @@ select.form-control option:hover {
 .public-web-hero-product:hover,
 .public-web-hero-product:focus-visible { transform: translateY(-8px) rotate(0deg); }
 .public-web-hero-art > strong { z-index: 5; right: -4px; bottom: 12px; padding: 10px 13px 9px; border-left: 3px solid #bd2027; background: linear-gradient(90deg, rgba(10,10,9,.18), rgba(10,10,9,.9) 22%); text-shadow: 0 2px 0 #0a0a09, 2px 0 0 #0a0a09, -2px 0 0 #0a0a09; }
+@media (min-width: 561px) and (max-width: 900px) {
+  /* En tablet el mensaje no debe competir con la tarjeta derecha ni tapar su producto. */
+  .public-web-hero-art > strong { display: none; }
+  .public-web-hero-product span { right: auto; left: 12px; max-width: calc(100% - 24px); padding: 4px 5px; background: rgba(10,10,9,.62); text-shadow: none; }
+}
+@media (max-width: 560px) {
+  /* El CTA fijo no puede tapar el pie ni la última llamada a la acción. */
+  .public-web { padding-bottom: 74px; }
+  .public-web-catalog-footer { display: grid; gap: 12px; }
+  .public-web-catalog-footer span { min-width: 0; overflow-wrap: anywhere; }
+  .public-web-catalog-footer a { justify-self: start; }
+  .public-web-product-info h3 { overflow-wrap: anywhere; }
+  .public-web-product-info > div { min-width: 0; }
+  .public-web-product-info > div > b { overflow-wrap: anywhere; }
+}
 .public-web-proof-band {
   display: grid;
   grid-template-columns: .58fr 1fr;
