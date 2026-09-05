@@ -4060,6 +4060,15 @@ select.form-control option:hover {
   .crm-shell .brand strong { max-width: 108px; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
   .crm-shell .brand small { margin-top: 2px; font-size: 8px; letter-spacing: 1.4px; }
   .crm-shell .appbar-actions { min-width: 0; gap: 4px; margin: 0; }
+  .crm-shell .appbar .global-loading-status {
+    top: calc(100% + 1px);
+    right: 58px;
+    left: 12px;
+    justify-content: center;
+    transform: none;
+    padding: 6px 10px;
+    border-top: 0;
+  }
   .crm-shell .notification-button { width: 34px; height: 34px; }
   .crm-shell .notification-menu { top: 54px; left: 8px; right: 8px; width: auto; max-height: min(66dvh, 440px); }
   .crm-shell .user-menu-trigger {
