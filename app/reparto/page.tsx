@@ -71,7 +71,7 @@ function DeliveryPaymentPanel({ shipment, actor, onSaved }: { shipment: any; act
     setNote(String(shipment?.payment_received_note || ""));
     setAttachments([]);
     setMessage("");
-  }, [shipment?.id, shipment?.payment_received_at]);
+  }, [shipment?.id]);
 
   async function readAttachments(files: FileList | null) {
     const selected = Array.from(files || []);
