@@ -29,6 +29,13 @@ type TrackingData = {
     delivery_window_end?: string;
     client_name?: string;
     location_name?: string;
+    delivery_signature_data?: string;
+    delivery_recipient_name?: string;
+    delivery_signature_status?: string;
+    delivery_signature_at?: string;
+    delivery_signature_by?: string;
+    delivery_signature_note?: string;
+    delivery_attachments_json?: string;
   };
   lines: TrackingLine[];
 };
@@ -59,6 +66,13 @@ function lineQuantity(line: TrackingLine) {
   const prepared = Number(line.prepared_quantity);
   if (Number.isFinite(prepared) && prepared > 0 && prepared < requested) return `${prepared}/${requested}`;
   return String(requested);
+}
+
+function proofPhotos(value?: string) {
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
 }
 
 export default function ShipmentTrackingPage() {
@@ -128,6 +142,7 @@ export default function ShipmentTrackingPage() {
         </div>
 
         {shipment.incidents && <aside className="tracking-incident"><b>Incidencia comunicada</b><p>{shipment.incidents}</p></aside>}
+        {shipment.delivery_signature_status === "Firmado" && <section className="tracking-proof"><div className="tracking-proof-head"><div><p className="tracking-eyebrow">RECEPCIÓN CONFIRMADA</p><h2>Albarán firmado</h2><p>La entrega ha sido recibida y firmada por el cliente.</p></div><span>✓ Firmado</span></div><div className="tracking-proof-meta"><div><b>Recibe</b><span>{shipment.delivery_recipient_name || "No indicado"}</span></div><div><b>Fecha</b><span>{formatDate(shipment.delivery_signature_at) || "No indicada"}</span></div><div><b>Registrado por</b><span>{shipment.delivery_signature_by || "Reparto"}</span></div></div>{shipment.delivery_signature_note && <p className="tracking-proof-note"><b>Observaciones:</b> {shipment.delivery_signature_note}</p>}{shipment.delivery_signature_data && <div className="tracking-proof-signature"><b>Firma de recepción</b><img src={shipment.delivery_signature_data} alt="Firma del cliente" /></div>}{proofPhotos(shipment.delivery_attachments_json).length > 0 && <div className="tracking-proof-photos"><b>Fotografías de la entrega</b><div>{proofPhotos(shipment.delivery_attachments_json).map((photo: any, index: number) => <img key={`${photo.name || "foto"}-${index}`} src={photo.thumbnail_url || photo.url || photo.data} alt={photo.name || `Fotografía de la entrega ${index + 1}`} />)}</div></div>}</section>}
         <footer className="tracking-footer"><span>Información operativa · Exclusivas Inteligentes</span><a href="/web">Visitar la web</a></footer>
       </section>
     </main>

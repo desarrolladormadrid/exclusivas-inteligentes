@@ -42,6 +42,97 @@ function shipmentView(item: any, clients: any[], points: any[]) {
   };
 }
 
+function parsePaymentAttachments(value: any): any[] {
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function DeliveryPaymentPanel({ shipment, actor, onSaved }: { shipment: any; actor: string; onSaved: (shipment: any) => void }) {
+  const [status, setStatus] = useState(String(shipment?.payment_received_status || "Pendiente"));
+  const [amount, setAmount] = useState(String(shipment?.payment_received_amount ?? ""));
+  const [method, setMethod] = useState(String(shipment?.payment_received_method || ""));
+  const [reference, setReference] = useState(String(shipment?.payment_received_reference || ""));
+  const [note, setNote] = useState(String(shipment?.payment_received_note || ""));
+  const [attachments, setAttachments] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const existingAttachments = parsePaymentAttachments(shipment?.payment_received_attachments_json);
+  const trackingToken = String(shipment?.public_tracking_token || "").trim();
+  const shareUrl = trackingToken && typeof window !== "undefined" ? `${window.location.origin}/seguimiento/${encodeURIComponent(trackingToken)}` : "";
+
+  useEffect(() => {
+    setStatus(String(shipment?.payment_received_status || "Pendiente"));
+    setAmount(String(shipment?.payment_received_amount ?? ""));
+    setMethod(String(shipment?.payment_received_method || ""));
+    setReference(String(shipment?.payment_received_reference || ""));
+    setNote(String(shipment?.payment_received_note || ""));
+    setAttachments([]);
+    setMessage("");
+  }, [shipment?.id, shipment?.payment_received_at]);
+
+  async function readAttachments(files: FileList | null) {
+    const selected = Array.from(files || []);
+    if (!selected.length) return;
+    if (existingAttachments.length + attachments.length + selected.length > 4) return setMessage("Puedes guardar como máximo 4 justificantes.");
+    if (selected.some((file) => file.size > 6 * 1024 * 1024)) return setMessage("Cada justificante no puede superar 6 MB.");
+    try {
+      const loaded = await Promise.all(selected.map((file) => new Promise<any>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ name: file.name, mime: file.type || "application/octet-stream", data: String(reader.result || "") });
+        reader.onerror = () => reject(new Error("No se pudo leer uno de los justificantes."));
+        reader.readAsDataURL(file);
+      })));
+      setAttachments((current) => [...current, ...loaded].slice(0, 4 - existingAttachments.length));
+      setMessage("");
+    } catch (error: any) { setMessage(error?.message || "No se pudieron añadir los justificantes."); }
+  }
+
+  async function savePayment() {
+    const numericAmount = amount.trim() ? Number(amount) : 0;
+    if (!Number.isFinite(numericAmount) || numericAmount < 0) return setMessage("Indica un importe válido.");
+    if (status === "Recibido" && !method) return setMessage("Indica cómo se ha recibido el cobro.");
+    setSaving(true); setMessage("");
+    try {
+      const response = await fetch(`/api/shipments/${shipment.id}/payment-receipt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Actor": actor },
+        body: JSON.stringify({ payment_status: status, amount: numericAmount, method, reference, note, attachments }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No se pudo guardar el cobro.");
+      onSaved(body);
+      setAttachments([]);
+      setMessage(status === "Recibido" ? "Cobro y justificantes guardados." : "Estado del cobro guardado.");
+    } catch (error: any) { setMessage(error?.message || "No se pudo guardar el cobro."); }
+    finally { setSaving(false); }
+  }
+
+  async function copyShareUrl() {
+    if (!shareUrl) return;
+    try { await navigator.clipboard.writeText(shareUrl); setMessage("Enlace del albarán copiado."); }
+    catch { setMessage("No se ha podido copiar. Mantén pulsado el enlace para copiarlo."); }
+  }
+
+  const allAttachments = [...existingAttachments, ...attachments];
+  return <section className="reparto-payment-panel" aria-label="Talón y cobro recibido">
+    <div className="reparto-payment-head"><div><p className="eyebrow">TALÓN Y COBRO</p><h3>Justificante de recepción</h3><span>Registra el importe, la forma de cobro y una foto o PDF del talón recibido.</span></div><strong className={`reparto-payment-badge ${status === "Recibido" ? "received" : status === "No recibido" ? "missing" : "pending"}`}>{status}</strong></div>
+    <div className="reparto-payment-fields">
+      <label>Estado<select value={status} onChange={(event) => setStatus(event.target.value)} disabled={saving}><option>Pendiente</option><option>Recibido</option><option>No recibido</option></select></label>
+      <label>Importe recibido<input type="number" min="0" step="0.01" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0,00" disabled={saving} /></label>
+      <label>Forma de cobro<select value={method} onChange={(event) => setMethod(event.target.value)} disabled={saving}><option value="">Seleccionar…</option><option>Efectivo</option><option>Tarjeta</option><option>Transferencia</option><option>Talón</option><option>Otro</option></select></label>
+      <label>Referencia / nº de talón<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Ej. TAL-00481" disabled={saving} /></label>
+      <label className="reparto-payment-wide">Anotación<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={2} placeholder="Ej. talón entregado por el cliente, pendiente de ingresar…" disabled={saving} /></label>
+    </div>
+    <label className="reparto-payment-file">Añadir foto o PDF del talón / justificante<input type="file" accept="image/*,.pdf" capture="environment" multiple onChange={(event) => { void readAttachments(event.target.files); event.currentTarget.value = ""; }} disabled={saving || allAttachments.length >= 4} /><small>Hasta 4 archivos · máximo 6 MB cada uno</small></label>
+    {allAttachments.length > 0 && <div className="reparto-payment-files"><b>Justificantes adjuntos</b><div>{allAttachments.map((file, index) => <article key={`${file.name || "justificante"}-${index}`}>{String(file.mime || "").includes("pdf") ? <a href={file.url || file.data} target="_blank" rel="noreferrer" className="reparto-payment-pdf">PDF</a> : <img src={file.thumbnail_url || file.url || file.data} alt={file.name || "Justificante del cobro"} />}<span>{file.name || `Justificante ${index + 1}`}</span>{index >= existingAttachments.length && <button type="button" onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index - existingAttachments.length))}>Quitar</button>}</article>)}</div></div>}
+    {message && <p className="reparto-payment-message" role="status">{message}</p>}
+    <div className="reparto-payment-actions"><button type="button" className="button primary" onClick={() => void savePayment()} disabled={saving}>{saving ? "Guardando…" : "Guardar talón y cobro"}</button>{shareUrl && <div className="reparto-client-link"><div><b>Albarán para el cliente</b><small>Enlace seguro al seguimiento y albarán firmado</small></div><a href={shareUrl} target="_blank" rel="noreferrer">Abrir copia</a><button type="button" onClick={() => void copyShareUrl()}>Copiar enlace</button></div>}</div>
+  </section>;
+}
+
 export default function RepartoPage() {
   const [date, setDate] = useState(todayInput);
   const [shipments, setShipments] = useState<any[]>([]);
@@ -172,7 +263,7 @@ export default function RepartoPage() {
       <div className="reparto-layout"><section className="reparto-stops panel"><div className="reparto-panel-head"><div><p className="eyebrow">{activeRoute ? activeRoute.code : "ORDEN SUGERIDO"}</p><h2>{activeRoute ? `Ruta de ${activeRoute.driver || "reparto"}` : "Entregas para hoy"}</h2><span>{activeRoute ? `${activeRoute.stops?.length || 0} paradas · ${activeRoute.vehicle || "Vehículo sin indicar"}` : "Ordenadas por horario de apertura"}</span></div>{activeRoute?.maps_url && <a className="button primary" href={activeRoute.maps_url} target="_blank" rel="noreferrer">Navegar toda la ruta</a>}</div>{loading ? <div className="reparto-loading" role="status">Cargando entregas…</div> : !routeStops.length ? <div className="reparto-empty"><b>No hay entregas para esta fecha.</b><span>Prueba otra fecha o vuelve al CRM para planificar la ruta.</span></div> : <ol className="reparto-stop-list">{routeStops.map((stop: any, index: number) => { const shipment = shipments.find((item) => Number(item.id) === Number(stop.shipment_id)) || stop; const done = ["Completada", "Entregado"].includes(String(stop.status || "")); const destination = mapsUrl({ ...shipment, ...stop }); return <li className={`reparto-stop${done ? " done" : ""}`} key={stop.id}><div className="reparto-stop-number">{done ? "✓" : stop.position || index + 1}</div><div className="reparto-stop-main"><div className="reparto-stop-title"><div><b>{stop.client_name || shipment.client_name}</b><small>{shipment.code || stop.shipment_code || "Envío"}</small></div><span className={`reparto-stop-status ${done ? "done" : "pending"}`}>{done ? "Completada" : stop.status || "Pendiente"}</span></div><p>{[stop.address || shipment.address, stop.city || shipment.city].filter(Boolean).join(" · ") || "Dirección no indicada"}</p><small className="reparto-stop-window">{stop.opening_time && stop.closing_time ? `Horario ${stop.opening_time}–${stop.closing_time}` : "Horario pendiente de indicar"}{stop.distance_km ? ` · ${stop.distance_km} km` : ""}</small><div className="reparto-stop-actions">{destination ? <a className="reparto-map-button" href={destination} target="_blank" rel="noreferrer">↗ Cómo llegar</a> : <span className="reparto-no-map">Ubicación sin dirección</span>}<button type="button" className="reparto-open-button" onClick={() => void openShipment(shipment)}>Abrir entrega</button><button type="button" className={`reparto-check-button${done ? " checked" : ""}`} onClick={() => void updateStop(stop, done ? "Pendiente" : "Completada")}>{done ? "Desmarcar" : "✓ Marcar parada"}</button>{activeRoute && <span className="reparto-reorder"><button type="button" aria-label="Subir parada" onClick={() => void moveStop(index, -1)} disabled={index === 0}>↑</button><button type="button" aria-label="Bajar parada" onClick={() => void moveStop(index, 1)} disabled={index === routeStops.length - 1}>↓</button></span>}</div></div></li>; })}</ol>}</section>
         <aside className="reparto-side"><section className="reparto-route-picker panel"><div className="reparto-panel-head compact"><div><p className="eyebrow">PLANIFICACIÓN</p><h2>Mis rutas</h2><span>Selecciona la ruta asignada</span></div></div>{routes.length ? routes.map((route) => <button type="button" key={route.id} className={`reparto-route-option${Number(route.id) === Number(activeRouteId) ? " active" : ""}`} onClick={() => setActiveRouteId(Number(route.id))}><span><b>{route.code}</b><small>{dateLabel(route.route_date)} · {route.driver || "Sin repartidor"}</small></span><strong>{route.stops?.length || 0}</strong></button>) : <p className="reparto-empty small">No hay una ruta planificada para esta fecha.</p>}<a className="reparto-plan-link" href="/crm">Planificar o editar rutas en el CRM →</a></section><section className="reparto-help panel"><p className="eyebrow">SECUENCIA RECOMENDADA</p><h2>Una entrega cada vez</h2><p>Abre Maps para llegar, entra en la entrega para enseñar el pedido al cliente y registra firma, fotos o incidencias antes de continuar.</p></section></aside></div>
     </div>
-    {selectedShipment && <div className="reparto-detail-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSelectedShipment(null)}><section className="reparto-detail-modal" role="dialog" aria-modal="true" aria-label={`Detalle del envío ${selectedShipment.code || ""}`}><header className="reparto-detail-head"><div><p className="eyebrow">ENTREGA · {selectedShipment.shipping_date ? dateLabel(selectedShipment.shipping_date) : ""}</p><h2>{selectedShipment.client_name}</h2><span>{selectedShipment.code} · {[selectedShipment.address, selectedShipment.city].filter(Boolean).join(" · ")}</span></div><button type="button" className="reparto-close" onClick={() => setSelectedShipment(null)} aria-label="Cerrar detalle">×</button></header>{detailLoading ? <div className="reparto-loading">Cargando contenido del pedido…</div> : <><div className="reparto-detail-facts"><span><b>HORARIO</b>{selectedShipment.opening_time && selectedShipment.closing_time ? `${selectedShipment.opening_time}–${selectedShipment.closing_time}` : "Pendiente"}</span><span><b>BULTOS</b>{selectedShipment.packages || "—"}</span><span><b>ESTADO</b>{selectedShipment.status || "Pendiente"}</span></div><div className="reparto-detail-actions">{mapsUrl(selectedShipment) ? <a className="button primary" href={mapsUrl(selectedShipment)} target="_blank" rel="noreferrer">Cómo llegar con Maps</a> : <span className="reparto-no-map">Ubicación sin dirección</span>}<button type="button" className="button secondary" onClick={() => { setReturnLine(selectedLines[0] || null); setReturnsOpen(true); }}>Tramitar devolución</button></div>{selectedShipment.incidents && <div className="reparto-incident"><b>Incidencias / indicaciones</b><p>{selectedShipment.incidents}</p></div>}<div className="reparto-lines"><h3>Contenido del pedido</h3>{selectedLines.length ? selectedLines.map((line) => <div key={line.id} className="reparto-line"><span>{line.quantity_requested || line.quantity} {line.quantity_unit || "uds."}</span><b>{line.product_name}</b><button type="button" onClick={() => { setReturnLine(line); setReturnsOpen(true); }}>Devolver</button></div>) : <p>No hay líneas cargadas para este pedido.</p>}</div><DeliverySignaturePanel shipment={selectedShipment} actor={actor} client={clients.find((client) => Number(client.id) === Number(selectedShipment.client_id))} lines={selectedLines} products={products} onSaved={(updated) => { setSelectedShipment((current: any) => ({ ...current, ...updated, status: updated.status || "Entregado" })); setShipments((current) => current.map((item) => Number(item.id) === Number(updated.id) ? { ...item, ...updated } : item)); const matchingStop = activeRoute && routeStops.find((stop: any) => Number(stop.shipment_id) === Number(updated.id)); if (matchingStop) void updateStop(matchingStop, "Completada"); }} /></>}</section></div>}
+    {selectedShipment && <div className="reparto-detail-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSelectedShipment(null)}><section className="reparto-detail-modal" role="dialog" aria-modal="true" aria-label={`Detalle del envío ${selectedShipment.code || ""}`}><header className="reparto-detail-head"><div><p className="eyebrow">ENTREGA · {selectedShipment.shipping_date ? dateLabel(selectedShipment.shipping_date) : ""}</p><h2>{selectedShipment.client_name}</h2><span>{selectedShipment.code} · {[selectedShipment.address, selectedShipment.city].filter(Boolean).join(" · ")}</span></div><button type="button" className="reparto-close" onClick={() => setSelectedShipment(null)} aria-label="Cerrar detalle">×</button></header>{detailLoading ? <div className="reparto-loading">Cargando contenido del pedido…</div> : <><div className="reparto-detail-facts"><span><b>HORARIO</b>{selectedShipment.opening_time && selectedShipment.closing_time ? `${selectedShipment.opening_time}–${selectedShipment.closing_time}` : "Pendiente"}</span><span><b>BULTOS</b>{selectedShipment.packages || "—"}</span><span><b>ESTADO</b>{selectedShipment.status || "Pendiente"}</span></div><div className="reparto-detail-actions">{mapsUrl(selectedShipment) ? <a className="button primary" href={mapsUrl(selectedShipment)} target="_blank" rel="noreferrer">Cómo llegar con Maps</a> : <span className="reparto-no-map">Ubicación sin dirección</span>}<button type="button" className="button secondary" onClick={() => { setReturnLine(selectedLines[0] || null); setReturnsOpen(true); }}>Tramitar devolución</button></div>{selectedShipment.incidents && <div className="reparto-incident"><b>Incidencias / indicaciones</b><p>{selectedShipment.incidents}</p></div>}<div className="reparto-lines"><h3>Contenido del pedido</h3>{selectedLines.length ? selectedLines.map((line) => <div key={line.id} className="reparto-line"><span>{line.quantity_requested || line.quantity} {line.quantity_unit || "uds."}</span><b>{line.product_name}</b><button type="button" onClick={() => { setReturnLine(line); setReturnsOpen(true); }}>Devolver</button></div>) : <p>No hay líneas cargadas para este pedido.</p>}</div><DeliverySignaturePanel shipment={selectedShipment} actor={actor} client={clients.find((client) => Number(client.id) === Number(selectedShipment.client_id))} lines={selectedLines} products={products} onSaved={(updated) => { setSelectedShipment((current: any) => ({ ...current, ...updated, status: updated.status || "Entregado" })); setShipments((current) => current.map((item) => Number(item.id) === Number(updated.id) ? { ...item, ...updated } : item)); const matchingStop = activeRoute && routeStops.find((stop: any) => Number(stop.shipment_id) === Number(updated.id)); if (matchingStop) void updateStop(matchingStop, "Completada"); }} /><DeliveryPaymentPanel shipment={selectedShipment} actor={actor} onSaved={(updated) => { setSelectedShipment((current: any) => ({ ...current, ...updated })); setShipments((current) => current.map((item) => Number(item.id) === Number(updated.id) ? { ...item, ...updated } : item)); }} /></>}</section></div>}
     {returnsOpen && selectedShipment && <div className="reparto-return-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setReturnsOpen(false)}><form className="reparto-return-modal" onSubmit={(event) => void saveReturn(event)}><header><div><p className="eyebrow">DEVOLUCIÓN</p><h2>Registrar devolución</h2><span>{selectedShipment.client_name} · {selectedShipment.code}</span></div><button type="button" className="reparto-close" onClick={() => setReturnsOpen(false)} aria-label="Cerrar devolución">×</button></header><label>Producto<select value={returnLine?.id || ""} onChange={(event) => setReturnLine(selectedLines.find((line) => String(line.id) === event.target.value) || null)}>{selectedLines.map((line) => <option key={line.id} value={line.id}>{line.product_name}</option>)}</select></label><label>Cantidad<input type="number" min="1" step="1" value={returnQuantity} onChange={(event) => setReturnQuantity(event.target.value)} /></label><label>Motivo<textarea required rows={4} value={returnReason} onChange={(event) => setReturnReason(event.target.value)} placeholder="Ej.: dos cajas dañadas al descargar…" /></label><p className="reparto-return-note">La devolución queda pendiente de revisión y se vincula al cliente y al envío.</p><footer><button type="button" className="button secondary" onClick={() => setReturnsOpen(false)}>Cancelar</button><button type="submit" className="button primary" disabled={saving}>{saving ? "Guardando…" : "Registrar devolución"}</button></footer></form></div>}
   </main>;
 }

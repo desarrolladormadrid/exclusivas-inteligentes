@@ -5128,3 +5128,50 @@ body:has(.reparto-page) .settings-fab,
 body:has(.reparto-page) .settings-panel,
 body:has(.reparto-page) .assistant-ball,
 body:has(.reparto-page) .assistant-global{display:none !important}
+
+.reparto-payment-panel{display:grid;gap:13px;margin:18px;padding:15px;border:1px solid #d1dce1;background:#fff}
+.reparto-payment-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.reparto-payment-head h3{margin:3px 0 5px;color:#26343d;font-size:17px;font-weight:500}
+.reparto-payment-head span{display:block;color:#71818a;font-size:10px;line-height:1.45}
+.reparto-payment-badge{flex:0 0 auto;padding:5px 8px;border:1px solid #e1b64a;background:#fffaf0;color:#8a5b13;font-size:9px;font-weight:800;text-transform:uppercase}
+.reparto-payment-badge.received{border-color:#8bd4ae;background:#eafaf0;color:#087f5b}
+.reparto-payment-badge.missing{border-color:#e6a4a4;background:#fff0f0;color:#b91c1c}
+.reparto-payment-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.reparto-payment-fields label{display:grid;gap:5px;color:#536873;font-size:10px;font-weight:700}
+.reparto-payment-fields input,.reparto-payment-fields select,.reparto-payment-fields textarea{box-sizing:border-box;width:100%;min-height:34px;padding:8px;border:1px solid #cbd7dc;background:#fff;color:#26343d;font:inherit;font-size:11px}
+.reparto-payment-fields textarea{resize:vertical}
+.reparto-payment-wide{grid-column:1/-1}
+.reparto-payment-file{display:grid;gap:5px;padding:10px;border:1px dashed #b8c7cd;background:#f8fafb;color:#536873;font-size:11px;font-weight:700;cursor:pointer}
+.reparto-payment-file input{width:100%;font:inherit}
+.reparto-payment-file small{color:#71818a;font-size:10px;font-weight:400}
+.reparto-payment-files{display:grid;gap:8px;padding:10px;border:1px solid #d7e0e4;background:#f8fafb}
+.reparto-payment-files>b{color:#26343d;font-size:11px}
+.reparto-payment-files>div{display:flex;gap:10px;flex-wrap:wrap}
+.reparto-payment-files article{display:grid;gap:4px;width:112px;min-width:0}
+.reparto-payment-files img,.reparto-payment-pdf{display:grid;place-items:center;width:112px;height:78px;box-sizing:border-box;border:1px solid #d1dce1;background:#fff;object-fit:cover;color:#bd2027;font-size:20px;font-weight:800;text-decoration:none}
+.reparto-payment-files span{overflow-wrap:anywhere;color:#536873;font-size:9px}
+.reparto-payment-files button{justify-self:start;border:0;background:none;color:#bd2027;cursor:pointer;font:inherit;font-size:10px}
+.reparto-payment-message{margin:0;padding:8px 10px;border-left:3px solid #087f5b;background:#f1fbf6;color:#087f5b;font-size:11px}
+.reparto-payment-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.reparto-client-link{display:flex;align-items:center;gap:8px;min-width:0;margin-left:auto;padding:8px 10px;border-left:3px solid #bd2027;background:#fff5f5}
+.reparto-client-link>div{display:grid;gap:2px;min-width:0}
+.reparto-client-link b{color:#26343d;font-size:10px}
+.reparto-client-link small{color:#71818a;font-size:9px}
+.reparto-client-link a,.reparto-client-link button{padding:6px 8px;border:1px solid #bd2027;background:#fff;color:#bd2027;cursor:pointer;font:inherit;font-size:10px;font-weight:700;text-decoration:none;white-space:nowrap}
+.reparto-client-link a{background:#bd2027;color:#fff}
+@media(max-width:900px){.reparto-payment-fields{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.reparto-payment-panel{margin:14px}.reparto-payment-head{display:grid;gap:9px}.reparto-payment-badge{justify-self:start}.reparto-payment-fields{grid-template-columns:1fr}.reparto-payment-wide{grid-column:auto}.reparto-payment-actions{display:grid;align-items:stretch}.reparto-payment-actions>.button{width:100%;min-height:42px}.reparto-client-link{display:grid;margin:0;gap:8px}.reparto-client-link a,.reparto-client-link button{text-align:center}}
+.tracking-proof{margin-top:16px;padding:20px;border:1px solid #b8dfca;background:#f1fbf6}
+.tracking-proof-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
+.tracking-proof-head h2{margin:8px 0 5px;font-size:24px;letter-spacing:-.05em}
+.tracking-proof-head>span{padding:8px 10px;background:#087f5b;color:#fff;font-size:10px;font-weight:800;text-transform:uppercase}
+.tracking-proof-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:18px}
+.tracking-proof-meta div{display:grid;gap:4px;padding:10px;background:#fff;border:1px solid #d7e8dc}
+.tracking-proof-meta b,.tracking-proof-signature>b,.tracking-proof-photos>b{color:#087f5b;font-size:9px;letter-spacing:.1em;text-transform:uppercase}
+.tracking-proof-meta span,.tracking-proof-note{color:#536873;font-size:11px;overflow-wrap:anywhere}
+.tracking-proof-note{margin:15px 0 0;padding-top:13px;border-top:1px solid #d7e8dc;line-height:1.5}
+.tracking-proof-signature,.tracking-proof-photos{display:grid;gap:8px;margin-top:15px;padding-top:13px;border-top:1px solid #d7e8dc}
+.tracking-proof-signature img{width:260px;height:100px;object-fit:contain;border:1px solid #d1dce1;background:#fff}
+.tracking-proof-photos>div{display:flex;gap:10px;flex-wrap:wrap}
+.tracking-proof-photos img{width:120px;height:86px;object-fit:cover;border:1px solid #d1dce1;background:#fff}
+@media(max-width:700px){.tracking-proof{padding:16px}.tracking-proof-head{display:grid;gap:10px}.tracking-proof-head>span{justify-self:start}.tracking-proof-meta{grid-template-columns:1fr}.tracking-proof-signature img{width:100%}}

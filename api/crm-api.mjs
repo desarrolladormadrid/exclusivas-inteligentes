@@ -603,8 +603,11 @@ if (remoteMode && process.env.RUN_REMOTE_MIGRATIONS === "1") {
   for (const column of ["deleted INTEGER DEFAULT 0", "deleted_at TEXT", "deleted_by TEXT", "collection_point_id INTEGER", "prepared_by TEXT", "shipped_by TEXT", "delivered_by TEXT", "delivery_city TEXT", "preparation_date TEXT", "urgent INTEGER DEFAULT 0", "public_tracking_token TEXT"]) {
     try { db.prepare(`ALTER TABLE shipments ADD COLUMN ${column}`).run(); } catch {}
   }
+  for (const column of ["origin_address TEXT", "departure_at TEXT", "delivery_window_start TEXT", "delivery_window_end TEXT", "notes TEXT", "preparation_started_at TEXT", "preparation_started_by TEXT", "stock_released_at TEXT", "stock_released_by TEXT", "delivery_signature_data TEXT", "delivery_recipient_name TEXT", "delivery_signature_status TEXT", "delivery_signature_at TEXT", "delivery_signature_by TEXT", "delivery_signature_note TEXT", "delivery_attachments_json TEXT", "payment_received_status TEXT", "payment_received_amount REAL DEFAULT 0", "payment_received_method TEXT", "payment_received_reference TEXT", "payment_received_note TEXT", "payment_received_at TEXT", "payment_received_by TEXT", "payment_received_attachments_json TEXT"]) {
+    try { db.prepare(`ALTER TABLE shipments ADD COLUMN ${column}`).run(); } catch {}
+  }
 }
-for (const column of ["origin_address", "departure_at", "delivery_window_start", "delivery_window_end", "notes", "preparation_started_at", "preparation_started_by", "stock_released_at", "stock_released_by", "delivery_signature_data", "delivery_recipient_name", "delivery_signature_status", "delivery_signature_at", "delivery_signature_by", "delivery_signature_note", "delivery_attachments_json"]) {
+for (const column of ["origin_address", "departure_at", "delivery_window_start", "delivery_window_end", "notes", "preparation_started_at", "preparation_started_by", "stock_released_at", "stock_released_by", "delivery_signature_data", "delivery_recipient_name", "delivery_signature_status", "delivery_signature_at", "delivery_signature_by", "delivery_signature_note", "delivery_attachments_json", "payment_received_status", "payment_received_amount", "payment_received_method", "payment_received_reference", "payment_received_note", "payment_received_at", "payment_received_by", "payment_received_attachments_json"]) {
   try { db.exec(`ALTER TABLE shipments ADD COLUMN ${column} TEXT`); } catch {}
 }
 try { db.exec("ALTER TABLE shipments ADD COLUMN urgent INTEGER DEFAULT 0"); } catch {}
@@ -1014,7 +1017,7 @@ const lookupFields = {
   collection_points: ["id", "code", "name", "client_id", "address", "city", "contact", "phone", "email", "opening_hours", "opening_time", "closing_time", "geocoding_status", "latitude", "longitude"],
   products: ["id", "name", "sku", "unit", "unit_price", "box_price", "pack4_price", "pack6_price", "pallet_price", "vat", "stock", "stock_reserved", "min_stock", "stock_min", "category", "brand", "format", "active", "product_status", "warehouse_id", "supplier_id", "primary_supplier_id", "warehouse_location", "cost_price", "photo_url", "photo_thumbnail_url", "photo_web_url"],
   orders: ["id", "code", "client_id", "status", "amount", "created_at", "updated_at", "delivery_date", "preparation_date", "shipping_date", "address", "delivery_city", "collection_point_id", "urgent", "stock_alert"],
-  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "delivery_city", "delivery_window_start", "delivery_window_end", "carrier", "packages", "incidents", "notes", "prepared_at", "prepared_by", "shipped_at", "shipped_by", "departure_at", "delivered_at", "delivered_by", "delivery_signature_status", "delivery_recipient_name", "delivery_signature_at", "delivery_signature_by", "delivery_signature_note", "public_tracking_token"],
+  shipments: ["id", "code", "order_id", "client_id", "collection_point_id", "status", "expected_delivery_at", "preparation_date", "address", "delivery_city", "delivery_window_start", "delivery_window_end", "carrier", "packages", "incidents", "notes", "prepared_at", "prepared_by", "shipped_at", "shipped_by", "departure_at", "delivered_at", "delivered_by", "delivery_signature_status", "delivery_recipient_name", "delivery_signature_at", "delivery_signature_by", "delivery_signature_note", "payment_received_status", "payment_received_amount", "payment_received_method", "payment_received_reference", "payment_received_note", "payment_received_at", "payment_received_by", "public_tracking_token"],
   invoices: ["id", "code", "order_id", "client_id", "amount", "status", "created_at", "issue_date", "due_date"],
   purchase_orders: ["id", "code", "supplier_id", "status", "order_date", "expected_date", "amount", "validation_status"],
   goods_receipts: ["id", "code", "supplier_id", "purchase_order_id", "purchase_invoice_id", "warehouse_id", "receipt_date", "status", "validation_status", "validated_by", "validated_at", "line_count", "incident_count", "received_by", "notes"],
@@ -1268,6 +1271,8 @@ export async function crmApiHandler(req, res) {
           SELECT s.id,s.code,s.order_id,s.status,s.expected_delivery_at,s.preparation_date,
                  s.address,s.delivery_city,s.packages,s.incidents,
                  s.delivery_window_start,s.delivery_window_end,
+                 s.delivery_signature_data,s.delivery_recipient_name,s.delivery_signature_status,
+                 s.delivery_signature_at,s.delivery_signature_by,s.delivery_signature_note,s.delivery_attachments_json,
                  c.name AS client_name,cp.name AS location_name,o.code AS order_code
           FROM shipments s
           LEFT JOIN clients c ON c.id=s.client_id
@@ -1295,6 +1300,13 @@ export async function crmApiHandler(req, res) {
             incidents: String(shipment.incidents || "").trim(),
             delivery_window_start: shipment.delivery_window_start || "",
             delivery_window_end: shipment.delivery_window_end || "",
+            delivery_signature_data: shipment.delivery_signature_data || "",
+            delivery_recipient_name: shipment.delivery_recipient_name || "",
+            delivery_signature_status: shipment.delivery_signature_status || "Pendiente",
+            delivery_signature_at: shipment.delivery_signature_at || "",
+            delivery_signature_by: shipment.delivery_signature_by || "",
+            delivery_signature_note: shipment.delivery_signature_note || "",
+            delivery_attachments_json: shipment.delivery_attachments_json || "[]",
             client_name: shipment.client_name || "Cliente",
             location_name: shipment.location_name || "",
           },
@@ -1883,6 +1895,48 @@ export async function crmApiHandler(req, res) {
         invalidateRelatedReadCaches("orders");
         const updated = db.prepare("SELECT * FROM shipments WHERE id=?").get(shipmentId);
         return send(res, 200, updated);
+      }
+      if (t === "shipments" && req.method === "POST" && p[2] && p[3] === "payment-receipt") {
+        const shipmentId = Number(p[2]);
+        const body = await read(req);
+        const shipment = db.prepare("SELECT * FROM shipments WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(shipmentId);
+        if (!shipment) return send(res, 404, { error: "Envío no encontrado" });
+        const paymentStatus = String(body.payment_status || "Pendiente").trim();
+        if (!["Pendiente", "Recibido", "No recibido"].includes(paymentStatus)) return send(res, 400, { error: "El estado del cobro no es válido" });
+        const amount = body.amount === "" || body.amount === null || body.amount === undefined ? 0 : Number(body.amount);
+        if (!Number.isFinite(amount) || amount < 0) return send(res, 400, { error: "El importe recibido no es válido" });
+        const rawAttachments = Array.isArray(body.attachments) ? body.attachments.slice(0, 4) : [];
+        let existingAttachments = [];
+        try { existingAttachments = JSON.parse(String(shipment.payment_received_attachments_json || "[]")); } catch {}
+        if (!Array.isArray(existingAttachments)) existingAttachments = [];
+        const attachments = existingAttachments.slice(0, 4);
+        for (let index = 0; index < rawAttachments.length; index += 1) {
+          const item = rawAttachments[index] || {};
+          const data = String(item.data || "").trim();
+          if (!(data.startsWith("data:image/") || data.startsWith("data:application/pdf"))) return send(res, 400, { error: "El talón o justificante debe ser una imagen o un PDF" });
+          if (data.length > 8000000) return send(res, 400, { error: "Cada justificante debe ocupar menos de 6 MB" });
+          let uploaded = null;
+          if (data.startsWith("data:image/")) {
+            try { uploaded = await uploadDeliveryProofAttachment(data, `${shipment.code}-cobro`, index); } catch {}
+          }
+          if (attachments.length < 4) attachments.push(uploaded || { name: String(item.name || `justificante-cobro-${index + 1}`), mime: String(item.mime || (data.startsWith("data:application/pdf") ? "application/pdf" : "image/jpeg")), data });
+        }
+        const now = new Date().toISOString();
+        db.prepare(`UPDATE shipments SET payment_received_status=?,payment_received_amount=?,payment_received_method=?,payment_received_reference=?,payment_received_note=?,payment_received_at=?,payment_received_by=?,payment_received_attachments_json=?,updated_at=? WHERE id=?`).run(
+          paymentStatus,
+          amount,
+          String(body.method || "").trim() || null,
+          String(body.reference || "").trim() || null,
+          String(body.note || "").trim() || null,
+          paymentStatus === "Pendiente" ? null : now,
+          paymentStatus === "Pendiente" ? null : actor,
+          JSON.stringify(attachments),
+          now,
+          shipmentId,
+        );
+        recordAudit(actor, "POST", `shipments/${shipmentId}/payment-receipt`, "Registrar talón o cobro recibido", JSON.stringify({ shipment_id: shipmentId, order_id: shipment.order_id || null, payment_status: paymentStatus, amount, method: body.method || null, reference: body.reference || null, attachments: attachments.length }));
+        invalidateRelatedReadCaches("shipments");
+        return send(res, 200, db.prepare("SELECT * FROM shipments WHERE id=?").get(shipmentId));
       }
       if (t === "goods_receipt_incidents" && req.method === "POST" && p[2] && p[3] === "claim") {
         const incidentId = Number(p[2]);
