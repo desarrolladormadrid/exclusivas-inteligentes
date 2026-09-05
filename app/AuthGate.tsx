@@ -18,8 +18,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
   const [isPublicOrderPortal, setIsPublicOrderPortal] = useState(false);
+  const [currentPath, setCurrentPath] = useState("");
   useEffect(() => {
     const path = window.location.pathname.replace(/\/$/, "");
+    setCurrentPath(path || "/");
     setIsPublicOrderPortal(["/portal-pedidos", "/web"].includes(path) || path.startsWith("/seguimiento/"));
     try {
       const saved =
@@ -29,6 +31,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     } catch {}
     setSessionReady(true);
   }, []);
+  useEffect(() => {
+    if (!sessionReady || user?.role !== "repartidor" || currentPath === "/reparto") return;
+    window.location.replace("/reparto");
+  }, [currentPath, sessionReady, user]);
   useEffect(() => {
     fetch(apiUrl("/api/users"))
       .then((response) => (response.ok ? response.json() : []))
@@ -95,6 +101,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }
   if (!sessionReady)
     return <main className="auth-loading"><div className="auth-loading-mark">E</div><span>Comprobando sesión…</span></main>;
+  if (user?.role === "repartidor" && currentPath !== "/reparto")
+    return <main className="auth-loading"><div className="auth-loading-mark">E</div><span>Abriendo vista de reparto…</span></main>;
   if (isPublicOrderPortal) return <div className="public-order-portal">{children}</div>;
   if (!user)
     return (
@@ -106,7 +114,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           <label>
             Usuario
             <select value={name} onChange={(e) => setName(e.target.value)}>
-              {users.map((item) => <option key={item.username} value={item.username}>{item.username}</option>)}
+              {users.map((item) => <option key={item.username} value={item.username}>{item.username}{item.role === "repartidor" ? " · Repartidor" : ""}</option>)}
             </select>
           </label>
           <label>

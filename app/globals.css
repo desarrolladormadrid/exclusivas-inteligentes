@@ -5175,3 +5175,4 @@ body:has(.reparto-page) .assistant-global{display:none !important}
 .tracking-proof-photos>div{display:flex;gap:10px;flex-wrap:wrap}
 .tracking-proof-photos img{width:120px;height:86px;object-fit:cover;border:1px solid #d1dce1;background:#fff}
 @media(max-width:700px){.tracking-proof{padding:16px}.tracking-proof-head{display:grid;gap:10px}.tracking-proof-head>span{justify-self:start}.tracking-proof-meta{grid-template-columns:1fr}.tracking-proof-signature img{width:100%}}
+.reparto-topbar-actions button{padding:0;border:0;background:transparent;color:#fff;cursor:pointer;font:inherit;font-size:inherit;font-weight:700}

@@ -2157,7 +2157,7 @@ export async function crmApiHandler(req, res) {
         const d = await read(req);
         if (req.method === "POST") {
           if (!String(d.username || "").trim() || !String(d.password || "").trim()) return send(res, 400, { error: "El usuario y la contraseña son obligatorios" });
-          const role = ["admin", "user", "comercial", "almacen"].includes(d.role) ? d.role : "user";
+          const role = ["admin", "user", "comercial", "almacen", "repartidor"].includes(d.role) ? d.role : "user";
           const permissions = role === "admin" ? "*" : JSON.stringify(Array.isArray(d.permissions) ? d.permissions : []);
           const result = db.prepare("INSERT INTO users(username,password,role,must_change,permissions) VALUES(?,?,?,?,?)").run(String(d.username).trim(), String(d.password), role, 0, permissions);
           return send(res, 201, { id: Number(result.lastInsertRowid), username: String(d.username).trim(), role, must_change: 0, permissions });
@@ -2166,7 +2166,7 @@ export async function crmApiHandler(req, res) {
           const id = Number(p[2]);
           const existing = db.prepare("SELECT * FROM users WHERE id=?").get(id);
           if (!existing) return send(res, 404, { error: "Usuario no encontrado" });
-          const role = ["admin", "user", "comercial", "almacen"].includes(d.role) ? d.role : "user";
+          const role = ["admin", "user", "comercial", "almacen", "repartidor"].includes(d.role) ? d.role : "user";
           const permissions = role === "admin" ? "*" : JSON.stringify(Array.isArray(d.permissions) ? d.permissions : []);
           const password = String(d.password || "").trim() ? String(d.password) : existing.password;
           const deleted = d.deleted === undefined ? Number(existing.deleted || 0) : Number(d.deleted) ? 1 : 0;
