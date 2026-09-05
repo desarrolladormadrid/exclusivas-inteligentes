@@ -1431,6 +1431,32 @@ export async function crmApiHandler(req, res) {
         recordAudit(actor, "POST", `routes/${Number(route.lastInsertRowid)}`, "Planificar ruta", JSON.stringify({ shipment_ids: shipmentIds, radius_meters: Number(body.radius_meters || 150) }));
         return send(res, 201, getRouteWithStops(Number(route.lastInsertRowid)));
       }
+      if (p[1] === "routes" && req.method === "PUT" && p[2] && p[3] === "stops" && p[4] === "reorder") {
+        const body = await read(req);
+        const stopIds = Array.isArray(body.stop_ids) ? body.stop_ids.map(Number).filter((id) => Number.isInteger(id) && id > 0) : [];
+        const routeId = Number(p[2]);
+        const route = db.prepare("SELECT id FROM delivery_routes WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(routeId);
+        if (!route || !stopIds.length) return send(res, 400, { error: "La ruta o el orden de paradas no son válidos" });
+        const allowedStops = db.prepare("SELECT id FROM delivery_route_stops WHERE route_id=?").all(routeId).map((stop) => Number(stop.id));
+        if (allowedStops.length !== stopIds.length || allowedStops.some((id) => !stopIds.includes(id))) return send(res, 400, { error: "Las paradas no pertenecen a esta ruta" });
+        const now = new Date().toISOString();
+        stopIds.forEach((stopId, index) => db.prepare("UPDATE delivery_route_stops SET position=?,updated_at=? WHERE id=? AND route_id=?").run(index + 1, now, stopId, routeId));
+        recordAudit(actor, "PUT", `routes/${routeId}/stops/reorder`, "Reordenar ruta", JSON.stringify({ stop_ids: stopIds }));
+        return send(res, 200, getRouteWithStops(routeId));
+      }
+      if (p[1] === "routes" && req.method === "PUT" && p[2] && p[3] === "stops" && p[4]) {
+        const body = await read(req);
+        const routeId = Number(p[2]), stopId = Number(p[4]);
+        const allowed = ["status", "notes"];
+        const changes = allowed.filter((key) => body[key] !== undefined);
+        if (!changes.length) return send(res, 400, { error: "No hay cambios para guardar" });
+        const current = db.prepare("SELECT id FROM delivery_route_stops WHERE id=? AND route_id=?").get(stopId, routeId);
+        if (!current) return send(res, 404, { error: "Parada no encontrada en esta ruta" });
+        const now = new Date().toISOString();
+        db.prepare(`UPDATE delivery_route_stops SET ${changes.map((key) => `${key}=?`).join(",")},updated_at=? WHERE id=? AND route_id=?`).run(...changes.map((key) => body[key]), now, stopId, routeId);
+        recordAudit(actor, "PUT", `routes/${routeId}/stops/${stopId}`, "Actualizar parada de reparto", JSON.stringify({ status: body.status, notes: body.notes }));
+        return send(res, 200, getRouteWithStops(routeId));
+      }
       if (p[1] === "routes" && req.method === "PUT" && p[2]) {
         const body = await read(req);
         const allowed = ["driver", "vehicle", "status", "radius_meters", "notes", "origin_address", "origin_latitude", "origin_longitude"];
@@ -2362,9 +2388,13 @@ export async function crmApiHandler(req, res) {
         if (p[2] && Number.isInteger(Number(p[2]))) {
           const source = t === "orders"
             ? `orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id`
-            : t;
+            : t === "shipments"
+              ? `shipments LEFT JOIN orders AS shipment_order ON shipment_order.id=shipments.order_id`
+              : t;
           const selection = t === "orders"
             ? "orders.*,order_client.name AS client_name,order_client.city AS client_city,CASE WHEN orders.status='Facturado' OR EXISTS(SELECT 1 FROM invoice_orders io JOIN invoices bi ON bi.id=io.invoice_id WHERE io.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) OR EXISTS(SELECT 1 FROM invoices bi WHERE bi.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) THEN 'Facturado' ELSE 'Sin facturar' END AS billing_status"
+            : t === "shipments"
+              ? "shipments.*,(SELECT shipping_date FROM orders WHERE orders.id=shipments.order_id) AS shipping_date"
             : p[2] ? "*" : listSelectFor(t);
           const tableReference = t === "orders" ? "orders" : t;
           const deletedClause = includeDeleted || !hasColumn(tableReference, "deleted") ? "" : ` AND CAST(COALESCE(${tableReference}.deleted,0) AS INTEGER)=0`;
@@ -2378,13 +2408,17 @@ export async function crmApiHandler(req, res) {
         if (cached) return send(res, 200, t === "shipments" ? cached.map(attachShipmentTrackingToken) : cached);
         const source = t === "orders"
           ? `orders LEFT JOIN clients AS order_client ON order_client.id=orders.client_id`
-          : t;
+          : t === "shipments"
+            ? `shipments LEFT JOIN orders AS shipment_order ON shipment_order.id=shipments.order_id`
+            : t;
         const selection = isPublicCatalog
           ? "products.id,products.name,products.family,products.category,products.subfamily,products.brand,products.format,products.sku,products.description,products.photo_url,products.photo_thumbnail_url,products.photo_web_url"
           : isLookup
           ? lookupSelectFor(t)
           : t === "orders"
             ? "orders.*,order_client.name AS client_name,order_client.city AS client_city,CASE WHEN orders.status='Facturado' OR EXISTS(SELECT 1 FROM invoice_orders io JOIN invoices bi ON bi.id=io.invoice_id WHERE io.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) OR EXISTS(SELECT 1 FROM invoices bi WHERE bi.order_id=orders.id AND COALESCE(bi.status,'')<>'Anulada' AND COALESCE(bi.deleted,0)=0) THEN 'Facturado' ELSE 'Sin facturar' END AS billing_status"
+            : t === "shipments"
+              ? "shipments.*,(SELECT shipping_date FROM orders WHERE orders.id=shipments.order_id) AS shipping_date"
             : listSelectFor(t);
         const filters = [];
         if (!includeDeleted && hasColumn(t, "deleted")) filters.push(`CAST(COALESCE(${t === "orders" ? "orders" : t}.deleted,0) AS INTEGER)=0`);
@@ -2399,7 +2433,7 @@ export async function crmApiHandler(req, res) {
         const pagination = limitValue === null ? "" : ` LIMIT ${limitValue} OFFSET ${offsetValue}`;
         const orderBy = isPublicCatalog
           ? "CASE WHEN TRIM(COALESCE(products.photo_web_url,''))<>'' THEN 0 ELSE 1 END, products.id DESC"
-          : `${t === "orders" ? "orders.id" : "id"} DESC`;
+          : `${t === "orders" ? "orders.id" : t === "shipments" ? "shipments.id" : "id"} DESC`;
         const rows = db.prepare(`SELECT ${selection} FROM ${source} ${where} ORDER BY ${orderBy}${pagination}`).all();
         const responseRows = t === "shipments"
           ? rows.map(attachShipmentTrackingToken)

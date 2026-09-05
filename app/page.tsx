@@ -539,6 +539,7 @@ const cfg: any = {
       "client_id",
       "status",
       "preparation_date",
+      "shipping_date",
       "urgent",
       "address",
       "delivery_window_start",
@@ -554,6 +555,7 @@ const cfg: any = {
       "Cliente",
       "Estado",
       "Día de preparación",
+      "Día de envío",
       "Urgente",
       "Dirección de entrega",
       "Apertura del cliente",
@@ -2121,7 +2123,7 @@ function parseDeliveryPhotos(value: any): any[] {
   } catch { return []; }
 }
 
-function DeliverySignaturePanel({ shipment, actor, client, lines = [], products = [], onSaved }: { shipment: any; actor: string; client?: any; lines?: any[]; products?: any[]; onSaved: (shipment: any) => void }) {
+export function DeliverySignaturePanel({ shipment, actor, client, lines = [], products = [], onSaved }: { shipment: any; actor: string; client?: any; lines?: any[]; products?: any[]; onSaved: (shipment: any) => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const [proof, setProof] = useState<any>(shipment);
@@ -10134,6 +10136,12 @@ function CrmHome({ routeMode = "crm" }: { routeMode?: keyof typeof routeModuleSc
               <a className="button primary quick-icon-action app-route-shortcut" href="/almacen" aria-label="Vista almacén" title="Vista almacén">
                 <ToolbarIcon name="warehouse" />
                 <span className="icon-action-label">Vista almacén</span>
+              </a>
+            )}
+            {canOpenWarehouseView && (
+              <a className="button primary quick-icon-action app-route-shortcut" href="/reparto" aria-label="Vista reparto" title="Vista reparto">
+                <ToolbarIcon name="map" />
+                <span className="icon-action-label">Vista reparto</span>
               </a>
             )}
             {canOpenWebView && (
