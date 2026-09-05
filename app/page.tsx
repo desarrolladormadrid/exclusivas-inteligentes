@@ -9202,7 +9202,7 @@ function UsersManager({ user }: { user: any }) {
   useEffect(() => { load(); }, []);
   function startNew() { setEditingId(null); setDraft({ username: "", password: "", role: "user", permissions: [] }); setError(""); setOpen(true); }
   function startEdit(row: any) { let permissions: any[] = []; try { permissions = row.permissions === "*" ? permissionModules : JSON.parse(row.permissions || "[]"); } catch {} setEditingId(row.id); setDraft({ username: row.username, password: "", role: row.role, permissions }); setError(""); setOpen(true); }
-  function changeRole(role: string) { setDraft((current: any) => ({ ...current, role, permissions: role === "repartidor" ? ["Reparto"] : current.permissions })); }
+  function changeRole(role: string) { setDraft((current: any) => ({ ...current, role, permissions: role === "repartidor" ? ["Reparto"] : current.permissions.filter((permission: string) => permission !== "Reparto") })); }
   function togglePermission(module: string) { setDraft((current: any) => ({ ...current, permissions: current.permissions.includes(module) ? current.permissions.filter((item: string) => item !== module) : [...current.permissions, module] })); }
   async function save(event: FormEvent) {
     event.preventDefault(); setSaving(true); setError("");
