@@ -118,7 +118,7 @@ function DeliveryPaymentPanel({ shipment, actor, onSaved }: { shipment: any; act
 
   const allAttachments = [...existingAttachments, ...attachments];
   return <section className="reparto-payment-panel" aria-label="Talón y cobro recibido">
-    <div className="reparto-payment-head"><div><p className="eyebrow">TALÓN Y COBRO</p><h3>Justificante de recepción</h3><span>Registra el importe, la forma de cobro y una foto o PDF del talón recibido.</span></div><strong className={`reparto-payment-badge ${status === "Recibido" ? "received" : status === "No recibido" ? "missing" : "pending"}`}>{status}</strong></div>
+    <div className="reparto-payment-head"><div><p className="eyebrow">TALÓN Y COBRO</p><h3>Justificante de recepción</h3><span>Registra el importe, la forma de cobro y una foto o PDF del talón recibido. Si hay factura, también quedará reflejado en Cobros.</span></div><strong className={`reparto-payment-badge ${status === "Recibido" ? "received" : status === "No recibido" ? "missing" : "pending"}`}>{status}</strong></div>
     <div className="reparto-payment-fields">
       <label>Estado<select value={status} onChange={(event) => setStatus(event.target.value)} disabled={saving}><option>Pendiente</option><option>Recibido</option><option>No recibido</option></select></label>
       <label>Importe recibido<input type="number" min="0" step="0.01" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0,00" disabled={saving} /></label>

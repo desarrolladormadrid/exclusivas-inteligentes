@@ -1934,7 +1934,31 @@ export async function crmApiHandler(req, res) {
           now,
           shipmentId,
         );
-        recordAudit(actor, "POST", `shipments/${shipmentId}/payment-receipt`, "Registrar talón o cobro recibido", JSON.stringify({ shipment_id: shipmentId, order_id: shipment.order_id || null, payment_status: paymentStatus, amount, method: body.method || null, reference: body.reference || null, attachments: attachments.length }));
+        let linkedInvoiceId = null;
+        if (paymentStatus === "Recibido" && amount > 0 && shipment.order_id) {
+          const invoice = db.prepare(`SELECT i.id FROM invoices i WHERE CAST(COALESCE(i.deleted,0) AS INTEGER)=0 AND (i.order_id=? OR EXISTS(SELECT 1 FROM invoice_orders io WHERE io.invoice_id=i.id AND io.order_id=?)) ORDER BY i.id DESC LIMIT 1`).get(Number(shipment.order_id), Number(shipment.order_id));
+          if (invoice?.id) {
+            linkedInvoiceId = Number(invoice.id);
+            const sourceNote = `Cobro recibido en reparto · ${shipment.code}`;
+            const existingPayment = db.prepare("SELECT id FROM payments WHERE invoice_id=? AND notes LIKE ? AND CAST(COALESCE(deleted,0) AS INTEGER)=0 ORDER BY id DESC LIMIT 1").get(linkedInvoiceId, `%${shipment.code}%`);
+            const paymentDate = now.slice(0, 10);
+            if (existingPayment?.id) {
+              const updateFields = ["amount=?", "payment_date=?", "method=?", "notes=?", "updated_at=?"];
+              const updateValues = [amount, paymentDate, String(body.method || "").trim() || "Otro", sourceNote, now];
+              if (hasColumn("payments", "reference")) { updateFields.splice(3, 0, "reference=?"); updateValues.splice(3, 0, String(body.reference || "").trim() || null); }
+              db.prepare(`UPDATE payments SET ${updateFields.join(",")} WHERE id=?`).run(...updateValues, Number(existingPayment.id));
+            } else {
+              const columns = ["invoice_id", "amount", "payment_date", "method", "notes", "created_at", "updated_at"];
+              const values = [linkedInvoiceId, amount, paymentDate, String(body.method || "").trim() || "Otro", sourceNote, now, now];
+              if (hasColumn("payments", "reference")) { columns.splice(4, 0, "reference"); values.splice(4, 0, String(body.reference || "").trim() || null); }
+              db.prepare(`INSERT INTO payments(${columns.join(",")}) VALUES(${columns.map(() => "?").join(",")})`).run(...values);
+            }
+            const paid = db.prepare("SELECT COALESCE(SUM(amount),0) total FROM payments WHERE invoice_id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(linkedInvoiceId).total;
+            const invoiceAmount = db.prepare("SELECT amount FROM invoices WHERE id=?").get(linkedInvoiceId)?.amount || 0;
+            db.prepare("UPDATE invoices SET status=? WHERE id=?").run(Number(paid) >= Number(invoiceAmount) ? "Cobrada" : "Parcial", linkedInvoiceId);
+          }
+        }
+        recordAudit(actor, "POST", `shipments/${shipmentId}/payment-receipt`, "Registrar talón o cobro recibido", JSON.stringify({ shipment_id: shipmentId, order_id: shipment.order_id || null, invoice_id: linkedInvoiceId, payment_status: paymentStatus, amount, method: body.method || null, reference: body.reference || null, attachments: attachments.length }));
         invalidateRelatedReadCaches("shipments");
         return send(res, 200, db.prepare("SELECT * FROM shipments WHERE id=?").get(shipmentId));
       }
