@@ -11,6 +11,11 @@ if (!env.TURSO_DATABASE_URL || !env.TURSO_AUTH_TOKEN) throw new Error("Faltan la
 
 const client = createClient({ url: env.TURSO_DATABASE_URL, authToken: env.TURSO_AUTH_TOKEN });
 const migrationsByTable = {
+  expenses: [
+    ["table", "CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,client_id INTEGER,expense_date TEXT NOT NULL,category TEXT DEFAULT 'Otros',vendor TEXT,amount REAL DEFAULT 0,vat REAL DEFAULT 21,payment_method TEXT DEFAULT 'Tarjeta',notes TEXT,attachment_name TEXT,attachment_mime TEXT,attachment_data TEXT,status TEXT DEFAULT 'Pendiente',created_by TEXT,created_at TEXT,updated_at TEXT)"],
+    ["status", "ALTER TABLE expenses ADD COLUMN status TEXT DEFAULT 'Pendiente'"],
+    ["created_by", "ALTER TABLE expenses ADD COLUMN created_by TEXT"],
+  ],
   goods_receipts: [
     ["table", "CREATE TABLE IF NOT EXISTS goods_receipts(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,supplier_id INTEGER NOT NULL,purchase_order_id INTEGER,warehouse_id INTEGER,receipt_date TEXT NOT NULL,status TEXT DEFAULT 'Borrador',notes TEXT,created_by TEXT,received_by TEXT,created_at TEXT,updated_at TEXT,deleted TEXT DEFAULT '0',deleted_at TEXT,deleted_by TEXT)"],
     ["purchase_invoice_id", "ALTER TABLE goods_receipts ADD COLUMN purchase_invoice_id INTEGER"],

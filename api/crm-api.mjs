@@ -433,7 +433,8 @@ try {
   const duplicateTasks = db.prepare(`SELECT id FROM scheduled_tasks WHERE status='Activa' AND id NOT IN (SELECT MIN(id) FROM scheduled_tasks WHERE status='Activa' GROUP BY LOWER(TRIM(title)),LOWER(TRIM(action_text)),schedule_type,COALESCE(recurrence,''))`).all();
   for (const task of duplicateTasks) db.prepare("UPDATE scheduled_tasks SET status='Pausada',last_result='Pausada automáticamente: tarea duplicada',updated_at=? WHERE id=?").run(new Date().toISOString(), task.id);
 } catch {}
-db.exec(`CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,client_id INTEGER,expense_date TEXT NOT NULL,category TEXT DEFAULT 'Otros',vendor TEXT,amount REAL DEFAULT 0,vat REAL DEFAULT 21,payment_method TEXT DEFAULT 'Tarjeta',notes TEXT,attachment_name TEXT,attachment_mime TEXT,attachment_data TEXT,created_at TEXT,updated_at TEXT);`);
+db.exec(`CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,client_id INTEGER,expense_date TEXT NOT NULL,category TEXT DEFAULT 'Otros',vendor TEXT,amount REAL DEFAULT 0,vat REAL DEFAULT 21,payment_method TEXT DEFAULT 'Tarjeta',notes TEXT,attachment_name TEXT,attachment_mime TEXT,attachment_data TEXT,status TEXT DEFAULT 'Pendiente',created_by TEXT,created_at TEXT,updated_at TEXT);`);
+for (const column of ["status TEXT DEFAULT 'Pendiente'", "created_by TEXT"]) { try { db.exec(`ALTER TABLE expenses ADD COLUMN ${column}`); } catch {} }
 db.exec(`CREATE TABLE IF NOT EXISTS ocr_documents(id INTEGER PRIMARY KEY AUTOINCREMENT,file_name TEXT NOT NULL,mime_type TEXT,file_size INTEGER DEFAULT 0,document_type TEXT DEFAULT 'Otro',detected_email TEXT,detected_total TEXT,extracted_text TEXT,status TEXT DEFAULT 'Pendiente',created_by TEXT DEFAULT 'Usuario local',created_at TEXT,updated_at TEXT);`);
 db.exec(`CREATE TABLE IF NOT EXISTS web_registrations(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL DEFAULT 'cliente',company_name TEXT NOT NULL,tax_id TEXT,contact_name TEXT NOT NULL,email TEXT NOT NULL,phone TEXT,address TEXT,city TEXT,message TEXT,status TEXT NOT NULL DEFAULT 'Pendiente de validar',created_at TEXT,updated_at TEXT,reviewed_by TEXT,reviewed_at TEXT);`);
 for (const column of ["crm_record_id INTEGER", "crm_record_type TEXT", "rejection_reason TEXT"]) {
@@ -1025,7 +1026,7 @@ const lookupFields = {
   goods_receipt_incidents: ["id", "receipt_id", "receipt_line_id", "supplier_id", "type", "description", "expected_quantity", "received_quantity", "damaged_quantity", "substituted_quantity", "substitute_product_id", "economic_difference", "status", "claim_status", "attachment_name", "attachment_mime", "created_by", "created_at"],
   payments: ["id", "invoice_id", "amount", "payment_date", "method"],
   inventory_movements: ["id", "product_id", "warehouse_id", "movement_type", "quantity", "reference", "movement_date", "notes"],
-  expenses: ["id", "code", "client_id", "expense_date", "category", "vendor", "amount", "vat", "payment_method", "notes", "created_at"],
+  expenses: ["id", "code", "client_id", "expense_date", "category", "vendor", "amount", "vat", "payment_method", "notes", "attachment_name", "status", "created_by", "created_at"],
 };
 function listSelectFor(resource) {
   if (!["products", "expenses"].includes(resource)) return "*";
@@ -2611,6 +2612,16 @@ export async function crmApiHandler(req, res) {
           const nextPaid = Number(paid) + amount;
           if (nextPaid > Number(invoice.amount || 0) + 0.01) return send(res, 400, { error: `El cobro supera el importe pendiente (${Math.max(0, Number(invoice.amount || 0) - Number(paid)).toFixed(2)} €)` });
         }
+        if (t === "expenses") {
+          const amount = Number(d.amount);
+          if (!String(d.expense_date || "").trim()) return send(res, 400, { error: "Indica la fecha del gasto" });
+          if (!Number.isFinite(amount) || amount < 0) return send(res, 400, { error: "Indica un importe válido" });
+          const attachmentData = String(d.attachment_data || "");
+          if (attachmentData && !attachmentData.startsWith("data:")) return send(res, 400, { error: "El justificante no tiene un formato válido" });
+          if (attachmentData.length > 11500000) return send(res, 400, { error: "El justificante ocupa demasiado. Sube una imagen de hasta 8 MB" });
+          d.status = "Pendiente";
+          d.created_by = String(d.created_by || actor).trim() || actor;
+        }
         if (t === "returns") {
           const quantity = Number(d.quantity);
           const productId = Number(d.product_id);
@@ -2717,6 +2728,9 @@ export async function crmApiHandler(req, res) {
           // La notificación de alta debe apuntar al pedido concreto para
           // que el clic abra directamente su modal, no el listado general.
           recordAudit(actor, "POST", `orders/${Number(r.lastInsertRowid)}`, "Alta", `${d.code || "Pedido nuevo"} · pedido registrado`);
+        }
+        if (t === "expenses") {
+          recordAudit(actor, "POST", `expenses/${Number(r.lastInsertRowid)}`, "Registrar gasto", `${d.code || "Gasto nuevo"} · ${Number(d.amount || 0).toFixed(2)} € · ${d.category || "Otros"}`);
         }
         if (t === "notes" && String(d.module || "") === "Preparación de pedidos" && Number(d.important || 0) === 1) {
           recordAudit(actor, "POST", `preparation-incidents/${Number(r.lastInsertRowid)}`, "Incidencia preparación", JSON.stringify({ note_id: Number(r.lastInsertRowid), order_id: Number(d.record_id || 0) || null, content: String(d.content || d.title || "Incidencia de preparación") }));

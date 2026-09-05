@@ -806,6 +806,8 @@ const cfg: any = {
       "payment_method",
       "notes",
       "attachment_name",
+      "status",
+      "created_by",
     ],
     labels: [
       "Código",
@@ -818,6 +820,8 @@ const cfg: any = {
       "Forma de pago",
       "Notas",
       "Justificante",
+      "Estado",
+      "Registrado por",
     ],
   },
   Documentos: {
