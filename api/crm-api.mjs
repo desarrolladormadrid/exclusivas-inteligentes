@@ -1051,7 +1051,8 @@ function lookupSelectFor(resource) {
   if (!requested) return listSelectFor(resource);
   if (!listColumnsCache.has(`lookup:${resource}`)) {
     const available = new Set(db.prepare(`PRAGMA table_info(${resource})`).all().map((column) => String(column.name || "")));
-    const columns = requested.filter((column) => available.has(column)).map((column) => `${resource === "orders" ? "orders." : ""}"${column.replaceAll('"', '""')}"`);
+    const tablePrefix = resource === "orders" ? "orders." : resource === "shipments" ? "shipments." : "";
+    const columns = requested.filter((column) => available.has(column)).map((column) => `${tablePrefix}"${column.replaceAll('"', '""')}"`);
     if (resource === "orders") columns.push("order_client.name AS client_name", "order_client.city AS client_city");
     listColumnsCache.set(`lookup:${resource}`, columns.length ? columns.join(",") : "*");
   }

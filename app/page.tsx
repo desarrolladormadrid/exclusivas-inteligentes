@@ -1996,7 +1996,7 @@ function PreparationDayCards({ rows, lookups, onOpen, dateFilter, onDateFilterCh
     { key: "incident", title: "Con incidencia", hint: "Requieren revisión", match: (row: any) => row.status === "Preparado con incidencia" },
     { key: "paused", title: "Bloqueados / pospuestos", hint: "Fuera del circuito", match: (row: any) => ["Bloqueado", "Pospuesto"].includes(row.status || "") },
   ];
-  const renderCard = (row: any) => { const client = getClient(row.client_id); const address = typeof row.address === "string" ? row.address : row.address?.address || row.address?.name || "Dirección no indicada"; return <button type="button" key={row.id} className={`prep-order-card${Number(row.urgent) === 1 ? " is-urgent" : ""}${row.status === "Preparado" ? " is-completed" : ""}${row.status === "Preparado con incidencia" ? " has-incident" : ""}`} onClick={() => onOpen(row)}><span className="prep-card-top"><b>{row.code}</b><em>{Number(row.urgent) === 1 ? "URGENTE" : row.status || "Pendiente"}</em></span><strong>{client?.name || `Cliente #${row.client_id || "—"}`}</strong><span>{address}</span><span className="prep-card-meta">Entrega: {formatSpanishDateValue(row.delivery_date || row.expected_delivery_at, false)}{row.packages ? ` · ${row.packages} bultos` : ""}</span><small>{row.notes || "Sin observaciones"}</small><i>▶ Abrir comanda</i></button>; };
+  const renderCard = (row: any) => { const client = getClient(row.client_id); const clientLabel = lookups.clients ? (client?.name || "Cliente no identificado") : "Cargando cliente…"; const address = typeof row.address === "string" ? row.address : row.address?.address || row.address?.name || "Dirección no indicada"; return <button type="button" key={row.id} className={`prep-order-card${Number(row.urgent) === 1 ? " is-urgent" : ""}${row.status === "Preparado" ? " is-completed" : ""}${row.status === "Preparado con incidencia" ? " has-incident" : ""}`} onClick={() => onOpen(row)}><span className="prep-card-top"><b>{row.code}</b><em>{Number(row.urgent) === 1 ? "URGENTE" : row.status || "Pendiente"}</em></span><strong>{clientLabel}</strong><span>{address}</span><span className="prep-card-meta">Entrega: {formatSpanishDateValue(row.delivery_date || row.expected_delivery_at, false)}{row.packages ? ` · ${row.packages} bultos` : ""}</span><small>{row.notes || "Sin observaciones"}</small><i>▶ Abrir comanda</i></button>; };
   return <section className="prep-command-board" aria-label="Comandas de preparación"><div className="prep-command-toolbar"><div className="prep-command-toolbar-title"><b>Pedidos para preparar</b><span>{dateFilter ? `Preparación del ${formatSpanishDateValue(dateFilter, false)}` : "Todas las preparaciones"}</span></div><div className="prep-command-filters"><label>Preparar el día<input type="date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value)} /></label><button type="button" className={`button ${dateFilter === today ? "primary" : "secondary"}`} aria-pressed={dateFilter === today} onClick={() => onDateFilterChange(today)}>Hoy</button><button type="button" className={`button ${dateFilter === tomorrow ? "primary" : "secondary"}`} aria-pressed={dateFilter === tomorrow} onClick={() => onDateFilterChange(tomorrow)}>Mañana</button><button type="button" className={`button ${dateFilter === "" ? "primary" : "secondary"}`} aria-pressed={dateFilter === ""} onClick={() => onDateFilterChange("")}>Todos</button></div></div><div className="prep-command-summary"><span><b>{items.length}</b> pedidos</span><span><b>{items.filter((row) => Number(row.urgent) === 1).length}</b> urgentes</span><span><b>{items.filter((row) => row.status === "Preparado con incidencia").length}</b> con incidencia</span><span className="prep-command-summary-hint">Pulsa una comanda para revisar sus líneas</span></div>{!items.length ? <div className="prep-command-empty"><b>{dateFilter ? "No hay pedidos para esta fecha" : "No hay pedidos pendientes"}</b><span>{dateFilter ? "Prueba otra fecha o pulsa “Todos”." : "Cuando se creen preparaciones aparecerán aquí."}</span></div> : <div className="prep-command-columns">{groups.map((group) => { const groupItems = items.filter(group.match); return <section className={`prep-command-column prep-command-${group.key}`} key={group.key}><header><div><b>{group.title}</b><small>{group.hint}</small></div><strong>{groupItems.length}</strong></header><div>{groupItems.map(renderCard)}{!groupItems.length && <p className="prep-command-none">Sin pedidos</p>}</div></section>; })}</div>}</section>;
 }
 
@@ -4493,8 +4493,11 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const isLoadPreparation = active === "Preparación de pedidos";
   const usesRecordModal = ["Clientes", "Proveedores", "Almacenes", "Lugares de recogida", "Productos"].includes(active);
   const previewLocation = preview ? (lookups.collection_points || []).find((item: any) => Number(item.id) === Number(preview.collection_point_id)) : null;
-  const previewLat = Number(previewLocation?.latitude ?? previewClient?.latitude);
-  const previewLon = Number(previewLocation?.longitude ?? previewClient?.longitude);
+  const previewLatValue = Number(previewLocation?.latitude ?? previewClient?.latitude);
+  const previewLonValue = Number(previewLocation?.longitude ?? previewClient?.longitude);
+  const previewLat = Number.isFinite(previewLatValue) ? previewLatValue : null;
+  const previewLon = Number.isFinite(previewLonValue) ? previewLonValue : null;
+  const hasPreviewCoordinates = Number.isFinite(previewLat) && Number.isFinite(previewLon);
   const previewAddress = preview?.address || previewLocation?.address || previewClient?.address || "";
   const previewCity = preview?.delivery_city || previewLocation?.city || previewClient?.city || preview?.city || "";
   const previewMapQuery = [previewAddress, previewCity, previewLocation?.name, previewClient?.name, "España"].filter(Boolean).join(", ");
@@ -4506,7 +4509,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
   const previewNavigationOrigin = previewWarehouseCoordinates
     ? `${previewWarehouseCoordinates.latitude},${previewWarehouseCoordinates.longitude}`
     : previewWarehouseAddress;
-  const previewNavigationUrl = `https://www.google.com/maps/dir/?api=1${previewNavigationOrigin ? `&origin=${encodeURIComponent(previewNavigationOrigin)}` : ""}&destination=${encodeURIComponent(previewLat && previewLon ? `${previewLat},${previewLon}` : previewMapQuery)}`;
+  const previewNavigationUrl = `https://www.google.com/maps/dir/?api=1${previewNavigationOrigin ? `&origin=${encodeURIComponent(previewNavigationOrigin)}` : ""}&destination=${encodeURIComponent(hasPreviewCoordinates ? `${previewLat},${previewLon}` : previewMapQuery)}`;
   useEffect(() => {
     let cancelled = false;
     setPreviewWarehouseCoordinates(null);
@@ -5494,7 +5497,9 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
                 <b>{active === "Compras" ? "Proveedor" : "Cliente"}</b>
                 <br />
                 {(active === "Compras" ? previewSupplier?.name : previewClient?.name) ||
-                  `Cliente #${preview.client_id || "sin asignar"}`}
+                  (previewLoading
+                    ? active === "Compras" ? "Cargando proveedor…" : "Cargando cliente…"
+                    : active === "Compras" ? "Proveedor no identificado" : "Cliente no identificado")}
                 <br />
                 {previewAddress || "Dirección no indicada"}
                 {previewCity && <><br />{previewCity}</>}
