@@ -10,6 +10,7 @@
     { "source": "/crm", "destination": "/api/index" },
     { "source": "/comercial", "destination": "/api/index" },
     { "source": "/almacen", "destination": "/api/index" },
+    { "source": "/reparto", "destination": "/api/index" },
     { "source": "/web", "destination": "/api/index" },
     { "source": "/ocr", "destination": "/api/index" },
     { "source": "/portal-pedidos", "destination": "/api/index" },
