@@ -1,0 +1,23 @@
+# Dependencias y salidas generadas localmente
+node_modules/
+.git/
+.next/
+.vinext/
+.wrangler/
+.vercel/
+.openai/
+dist/
+data/
+logs/
+work/
+
+# Pruebas y evidencias no necesarias para ejecutar la aplicación
+tests/
+screenshots/
+qa-*.png
+prod-orders.json
+tsconfig.tsbuildinfo
+
+# Paquetes y registros locales
+*.tar.gz
+*.log
