@@ -6,7 +6,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRemoteDatabaseSync } from "../remote-db-sync.mjs";
 const dir = join(process.cwd(), "data");
-if (!existsSync(dir)) mkdirSync(dir);
 const envPath = join(process.cwd(), ".env.local");
 if (existsSync(envPath)) {
   for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
@@ -382,6 +381,7 @@ function documentShareUrl(req, type, token) {
   return `${protocol}://${host}/api/documents/${encodeURIComponent(type)}/share/${encodeURIComponent(token)}`;
 }
 const remoteMode = process.env.DATABASE_MODE === "remote";
+if (!remoteMode && !existsSync(dir)) mkdirSync(dir);
 const db = remoteMode
   ? createRemoteDatabaseSync({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN })
   : new DatabaseSync(join(dir, "excluvas.sqlite"));
