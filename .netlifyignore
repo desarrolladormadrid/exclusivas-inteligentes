@@ -5,7 +5,6 @@ node_modules/
 .vinext/
 .wrangler/
 .vercel/
-.openai/
 dist/
 data/
 logs/
