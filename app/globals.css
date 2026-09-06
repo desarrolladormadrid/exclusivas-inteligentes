@@ -1,4 +1,11 @@
 @import "tailwindcss";
+
+/* Netlify injects its promotional badge into the document at runtime. Keep
+   the production UI free of host branding without touching application UI. */
+#nl-badge-frame,
+#nl-badge {
+  display: none !important;
+}
 .settings-field {
   display: flex;
   flex-direction: column;
