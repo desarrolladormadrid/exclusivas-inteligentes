@@ -5,6 +5,7 @@
 - En este proyecto, cuando el usuario diga "desplegar", "publicar" o "subir a producción", significa siempre desplegar en Vercel mediante el proyecto habitual `exclusivas-inteligentes`.
 - La URL de producción de referencia es `https://exclusivas-inteligentes.vercel.app`.
 - No utilizar Sites de Codex ni generar una URL alternativa de Sites para un despliegue de este proyecto, salvo que el usuario lo solicite expresamente.
+- Cada nuevo despliegue de producción debe incrementar la versión del proyecto. El incremento debe reflejarse de forma coherente en `package.json`, en la versión visible de la aplicación y en cualquier otra referencia equivalente. Los despliegues de prueba que no se publiquen en producción no requieren un incremento.
 
 Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el usuario. Deben aplicarse a toda la aplicación, no solo a una sección.
 

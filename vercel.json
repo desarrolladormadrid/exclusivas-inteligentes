@@ -1,6 +1,7 @@
 {
   "version": 2,
   "buildCommand": "npm run build",
+  "ignoreCommand": "node scripts/hosting-ignore.mjs",
   "crons": [
     { "path": "/api/scheduler/run", "schedule": "0 0 * * *" }
   ],

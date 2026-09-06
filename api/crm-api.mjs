@@ -3079,4 +3079,11 @@ export async function crmApiHandler(req, res) {
       return send(res, 400, { error: e.message });
     }
   }
-setInterval(runScheduledTasks, 30000);
+// En producción las tareas se disparan mediante el cron del proveedor. Mantener
+// un temporizador por instancia serverless duplica ejecuciones y consume CPU.
+// Se conserva únicamente para el servidor local, donde no existe cron externo.
+const hostedRuntime = process.env.VERCEL === "1" || process.env.NETLIFY === "true" || process.env.NETLIFY === "1";
+if (!hostedRuntime && process.env.ENABLE_BACKGROUND_SCHEDULER !== "0") {
+  const schedulerTimer = setInterval(runScheduledTasks, 30000);
+  schedulerTimer.unref?.();
+}
