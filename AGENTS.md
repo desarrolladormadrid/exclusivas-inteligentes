@@ -9,6 +9,13 @@
 
 Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el usuario. Deben aplicarse a toda la aplicación, no solo a una sección.
 
+## Excepción explícita: servidor propio y traspaso a otro OpenCode
+
+- Si el usuario indica expresamente que esta instalación debe ejecutarse en un servidor propio o en otro ordenador, esa instrucción prevalece sobre el destino Vercel indicado arriba para ese despliegue concreto.
+- En ese escenario no desplegar en Vercel ni Netlify salvo petición posterior y explícita. Usar `server-selfhost.mjs`, `OPENCODE-HANDOFF.md` y el proceso persistente del servidor.
+- No crear un proyecto vacío si la ruta del repositorio no existe. Clonar o hacer accesible el repositorio real antes de continuar.
+- Leer `OPENCODE-HANDOFF.md` para las rutas, variables, endpoints, comandos de arranque y reglas de OpenWA.
+
 ## Directriz prioritaria: evidencias visuales visibles en el chat
 
 - Cada vez que se realice una prueba visual, se descubra un error, aparezca un estado incorrecto o se compruebe un resultado, hay que guardar una captura y mostrarla inmediatamente como imagen renderizada dentro del chat.
