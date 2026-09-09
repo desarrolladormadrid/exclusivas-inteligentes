@@ -20,6 +20,36 @@ Pega este bloque como primer mensaje de contexto:
 >
 > Antes de cualquier publicación: ejecuta las pruebas, revisa el diff completo y confirma si el estado es “solo local”, “preview” o “producción”. Cada despliegue de producción debe incrementar la versión de forma coherente en `package.json`, en la versión visible de la aplicación y en las referencias equivalentes.
 
+## Entorno objetivo: miniPC con servidor propio y OpenCode
+
+El entorno objetivo es un miniPC que cumple simultáneamente estas funciones:
+
+1. Servidor propio donde se ejecuta la aplicación.
+2. Ordenador donde está clonado el repositorio.
+3. Equipo donde OpenCode permanece abierto para trabajar sobre el código, revisar la aplicación, ejecutar pruebas y preparar/desplegar nuevas versiones en ese servidor.
+
+La ruta exacta del clon en el miniPC todavía debe comprobarse. No se debe inventar una ruta ni crear otro proyecto si la carpeta no existe. Una vez localizada, debe guardarse como la ruta de trabajo del proyecto en ese equipo. La ruta de referencia del repositorio original es `C:\codex_desarrollos\Excluvas Inteligentes`.
+
+OpenCode puede interactuar con la aplicación mediante su URL local o privada, lanzar el proceso self-hosted, revisar logs y ejecutar el protocolo de pruebas. La conexión de WhatsApp, sin embargo, debe ejecutarse como un proceso persistente independiente (`whatsapp-gateway`), gestionado por PM2, NSSM, systemd o el mecanismo de servicios del miniPC. OpenCode puede mantener ese proceso y modificar su código, pero no se debe asumir que una ventana abierta de OpenCode sustituye a un servicio.
+
+Flujo de trabajo previsto en el miniPC:
+
+```text
+OpenCode modifica y revisa
+        ↓
+npm test + pruebas visuales/locales
+        ↓
+npm run build
+        ↓
+reinicio controlado de start:selfhost
+        ↓
+comprobación de la URL privada/pública del servidor propio
+        ↓
+whatsapp-gateway independiente recibe mensajes
+```
+
+La producción de Vercel y Netlify queda fuera de este flujo por el límite de uso indicado por el usuario. No consumir despliegues allí salvo autorización posterior.
+
 ## Fuente de verdad y estado actual
 
 - Rama principal: `main`.
@@ -27,7 +57,7 @@ Pega este bloque como primer mensaje de contexto:
 - Versión actual: `2.0.66`.
 - El código funcional actual está sincronizado con GitHub.
 - El nuevo gateway local de WhatsApp está en `whatsapp-gateway/`.
-- Producción Netlify/Vercel no debe tocarse durante esta fase.
+- Producción Netlify/Vercel no debe tocarse durante esta fase porque queda poco uso disponible.
 - El gateway actual recibe textos y audios, identifica clientes por teléfono y los deja como pendientes en la bandeja del CRM. Todavía no crea pedidos definitivos ni envía respuestas automáticas.
 - El siguiente bloque funcional debe añadir un agente con herramientas cerradas: buscar cliente, buscar producto, consultar stock, preparar borrador de pedido, pedir confirmación y solo después crear el pedido.
 

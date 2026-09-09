@@ -15,6 +15,8 @@ Estas reglas recogen las decisiones de diseño y funcionamiento acordadas con el
 - En ese escenario no desplegar en Vercel ni Netlify salvo petición posterior y explícita. Usar `server-selfhost.mjs`, `OPENCODE-HANDOFF.md` y el proceso persistente del servidor.
 - No crear un proyecto vacío si la ruta del repositorio no existe. Clonar o hacer accesible el repositorio real antes de continuar.
 - Leer `OPENCODE-HANDOFF.md` para las rutas, variables, endpoints, comandos de arranque y reglas de OpenWA.
+- El entorno objetivo es un miniPC con servidor propio y OpenCode abierto de forma permanente. OpenCode puede revisar la aplicación, ejecutar pruebas y desplegar en ese servidor; la conexión de WhatsApp debe mantenerse como proceso persistente independiente y no depender de la ventana de OpenCode.
+- La siguiente ampliación prevista es integrar el agente de WhatsApp con interpretación de texto/audio y creación segura de borradores de pedidos. No implementar confirmaciones automáticas destructivas sin pruebas y confirmación del usuario.
 
 ## Directriz prioritaria: evidencias visuales visibles en el chat
 
