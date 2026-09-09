@@ -4096,7 +4096,9 @@ select.form-control option:hover {
     border-top: 0;
   }
   .crm-shell .notification-button { width: 34px; height: 34px; }
-  .crm-shell .notification-menu { top: 54px; left: 8px; right: 8px; width: auto; max-height: min(66dvh, 440px); }
+  /* El menú lateral compacto usa z-index 120; las notificaciones deben quedar
+     por encima para no convertirse en una franja blanca bajo el encabezado. */
+  .crm-shell .notification-menu { top: 54px; left: 8px; right: 8px; z-index: 140; width: auto; max-height: min(66dvh, 440px); }
   .crm-shell .user-menu-trigger {
     width: 72px;
     min-width: 72px;
