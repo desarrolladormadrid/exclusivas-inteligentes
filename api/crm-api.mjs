@@ -412,7 +412,7 @@ for (const column of ["status TEXT DEFAULT 'Pendiente'", "resolution TEXT", "res
 db.exec(`CREATE TABLE IF NOT EXISTS document_templates(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,title TEXT NOT NULL,type TEXT NOT NULL,format TEXT DEFAULT 'HTML',description TEXT,subject TEXT,content TEXT NOT NULL,status TEXT DEFAULT 'Activa',created_by TEXT DEFAULT 'Usuario local',created_at TEXT,updated_at TEXT);`);
 try { db.exec("ALTER TABLE document_templates ADD COLUMN format TEXT DEFAULT 'HTML'"); } catch {}
 db.exec(`CREATE TABLE IF NOT EXISTS returns(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,client_id INTEGER,invoice_id INTEGER,product_id INTEGER,quantity REAL DEFAULT 0,reason TEXT,status TEXT DEFAULT 'Pendiente',amount REAL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
-for (const column of ["stock_applied_at TEXT", "stock_applied_by TEXT", "warehouse_id INTEGER"]) {
+for (const column of ["stock_applied_at TEXT", "stock_applied_by TEXT", "warehouse_id INTEGER", "order_id INTEGER", "shipment_id INTEGER", "order_line_id INTEGER"]) {
   try { db.exec(`ALTER TABLE returns ADD COLUMN ${column}`); } catch {}
 }
 db.exec(`CREATE TABLE IF NOT EXISTS collection_points(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE,name TEXT NOT NULL,client_id INTEGER,address TEXT,city TEXT,contact TEXT,phone TEXT,email TEXT,opening_hours TEXT,opening_time TEXT,closing_time TEXT,notes TEXT);`);
@@ -2629,6 +2629,23 @@ export async function crmApiHandler(req, res) {
           if (!productId || !Number.isFinite(quantity) || quantity <= 0) return send(res, 400, { error: "La devolución debe indicar un producto y una cantidad mayor que cero" });
           const product = db.prepare("SELECT id FROM products WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(productId);
           if (!product) return send(res, 400, { error: "Producto no encontrado" });
+          const orderId = Number(d.order_id || 0);
+          const shipmentId = Number(d.shipment_id || 0);
+          const orderLineId = Number(d.order_line_id || 0);
+          const order = orderId ? db.prepare("SELECT id,client_id FROM orders WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(orderId) : null;
+          if (orderId && !order) return send(res, 400, { error: "El pedido relacionado no existe" });
+          const shipment = shipmentId ? db.prepare("SELECT id,order_id,client_id FROM shipments WHERE id=? AND CAST(COALESCE(deleted,0) AS INTEGER)=0").get(shipmentId) : null;
+          if (shipmentId && !shipment) return send(res, 400, { error: "El envío relacionado no existe" });
+          if (shipment && orderId && Number(shipment.order_id) !== orderId) return send(res, 400, { error: "El envío no pertenece al pedido indicado" });
+          const line = orderLineId ? db.prepare("SELECT id,order_id,product_id,quantity FROM order_lines WHERE id=?").get(orderLineId) : null;
+          if (orderLineId && !line) return send(res, 400, { error: "La línea del pedido no existe" });
+          if (line && orderId && Number(line.order_id) !== orderId) return send(res, 400, { error: "La línea no pertenece al pedido indicado" });
+          if (line && Number(line.product_id) !== productId) return send(res, 400, { error: "La línea no corresponde al producto devuelto" });
+          if (line && Number(line.quantity || 0) > 0 && quantity > Number(line.quantity)) return send(res, 400, { error: "La devolución supera la cantidad de la línea del pedido" });
+          d.order_id = orderId || line?.order_id || shipment?.order_id || null;
+          d.shipment_id = shipmentId || null;
+          d.order_line_id = orderLineId || null;
+          d.client_id = d.client_id || order?.client_id || shipment?.client_id || null;
           d.status = d.status || "Pendiente";
         }
         if (t === "inventory_movements" && d.product_id && d.quantity) {

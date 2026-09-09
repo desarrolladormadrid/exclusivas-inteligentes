@@ -4,13 +4,15 @@ import { useEffect, useRef, useState } from "react";
 
 type BarcodeScannerProps = {
   label?: string;
+  description?: string;
   onDetected: (value: string) => void;
   disabled?: boolean;
 };
 
-export default function BarcodeScanner({ label = "Escanear", onDetected, disabled = false }: BarcodeScannerProps) {
+export default function BarcodeScanner({ label = "Escanear", description = "Apunta al QR o código de barras de la etiqueta.", onDetected, disabled = false }: BarcodeScannerProps) {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
+  const [manualCode, setManualCode] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -71,15 +73,16 @@ export default function BarcodeScanner({ label = "Escanear", onDetected, disable
   }, [open, onDetected]);
 
   return <>
-    <button type="button" className="button secondary warehouse-scan-button" disabled={disabled} onClick={() => { setMessage(""); setOpen(true); }}>
+    <button type="button" className="button secondary warehouse-scan-button" disabled={disabled} onClick={() => { setMessage(""); setManualCode(""); setOpen(true); }}>
       ◉ {label}
     </button>
     {open && <div className="warehouse-scanner-overlay" role="dialog" aria-modal="true" aria-label={label}>
       <section className="warehouse-scanner-modal">
-        <header><div><p className="eyebrow">LECTURA DE CÓDIGO</p><h2>{label}</h2><span>Apunta al QR o código de barras de la ubicación.</span></div><button type="button" className="preview-close" aria-label="Cerrar lector" onClick={() => setOpen(false)}>×</button></header>
+        <header><div><p className="eyebrow">LECTURA DE CÓDIGO</p><h2>{label}</h2><span>{description}</span></div><button type="button" className="preview-close" aria-label="Cerrar lector" onClick={() => setOpen(false)}>×</button></header>
         <div className="warehouse-scanner-view"><video ref={videoRef} playsInline muted /><span className="warehouse-scanner-frame" /></div>
         <p className="warehouse-scanner-message" role="status">{message || "Preparando cámara…"}</p>
-        <footer><span>También puedes usar un lector PDA: enfoca el campo y escanea.</span><button type="button" className="button primary" onClick={() => setOpen(false)}>Cerrar</button></footer>
+        <form className="warehouse-scanner-manual" onSubmit={(event) => { event.preventDefault(); const value = manualCode.trim(); if (!value) return setMessage("Escribe o escanea un código."); onDetected(value); setOpen(false); }}><label>Código introducido o leído por PDA<input autoFocus value={manualCode} onChange={(event) => setManualCode(event.target.value)} placeholder="ENV-2026-0001 o enlace…" /></label><button type="submit" className="button secondary">Usar código</button></form>
+        <footer><span>Si el navegador no tiene lectura automática, usa este campo con el lector PDA.</span><button type="button" className="button primary" onClick={() => setOpen(false)}>Cerrar</button></footer>
       </section>
     </div>}
   </>;

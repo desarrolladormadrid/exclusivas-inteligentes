@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { DeliverySignaturePanel } from "../page";
+import BarcodeScanner from "../components/BarcodeScanner";
 
 function todayInput() {
   const date = new Date();
@@ -302,6 +303,23 @@ export default function RepartoPage() {
     }
   }
 
+  async function openScannedShipment(value: string) {
+    const raw = String(value || "").trim();
+    if (!raw) return;
+    let scanned = raw;
+    try {
+      const parsed = new URL(raw);
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      scanned = decodeURIComponent(parts.at(-1) || raw);
+    } catch {}
+    const normalized = scanned.toLocaleLowerCase();
+    const match = shipments.find((item) => [item.code, item.order_code, item.public_tracking_token].some((candidate) => String(candidate || "").trim().toLocaleLowerCase() === normalized))
+      || shipments.find((item) => [item.code, item.order_code].some((candidate) => String(candidate || "").trim().toLocaleLowerCase().includes(normalized)));
+    if (!match) return setMessage(`No se ha encontrado ningún pedido para el código ${raw}.`);
+    setMessage(`Pedido ${match.order_code || match.code} localizado.`);
+    await openShipment(match);
+  }
+
   async function updateStop(stop: any, nextStatus: string) {
     if (!activeRoute || !stop.id || String(stop.id).startsWith("suggested-")) {
       setMessage("Esta vista es una sugerencia. Selecciona una ruta planificada para guardar el check.");
@@ -331,8 +349,10 @@ export default function RepartoPage() {
     setSaving(true);
     try {
       const quantity = Number(returnQuantity);
+      const maximum = Number(returnLine.quantity_requested ?? returnLine.quantity ?? 0);
+      if (!Number.isFinite(quantity) || quantity <= 0 || (maximum > 0 && quantity > maximum)) throw new Error(`La cantidad no puede superar las ${maximum} unidades entregadas.`);
       const product = products.find((item) => Number(item.id) === Number(returnLine.product_id));
-      const response = await fetch("/api/returns", { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify({ code: `DEV-${Date.now()}`, client_id: selectedShipment.client_id || null, product_id: Number(returnLine.product_id), quantity, return_date: new Date().toISOString(), reason: `${returnReason.trim()} · Envío ${selectedShipment.code}`, status: "Pendiente", amount: quantity * Number(product?.unit_price || returnLine.unit_price || 0) }) });
+const response = await fetch("/api/returns", { method: "POST", headers: { "Content-Type": "application/json", "X-Actor": actor }, body: JSON.stringify({ code: `DEV-${Date.now()}`, client_id: selectedShipment.client_id || null, order_id: selectedShipment.order_id || null, shipment_id: selectedShipment.id, order_line_id: returnLine.id, product_id: Number(returnLine.product_id), warehouse_id: product?.warehouse_id || null, quantity, return_date: new Date().toISOString(), reason: `${returnReason.trim()} · Envío ${selectedShipment.code}`, status: "Pendiente", amount: quantity * Number(product?.unit_price || returnLine.unit_price || 0) }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo registrar la devolución.");
       setReturnsOpen(false);
@@ -351,7 +371,7 @@ export default function RepartoPage() {
   return <main className="reparto-page">
     <header className="reparto-topbar"><a className="reparto-brand" href="/reparto"><span>E</span><div><b>Exclusivas</b><small>INTELIGENTES</small></div></a><div className="reparto-topbar-actions"><span className="reparto-connection"><i /> Modo reparto</span><button type="button" onClick={logout}>Cerrar sesión</button></div></header>
     <div className="reparto-shell">
-      <section className="reparto-head"><div><p className="eyebrow">OPERATIVA DE REPARTO</p><h1>Reparto de hoy</h1><p>Consulta tu ruta, abre cada entrega y registra la recepción desde el móvil.</p></div><button type="button" className="reparto-refresh" onClick={() => void load()} disabled={loading}>↻ Actualizar</button></section>
+      <section className="reparto-head"><div><p className="eyebrow">OPERATIVA DE REPARTO</p><h1>Reparto de hoy</h1><p>Consulta tu ruta, abre cada entrega y registra la recepción desde el móvil.</p></div><div className="reparto-head-actions"><BarcodeScanner label="Escanear pedido" description="Apunta al QR o código de barras del pedido o de la etiqueta de envío." onDetected={(value) => void openScannedShipment(value)} disabled={loading} /><button type="button" className="reparto-refresh" onClick={() => void load()} disabled={loading}>↻ Actualizar</button></div></section>
       <section className="reparto-datebar"><button type="button" onClick={() => setDate(todayInput())} className={date === todayInput() ? "active" : ""}>Hoy <small>{dateLabel(todayInput())}</small></button><button type="button" onClick={() => setDate(offsetDate(1))} className={date === offsetDate(1) ? "active" : ""}>Mañana <small>{dateLabel(offsetDate(1))}</small></button><label>Otra fecha<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label></section>
       <section className="reparto-kpis"><article><strong>{dayShipments.length}</strong><span>entregas del día</span></article><article><strong>{pending}</strong><span>pendientes</span></article><article><strong>{completed}</strong><span>paradas completadas</span></article><article className={incidents ? "attention" : ""}><strong>{incidents}</strong><span>con incidencias</span></article></section><section className="reparto-next-stop" aria-label="Siguiente entrega">{nextStop ? <><div><span className="eyebrow">SIGUIENTE PARADA</span><b>{nextStop.client_name || "Cliente sin nombre"}</b><small>{[nextStop.address, nextStop.city].filter(Boolean).join(" · ") || "Dirección no indicada"}{nextStop.opening_time && nextStop.closing_time ? ` · ${nextStop.opening_time}–${nextStop.closing_time}` : ""}</small></div><button type="button" className="button primary" onClick={() => { const shipment = shipments.find((item) => Number(item.id) === Number(nextStop.shipment_id)) || nextStop; void openShipment(shipment); }}>Abrir próxima entrega</button></> : <div><span className="eyebrow">RUTA COMPLETADA</span><b>No quedan paradas pendientes</b><small>Revisa las incidencias y justificantes antes de cerrar la jornada.</small></div>}</section>
       {message && <p className="reparto-message" role="status">{message}</p>}

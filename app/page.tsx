@@ -6,7 +6,7 @@ import QRCode from "qrcode";
 import JsBarcode from "jsbarcode";
 import BarcodeScanner from "./components/BarcodeScanner";
 
-const APP_VERSION = "2.0.63";
+const APP_VERSION = "2.0.64";
 const APP_ENVIRONMENT = process.env.NODE_ENV === "production" ? "Producción" : "Local";
 
 const initialModules = [
@@ -499,6 +499,9 @@ const cfg: any = {
       "client_id",
       "invoice_id",
       "product_id",
+      "order_id",
+      "shipment_id",
+      "order_line_id",
       "quantity",
       "return_date",
       "reason",
@@ -507,6 +510,7 @@ const cfg: any = {
       "reviewed_at",
       "authorized_by",
       "authorized_at",
+      "stock_applied_at",
       "amount",
     ],
     labels: [
@@ -514,6 +518,9 @@ const cfg: any = {
       "Cliente",
       "Factura",
       "Producto",
+      "Pedido",
+      "Envío",
+      "Línea de pedido",
       "Cantidad",
       "Fecha y hora",
       "Motivo",
@@ -522,6 +529,7 @@ const cfg: any = {
       "Fecha de revisión",
       "Autorizado por",
       "Fecha de autorización",
+      "Stock actualizado en",
       "Importe",
     ],
   },
@@ -1700,6 +1708,7 @@ function ProductLabelModal({ product, actor, onClose, onSaved }: { product: any;
   const [qrImage, setQrImage] = useState("");
   const [barcodeDownloadUrl, setBarcodeDownloadUrl] = useState("");
   const [saving, setSaving] = useState(false);
+  const [printMode, setPrintMode] = useState<"all" | "barcode" | "qr" | "both">("all");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const barcodeRef = useRef<SVGSVGElement>(null);
@@ -1726,10 +1735,11 @@ function ProductLabelModal({ product, actor, onClose, onSaved }: { product: any;
         <div className="product-label-head"><div><p className="eyebrow">ETIQUETA DE PRODUCTO</p><h2>{product.name}</h2><small>Genera, guarda e imprime los códigos del catálogo.</small></div><button type="button" onClick={onClose} aria-label="Cerrar">×</button></div>
         <div className="product-label-code"><label>Código de barras / referencia<input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} /></label><button className="button primary" type="button" onClick={saveCode} disabled={saving}>{saving ? "Guardando…" : "Guardar código"}</button></div>
         {error && <p className="users-manager-error">{error}</p>}
-        <div className="product-label-preview">
+        <div className={`product-label-preview product-label-print-${printMode}`}>
           <div className="print-label"><b>EXCLUSIVAS</b><strong>{product.name}</strong><small>{product.sku || code}</small><svg ref={barcodeRef} aria-label={`Código de barras ${code}`} /><span>{Number(product.unit_price || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</span><a className="button secondary product-code-download" href={barcodeDownloadUrl || "#"} download={`${code || "codigo-producto"}-barras.svg`} onClick={(event) => !barcodeDownloadUrl && event.preventDefault()}>Descargar barras SVG</a></div>
           <div className="product-qr-card"><b>Código QR</b>{qrImage ? <img src={qrImage} alt={`Código QR de ${product.name}`} /> : <span>Generando…</span>}<small>{code}</small>{qrImage && <a className="button secondary product-code-download" href={qrImage} download={`${code || "codigo-producto"}-qr.png`}>Descargar QR PNG</a>}</div>
         </div>
+        <div className="product-label-print-controls"><label>Qué imprimir<select value={printMode} onChange={(event) => setPrintMode(event.target.value as typeof printMode)}><option value="all">Etiqueta completa</option><option value="barcode">Solo código de barras</option><option value="qr">Solo código QR</option><option value="both">QR + código de barras</option></select></label><small>El modo se aplica al imprimir o guardar como PDF.</small></div>
         <div className="product-label-actions"><button className="button secondary" type="button" onClick={onClose}>Cerrar</button><button className="button primary" type="button" onClick={() => window.print()}>Imprimir etiqueta</button></div>
       </div>
     </div>
@@ -1785,6 +1795,7 @@ function ProductDetailDrawer({ product, onClose, onEdit, onLabel, onDuplicate }:
 
 function ProductBatchLabelModal({ products, onClose }: { products: any[]; onClose: () => void }) {
   const [qrImages, setQrImages] = useState<Record<string, string>>({});
+  const [printMode, setPrintMode] = useState<"all" | "barcode" | "qr" | "both">("all");
   const barcodeRefs = useRef<Record<string, SVGSVGElement | null>>({});
   useEffect(() => {
     Promise.all(products.map(async (product) => {
@@ -1803,7 +1814,8 @@ function ProductBatchLabelModal({ products, onClose }: { products: any[]; onClos
     <div className="preview-overlay product-label-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
       <div className="product-batch-modal" onClick={(event) => event.stopPropagation()}>
         <div className="product-label-head"><div><p className="eyebrow">ETIQUETAS SELECCIONADAS</p><h2>{products.length} productos</h2><small>Previsualiza e imprime todas las etiquetas del listado.</small></div><button type="button" onClick={onClose} aria-label="Cerrar">×</button></div>
-        <div className="product-batch-grid">{products.map((product) => { const code = String(product.barcode || product.sku || `EXC-${String(product.id).padStart(5, "0")}`); return <div className="product-batch-label" key={product.id}><b>EXCLUSIVAS</b><strong>{product.name}</strong><svg ref={(node) => { barcodeRefs.current[String(product.id)] = node; }} /><small>{code}</small>{qrImages[String(product.id)] && <img src={qrImages[String(product.id)]} alt={`Código QR de ${product.name}`} />}</div>; })}</div>
+        <div className={`product-batch-grid product-batch-print-${printMode}`}>{products.map((product) => { const code = String(product.barcode || product.sku || `EXC-${String(product.id).padStart(5, "0")}`); return <div className="product-batch-label" key={product.id}><b>EXCLUSIVAS</b><strong>{product.name}</strong><svg ref={(node) => { barcodeRefs.current[String(product.id)] = node; }} /><small>{code}</small>{qrImages[String(product.id)] && <img src={qrImages[String(product.id)]} alt={`Código QR de ${product.name}`} />}</div>; })}</div>
+        <div className="product-label-print-controls"><label>Qué imprimir<select value={printMode} onChange={(event) => setPrintMode(event.target.value as typeof printMode)}><option value="all">Etiqueta completa</option><option value="barcode">Solo código de barras</option><option value="qr">Solo código QR</option><option value="both">QR + código de barras</option></select></label><small>El modo se aplica a todas las etiquetas seleccionadas.</small></div>
         <div className="product-label-actions"><button className="button secondary" type="button" onClick={onClose}>Cerrar</button><button className="button primary" type="button" onClick={() => window.print()}>Imprimir etiquetas</button></div>
       </div>
     </div>
@@ -1819,6 +1831,7 @@ function ShipmentLabelModal({ shipment, client, lines, products, address, city, 
   const packages = Math.max(1, Number(shipment?.packages || 1));
   const barcodeRef = useRef<SVGSVGElement>(null);
   const [qrImage, setQrImage] = useState("");
+  const [printMode, setPrintMode] = useState<"all" | "barcode" | "qr" | "both">("all");
   const lineRows = lines.map((line: any) => {
     const product = products.find((item: any) => Number(item.id) === Number(line.product_id));
     const requested = Number(line.quantity_requested || line.quantity || 0);
@@ -1845,13 +1858,14 @@ function ShipmentLabelModal({ shipment, client, lines, products, address, city, 
     <div className="preview-overlay shipment-label-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
       <div className="shipment-label-modal" onClick={(event) => event.stopPropagation()}>
         <div className="product-label-head shipment-label-toolbar"><div><p className="eyebrow">ETIQUETA DE ENVÍO</p><h2>{code}</h2><small>Identifica el pedido, los bultos y su contenido en el almacén y durante el reparto.</small></div><button type="button" onClick={onClose} aria-label="Cerrar">×</button></div>
-        <article className="shipment-label-sheet" aria-label={`Etiqueta de envío ${code}`}>
+        <article className={`shipment-label-sheet shipment-label-print-${printMode}`} aria-label={`Etiqueta de envío ${code}`}>
           <header className="shipment-label-brand"><div><b>EXCLUSIVAS</b><strong>INTELIGENTES</strong></div><div className="shipment-label-code-meta"><span>NOTA DE CARGA</span><b>{code}</b><small className="shipment-label-sticker-note">IDENTIFICACIÓN DE ENVÍO · CONSERVAR HASTA LA ENTREGA</small></div></header>
           <div className="shipment-label-rule" />
           <section className="shipment-label-recipient"><div><span>ENTREGA A</span><strong>{client?.name || shipment?.client_name || "Cliente sin asignar"}</strong><p>{address || "Dirección no indicada"}{city ? ` · ${city}` : ""}</p>{shipment?.delivery_window_start && shipment?.delivery_window_end && <small>Horario: {String(shipment.delivery_window_start).slice(0, 5)}–{String(shipment.delivery_window_end).slice(0, 5)}</small>}</div><div className="shipment-label-packages"><span>BULTOS</span><strong>{packages}</strong></div></section>
           <section className="shipment-label-content"><div className="shipment-label-section-title"><span>CONTENIDO DEL ENVÍO</span><small>{lineRows.length} referencias</small></div>{lineRows.length ? <ul>{lineRows.map((line, index) => <li key={`${line.name}-${index}`}><b>{line.quantity} {line.unit}</b><span>{line.name}</span></li>)}</ul> : <p>Contenido pendiente de cargar.</p>}</section>
           <section className="shipment-label-codes"><div className="shipment-label-barcode"><svg ref={barcodeRef} aria-label={`Código de barras ${code}`} /><small>{code}</small></div><div className="shipment-label-qr">{qrImage ? <img src={qrImage} alt={`Código QR del envío ${code}`} /> : <span>Generando QR…</span>}<small>{trackingUrl ? "Escanea para abrir el seguimiento" : "Escanea para consultar el contenido"}</small>{trackingUrl && <a href={trackingUrl} target="_blank" rel="noreferrer">Abrir seguimiento</a>}</div></section>
         </article>
+        <div className="product-label-print-controls shipment-label-print-controls"><label>Qué imprimir<select value={printMode} onChange={(event) => setPrintMode(event.target.value as typeof printMode)}><option value="all">Etiqueta completa</option><option value="barcode">Solo código de barras</option><option value="qr">Solo código QR</option><option value="both">QR + código de barras</option></select></label><small>El modo se aplica al imprimir o guardar como PDF.</small></div>
         <div className="product-label-actions shipment-label-actions"><button className="button secondary" type="button" onClick={onClose}>Cerrar</button><button className="button primary" type="button" onClick={() => window.print()}>Imprimir / guardar PDF</button></div>
       </div>
     </div>
@@ -2811,7 +2825,7 @@ function Manager({ active, user, onNavigate, assistantFormIntent, onAssistantFor
       "Gastos y tickets": ["clients", "suppliers", "payments"],
       Balance: ["invoices", "purchase_orders", "payments", "expenses"],
       Informes: ["orders", "clients", "products", "invoices", "payments", "inventory_movements", "shipments", "purchase_orders", "expenses"],
-      Devoluciones: ["clients", "invoices", "products"],
+      Devoluciones: ["clients", "invoices", "products", "orders", "shipments"],
     };
     const lookupResources = lookupResourcesByActive[active] || [];
     if (!lookupResources.length) return;
