@@ -1,0 +1,16 @@
+{
+  "name": "exclusivas-inteligentes-whatsapp-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Conector local de WhatsApp Web para la bandeja de Exclusivas Inteligentes.",
+  "main": "src/index.cjs",
+  "scripts": {
+    "start": "node src/index.cjs",
+    "doctor": "node src/doctor.cjs",
+    "test": "node --test test/*.test.cjs"
+  },
+  "dependencies": {
+    "@open-wa/wa-automate": "4.76.0",
+    "dotenv": "^16.4.7"
+  }
+}
